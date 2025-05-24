@@ -16,18 +16,15 @@
 
 ### **项目结构**
 ```bash
-LingMou-Vision/
+EdgeVision/
 ├── CMakeLists.txt              # 顶层CMake配置
 ├── README.md                   # 项目说明
 ├── include/                    # 公共头文件
 ├── src/
-│   ├── v4l2_capture/          # V4L2图像采集模
-│   ├── model_inference/       # 模型推理模块
-│   ├── gpu_acceleration/      # GPU加速模块
-│   ├── qt_ui/                 # Qt上位机模块
-│   └── utils/                 # 工具模块
-├── examples/                  # 使用示例
-└── third_party/               # 第三方库
+│   ├── model/                  # 模型推理模块
+│   ├── UI/                     # Qt上位机模块
+│   └── utils/                  # 工具模块
+└── examples/                   # 使用示例
 ```
 
 ---

@@ -25,23 +25,39 @@ if (USE_CROSS_COMPILE)
 
 endif()
 
-find_package(Qt5 COMPONENTS Core Quick Widgets Gui REQUIRED)
+find_package(Qt5 COMPONENTS Core Quick Widgets Gui OpenGL REQUIRED)
 
 add_subdirectory(src/UI)            # GUI模块
 add_subdirectory(src/model)         # 视觉模型模块
 add_subdirectory(src/utils)         # 工具模块
-add_subdirectory(src/v4l2_capture)  # 图像采集模块
 
 # ---------EdgeVision_GUI---------
-set(EdgeVision_GUI_SOURCES examples/EGui.cpp)
+# set(EdgeVision_GUI_SOURCES examples/EGui.cpp)
 
-add_executable(EdgeVision_GUI ${EdgeVision_GUI_SOURCES})
+# add_executable(EdgeVision_GUI ${EdgeVision_GUI_SOURCES})
 
-target_link_libraries(EdgeVision_GUI
-    PRIVATE model UI v4l2_capture utils
-    pthread
-)
+# target_link_libraries(EdgeVision_GUI
+#     PRIVATE 
+#     model UI utils
+#     pthread
+# )
 
 # ---------OpenGL_test---------
-# ---------v4l2_test---------
+# set(OpenGL_TEST_SOURCES examples/OpenGL_test.cpp)
+
+# add_executable(OpenGL_test ${OpenGL_TEST_SOURCES})
+
+# target_link_libraries(OpenGL_test
+#     PRIVATE 
+#     UI
+#     pthread
+# )
+# ---------utils_test---------
+set(UTILS_TEST_SOURCES examples/utils_test.cpp)
+
+add_executable(utils_test ${UTILS_TEST_SOURCES})
+
+target_link_libraries(utils_test
+    PRIVATE utils
+)
 # ---------model_test---------

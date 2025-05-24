@@ -11,5 +11,5 @@ target_include_directories(model PUBLIC
     ${CMAKE_SOURCE_DIR}/include/model
 )
 
-target_link_libraries(model PRIVATE
+target_link_libraries(model PUBLIC
 )

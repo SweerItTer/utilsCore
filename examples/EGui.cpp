@@ -1,4 +1,5 @@
 #include <iostream>
+#include <QApplication>
 
 #ifdef RV1126
 #include <string>
@@ -59,6 +60,8 @@ int main(int argc, char const *argv[])
     }
 	
 	#endif // RV1126
-    std::cout << "Hello world." << std::endl;
-    return 0;
+    QApplication a(argc, argv);
+	MainInterface w;
+	w.show();
+	return a.exec();
 }
