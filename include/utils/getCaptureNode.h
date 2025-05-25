@@ -7,9 +7,9 @@
 namespace MediaHelper {
 
     struct NodeInfo {
-        std::string name;           ///< 节点名称（如 rkispp_scale0）
-        std::string video_node;     ///< 视频设备节点路径（如 /dev/video31）
-        std::string device_path;    ///< 系统设备路径（如 /sys/devices/...）
+        std::string name;           ///< 节点名称(如 rkispp_scale0)
+        std::string video_node;     ///< 视频设备节点路径(如 /dev/video31)
+        int chnID;          ///< 系统设备路径(如 /sys/devices/...)
     };
 
     /**

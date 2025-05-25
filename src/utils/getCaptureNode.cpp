@@ -44,23 +44,32 @@ namespace MediaHelper {
             if (!is_rkispp && !include_all) {
                 continue; // 非目标设备且未开启全捕获模式，跳过
             }
-
+            
             // 构建节点信息
             NodeInfo info;
             info.name = name;
             info.video_node = "/dev/" + std::string(entry->d_name);
 
-            // 解析设备路径（同之前的安全逻辑）
-            const std::string symlink_path = full_path + "/device";
-            char resolved_path[PATH_MAX];
-            ssize_t len = readlink(symlink_path.c_str(), resolved_path, sizeof(resolved_path)-1);
-            if (len > 0) {
-                resolved_path[len] = '\0';
-                char* real_path = realpath(resolved_path, nullptr);
-                if (real_path) {
-                    info.device_path = real_path;
-                    free(real_path);
+            // 设备通道ID
+            if (name.find("rkispp_m_bypass") != std::string::npos) {
+                info.chnID = 0;  // 主通道
+            } else if (name.find("rkispp_scale") != std::string::npos) {
+                // 提取 "scaleX" 中的 X 并转换为数字
+                size_t pos = name.find("scale");
+                if (pos != std::string::npos) {
+                    // 找到最后一位的下标
+                    std::string num_str = name.substr(pos + 5); // "scale" 长度是 5
+                    try {
+                        int scale_num = std::stoi(num_str);
+                        info.chnID = scale_num + 1;  // scale0 → chnID=1，scale1 → chnID=2
+                    } catch (...) {
+                        info.chnID = -1; // 解析失败
+                    }
+                } else {
+                    info.chnID = -1;
                 }
+            } else {
+                info.chnID = -1; // 非目标设备
             }
 
             result.push_back(std::move(info));
