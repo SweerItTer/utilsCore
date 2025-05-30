@@ -4,13 +4,14 @@
 #include <QImage>
 #include <QMutex>
 
+#include <QOpenGLFunctions>
+
 #include <QOpenGLWidget>
-#include <QOpenGLFunctions_3_3_Core>
 #include <QOpenGLBuffer>
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLShaderProgram>
 
-class MyOpenGLWiget : public QOpenGLWidget, private QOpenGLFunctions_3_3_Core
+class MyOpenGLWiget : public QOpenGLWidget, private QOpenGLFunctions
 {
 	Q_OBJECT
 

@@ -29,9 +29,9 @@ target_include_directories(UI PUBLIC
 # 链接 Qt 库和 utils
 target_link_libraries(UI PUBLIC
     utils
+    Qt5::Widgets
     Qt5::OpenGL
     Qt5::Core
     Qt5::Quick
-    Qt5::Widgets
     Qt5::Gui
 )

@@ -3,7 +3,7 @@
 #ifndef RKMEDIA_S_H
 #define RKMEDIA_S_H
 
-#include "rkmedia/rkmedia_api.h"
+#include "easymedia/rkmedia_api.h"
 
 namespace RKAPIs {
 // sys init

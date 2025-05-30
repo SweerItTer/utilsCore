@@ -1,3 +1,7 @@
 {
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "disabled",
+    "cmake.configureArgs": [
+        "-DUSE_CROSS_COMPILE=TRUE",
+        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/toolchain.cmake"
+    ]
 }
