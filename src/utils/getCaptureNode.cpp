@@ -5,11 +5,17 @@
 #include <limits.h>
 #include <sys/stat.h>
 #include <cstring>
-#include <fcntl.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <iostream>
+#include <sys/ioctl.h>
+#include <cstdio>
+#include <memory>
+#include <array>
 #include <algorithm> // 添加头文件用于排序
 #include <sstream>   // 添加头文件用于字符串流操作
+
+#include <linux/videodev2.h>
 
 namespace MediaHelper {
     
@@ -32,23 +38,6 @@ namespace MediaHelper {
         }
         
         return -1;
-    }
-    
-    bool check_camera_connection(const std::vector<NodeInfo>& nodes) {
-        // 查找scale2节点（chnID == 3）
-        for (const auto& node : nodes) {
-            if (node.chnID == 3) {
-                int fd = open(node.video_node.c_str(), O_RDONLY);
-                if (fd >= 0) {
-                    close(fd);
-                    return true;
-                } else {
-                    std::cerr << "Failed to open device: " << node.video_node << std::endl;
-                }
-                break;
-            }
-        }
-        return false;
     }
     
     // 提取设备号（video后面的数字）
@@ -220,7 +209,6 @@ namespace MediaHelper {
             
             CameraGroup group;
             group.nodes = nodes;
-            group.is_connected = check_camera_connection(group.nodes);
             
             std::stringstream cam_key;
             cam_key << "cam" << cam_index++;
@@ -228,8 +216,7 @@ namespace MediaHelper {
             
             // 调试输出
             std::cout << "Camera group " << cam_key.str() << ": " 
-                     << group.nodes.size() << " nodes, "
-                     << "connected: " << (group.is_connected ? "yes" : "no") << std::endl;
+                     << group.nodes.size() << " nodes "<< std::endl;
         }
         
         std::cout << "Total found " << result.size() << " camera groups" << std::endl;

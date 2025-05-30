@@ -21,7 +21,6 @@ namespace MediaHelper {
      */
     struct CameraGroup {
         std::vector<NodeInfo> nodes;  // 该相机的所有节点
-        bool is_connected;           // 连接状态
     };
     
     /**
@@ -34,16 +33,6 @@ namespace MediaHelper {
      * parse_rkispp_channel("rkispp_scale2")   -> 3
      */
     int parse_rkispp_channel(const std::string& device_name);
-    
-    /**
-     * 检查设备连接状态（通过尝试打开scale2节点）
-     * @param nodes: 节点列表
-     * @return: 连接状态
-     * 
-     * @example:
-     * check_camera_connection(camera_nodes) -> true/false
-     */
-    bool check_camera_connection(const std::vector<NodeInfo>& nodes);
     
     /**
      * 处理单个视频设备节点
