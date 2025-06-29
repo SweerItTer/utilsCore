@@ -46,9 +46,9 @@ void MyOpenGLWiget::initializeGL()
 
     // ================== 3. 初始化着色器 ==================
     program.addCacheableShaderFromSourceFile(	//顶点着色器
-        QOpenGLShader::Vertex, "/home/mouj/pro/EdgeVision/EdgeVision/src/UI/uis/res/texture.vert");
+        QOpenGLShader::Vertex, "./res/texture.vert");
     program.addCacheableShaderFromSourceFile(	//片段着色器
-        QOpenGLShader::Fragment, "/home/mouj/pro/EdgeVision/EdgeVision/src/UI/uis/res/texture.frag");
+        QOpenGLShader::Fragment, "./res/texture.frag");
     
     if (!program.link()) {
         qCritical() << "Shader link error:" << program.log();

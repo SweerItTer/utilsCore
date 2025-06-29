@@ -1,7 +1,7 @@
 #include <iostream>
 #include <QApplication>
 
-#ifdef RV1126
+#ifdef RK3568
 #include <string>
 #include <cstdlib>
 
@@ -43,11 +43,11 @@ void startService(const std::string& serviceName) {
         std::cerr << "Error: Failed to start service." << std::endl;
     }
 }
-#endif // RV1126
+#endif // RK3568
 
 int main(int argc, char const *argv[])
 {
-    #ifdef RV1126
+    #ifdef RK3568
 	
 	std::string serviceName = "ispserver"; // 开启服务
 
@@ -59,7 +59,7 @@ int main(int argc, char const *argv[])
         std::cout << "Service is already running." << std::endl;
     }
 	
-	#endif // RV1126
+	#endif // RK3568
     QApplication a(argc, argv);
 	MainInterface w;
 	w.show();

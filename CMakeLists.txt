@@ -14,13 +14,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 
 # 是否使用交叉编译工具链的开关
-option(USE_CROSS_COMPILE "Enable cross-compilation" OFF)
-if (USE_CROSS_COMPILE)
-    add_definitions(-DRV1126)
+option(USE_CROSS_COMPILE "Enable cross-compilation for RK3568" OFF)
 
-    # 使用工具链文件
-    include(CMakeForceCompiler) # CMake 3.6 版本之前
-    set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/toolchain.cmake)
+if(USE_CROSS_COMPILE)
+    # RK3568 宏定义
+    add_definitions(-DRK3568)
+    
+    # 设置工具链文件路径
+    set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/rk3568-toolchain.cmake)
+    
     set(RKMEDIA_INC ${CMAKE_SYSROOT}/usr/include/easymedia/)
     # 设置库路径
     link_directories(${CMAKE_SYSROOT}/usr/lib)
@@ -35,5 +37,5 @@ add_subdirectory(src/model)         # 视觉模型模块
 add_subdirectory(src/utils)         # 工具模块
 
 add_subdirectory(examples)          # 例程
-# sshpass -p "root" scp ../build/examples/utils_test root@172.18.107.129:/demo/EdgeVision
+# sshpass -p "root" scp ../build/examples/utils_test root@172.18.107.64:~/EdgeVision
 

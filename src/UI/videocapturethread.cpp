@@ -1,4 +1,5 @@
 #include "videocapturethread.h"
+#include <iostream>
 #include <QElapsedTimer>  // 添加头文件
 
 VideoCaptureThread::VideoCaptureThread(QObject *parent)
@@ -6,10 +7,25 @@ VideoCaptureThread::VideoCaptureThread(QObject *parent)
 {
 }
 
-void VideoCaptureThread::startCapture(const int index)
+void VideoCaptureThread::startCapture(const std::string& devicePath)
 {
-	cap.open(index);
+	cap.open(devicePath, cv::CAP_V4L2);
+	
+	if (!cap.isOpened()) {
+        std::cerr << "Error opening video capture" << std::endl;
+		throw std::runtime_error("Error opening video capture");
+		return;
+    }
+	cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('U','Y','V','Y'));
+    cap.set(cv::CAP_PROP_FRAME_WIDTH, 3840);
+    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 2160);
 	start();
+}
+
+void VideoCaptureThread::startCapture(int index)
+{
+	std::string devicePath = "/dev/video" + std::to_string(index);
+    startCapture(devicePath);
 }
 
 void VideoCaptureThread::stopCapture()
@@ -30,6 +46,7 @@ void VideoCaptureThread::run()
 	while( true == m_isRunning && cap.isOpened() ){
 		if (!cap.read(frame)) {
             std::cerr << "Frame read error" << std::endl;
+			throw std::runtime_error("Frame read error");
             break;
         }
 		// 计算处理上一帧所用的时间（单位：纳秒）

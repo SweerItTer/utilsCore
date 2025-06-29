@@ -94,7 +94,7 @@ namespace MediaHelper {
         
         // 解析通道ID
         int channel_id = parse_rkispp_channel(device_display_name);
-        if (channel_id == -1) {
+        if (channel_id == -1 && !include_all) {
             return false;
         }
         
@@ -104,13 +104,13 @@ namespace MediaHelper {
         node_info.chnID = channel_id;
         
         // 获取物理设备路径
-        const std::string device_link = full_path + "/device";
-        char device_path[PATH_MAX];
-        ssize_t len = readlink(device_link.c_str(), device_path, sizeof(device_path)-1);
-        if (len <= 0) {
-            std::cerr << "Failed to read device link: " << device_link << std::endl;
-            return false;
-        }
+        // const std::string device_link = full_path + "/device";
+        // char device_path[PATH_MAX];
+        // ssize_t len = readlink(device_link.c_str(), device_path, sizeof(device_path)-1);
+        // if (len <= 0) {
+        //     std::cerr << "Failed to read device link: " << device_link << std::endl;
+        //     return false;
+        // }
         
         // device_path[len] = '\0';
         // char abs_path[PATH_MAX];

@@ -16,7 +16,8 @@ public:
 		stopCapture();
 	}
 
-	void startCapture(const int index);
+	void startCapture(const std::string& devicePath);
+	void startCapture(int index);
 	void stopCapture();
 
 signals:
