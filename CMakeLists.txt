@@ -22,12 +22,12 @@ if(USE_CROSS_COMPILE)
     
     # 设置工具链文件路径
     set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/rk3568-toolchain.cmake)
-    
-    set(RKMEDIA_INC ${CMAKE_SYSROOT}/usr/include/easymedia/)
     # 设置库路径
     link_directories(${CMAKE_SYSROOT}/usr/lib)
-else()
-    set(RKMEDIA_INC "/home/mouj/RV1126/external/rkmedia/include")
+
+    # set(RKMEDIA_INC ${CMAKE_SYSROOT}/usr/include/easymedia/)
+# else()
+#     set(RKMEDIA_INC "/home/mouj/RV1126/external/rkmedia/include")
 endif()
 
 find_package(Qt5 COMPONENTS Core Quick Widgets Gui OpenGL REQUIRED)

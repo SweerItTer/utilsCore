@@ -9,11 +9,13 @@ add_library(utils STATIC
 )
 
 target_include_directories(utils PUBLIC
-    ${OpenCV_INCLUDE_DIRS}
+    # ${OpenCV_INCLUDE_DIRS}
     # ${RKMEDIA_INC}
+    ${CMAKE_SYSROOT}/usr/include/drm
     ${CMAKE_SOURCE_DIR}/include/utils
 )
 
 target_link_libraries(utils PUBLIC
-    ${OpenCV_LIBS}
+    # ${OpenCV_LIBS}
+    drm
 )
