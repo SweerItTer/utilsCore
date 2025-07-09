@@ -28,19 +28,22 @@ public:
     struct Config {
         // 默认配置
         int buffer_count = 4;
-        __u32 plane_count = VIDEO_MAX_PLANES; // plane 个数
+        __u32 plane_count = 2; // plane 个数
+        bool use_dmabuf = false;    // 默认使用MMAP
         std::string device = "/dev/video0";
         int width = 1280;
         int height = 720;
         uint32_t format = V4L2_PIX_FMT_NV12;
-        bool use_dmabuf = false;    // 默认使用MMAP
     };
     
     explicit CameraController(const Config& config);
     ~CameraController();
     
     void start();
+    void pause();
     void stop();
+
+    void returnBuffer(int index);
     
     // 帧回调
     void setFrameCallback(FrameCallback&& callback);

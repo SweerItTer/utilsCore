@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include "v4l2/v4l2_exception.h"
 
 // 统一帧接口(MMAP&DMABUF)
 class Frame {
@@ -30,12 +31,12 @@ public:
     // 二次检查(优于结构体)
     void* data() const { 
         if (type_ != MemoryType::MMAP) 
-            throw std::runtime_error("Frame is not MMAP type");
+            throw V4L2Exception("Frame is not MMAP type");
         return data_; 
     }
     int dmabuf_fd() const { 
         if (type_ != MemoryType::DMABUF) 
-            throw std::runtime_error("Frame is not DMABUF type");
+            throw V4L2Exception("Frame is not DMABUF type");
         return dmabuf_fd_; 
     }
     size_t size() const { return size_; }

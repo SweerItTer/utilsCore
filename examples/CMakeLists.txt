@@ -10,8 +10,8 @@
 # target_include_directories(OpenGL_test PRIVATE ${RKMEDIA_INC})
 # install(TARGETS OpenGL_test RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/examples)
 # ---------utils_test---------
-# add_executable(utils_test utils_test.cpp)
-# target_link_libraries(utils_test utils)
-# target_include_directories(utils_test PRIVATE ${RKMEDIA_INC})
-# install(TARGETS utils_test RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/examples)
+add_executable(utils_test utils_test.cpp)
+target_link_libraries(utils_test utils)
+target_include_directories(utils_test PRIVATE ${RKMEDIA_INC})
+install(TARGETS utils_test RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/examples)
 # ---------model_test---------

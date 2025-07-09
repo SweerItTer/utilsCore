@@ -18,4 +18,5 @@ target_include_directories(utils PUBLIC
 target_link_libraries(utils PUBLIC
     # ${OpenCV_LIBS}
     drm
+    rga
 )
