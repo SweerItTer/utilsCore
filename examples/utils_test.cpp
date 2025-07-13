@@ -1,9 +1,21 @@
 #include "rga/rgaConverter.h"
-#include "v4l2/camera_controller.h"
+#include "v4l2/cameraController.h"
+#include "dma/dmaBuffer.h"
 #include "safeQueue.h"
+
+#include <iostream>
+
+int rgaTest();
+int dmabufTest();
 
 int main(int argc, char const *argv[])
 {
+    int ret = 0;
+    ret = dmabufTest();
+    return ret;
+}
+
+int rgaTest(){
     // 创建队列
     SafeQueue<Frame> queue(10);
 
@@ -119,3 +131,24 @@ int main(int argc, char const *argv[])
     cctr.stop();
     return 0;
 }
+
+int dmabufTest() 
+{   
+    SafeQueue<DmaBufferPtr> queue_(8);
+
+    DmaBuffer::initialize_drm_fd();
+    for (int i = 0; i < 8; ++i)
+    {
+        DmaBufferPtr buf = DmaBuffer::create(1920, 1080, DRM_FORMAT_XRGB8888);
+        queue_.enqueue(std::move(buf));
+    }
+    auto size = queue_.size();
+    for (int i = 0; i < size; i++){
+        auto buf = queue_.dequeue();
+        std::cout << "Prime fd: " << buf->fd() << ", Size: " << buf->size()
+            << ", Width: " << buf->width() << ", Height: " << buf->height() << std::endl;
+    }
+    DmaBuffer::close_drm_fd();
+    return 0;
+}
+

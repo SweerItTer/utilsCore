@@ -1,5 +1,5 @@
 /*
- * @FilePath: /EdgeVision/include/utils/v4l2/v4l2_exception.h
+ * @FilePath: /EdgeVision/include/utils/v4l2/v4l2Exception.h
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-04 20:18:22
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com

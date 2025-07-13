@@ -8,6 +8,9 @@
 #ifndef FD_WRAPPER_H
 #define FD_WRAPPER_H
 
+#include <fcntl.h>    // O_RDWR, O_CLOEXEC, open
+#include <unistd.h>   // close
+
 class FdWrapper {
 public:
     explicit FdWrapper(int fd = -1) : fd_(fd) {}

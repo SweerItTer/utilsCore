@@ -12,16 +12,16 @@
 #include <mutex>
 #include <condition_variable>
 
-#include <xf86drm.h>         // DRM 核心功能
-#include <xf86drmMode.h>     // DRM 模式设置功能
-#include <drm/drm.h>         // DRM 通用定义 (可选但推荐)
-#include <drm/drm_mode.h>    // DRM 模式结构体定义
+#include "v4l2/cameraController.h"
+#include "v4l2/v4l2Exception.h"
 
-#include "v4l2/camera_controller.h"
-#include "v4l2/v4l2_exception.h"
+#include "fdWrapper.h"      // fd RAII处理类
+#include "dma/dmaBuffer.h"    // 包含 drm 头文件
 
-#include "fdWrapper.h"       // fd RAII处理类
-#include "dma_bpp.h"
+#ifndef _XF86DRM_H_
+#include <drm.h>
+#include <drm_mode.h>
+#endif // _XF86DRM_H_
 
 // 具体功能实现在Impl类
 class CameraController::Impl {
@@ -78,6 +78,7 @@ private:
                 munmap(start, length);
                 start = nullptr;
             }
+            // 在版本 86766c63 没有使用 DmaBuffer 封装时使用的 
             if (0 <= dmabuf_fd) {
                 fprintf(stderr, "Closing plane dmabuf fd %d\n", dmabuf_fd);
                 close(dmabuf_fd);
@@ -269,12 +270,17 @@ void CameraController::Impl::mapBuffers() {
 }
 
 void CameraController::Impl::allocateDMABuffers() {
+    /* 虽然DRM API导出了DMA内存
+     * 但这属于DRM框架对DMA技术的应用封装,二者不是层级对等的关系
+     * 不要误解了 DMA 和 DRM 的关系,一个是 硬件内存访问技术,一个是 图形显示架构
+     * 只是刚刚好使用了 DRM 导出了 DMA buf
+     */
     // 使用DRM API创建DUMB缓冲区
     FdWrapper drm_fd(open("/dev/dri/card0", O_RDWR | O_CLOEXEC));
     if (drm_fd.get() < 0) {
         throw V4L2Exception("Failed to open DRM device", errno);
     }
-    // 创建DMABUF缓冲区
+    // --- 根据实际情况修改容器长度 ---
     for (int i = 0; i < buffers_.size(); i++) {
         // 判断是否多平面格式
         size_t plane_num = 1;
@@ -301,7 +307,22 @@ void CameraController::Impl::allocateDMABuffers() {
 
         // 修改 planes 为实际长度
         buffers_[i].planes.resize(plane_num);
+    // --- 创建DMABUF缓冲区 ---
+#ifdef _XF86DRM_H_     
+        for (size_t p = 0; p < plane_num; ++p) {
+            
+            DmaBufferPtr buf = DmaBuffer::create(config_.width, config_.height, config_.format);
+                        
+            buffers_[i].planes[p].dmabuf_fd = buf->fd();
+            buffers_[i].planes[p].length = buf->size();
+            buffers_[i].length += buf->size();
 
+            // drm_mode_destroy_dumb destroy_arg = {
+            //     .handle = buf->handle()
+            // };
+            // drmIoctl(DmaBuffer::get_drm_fd(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
+        }
+#else // 如果未定义 _XF86DRM_H_ 则保留内核级 ioctl 版本
         for (size_t p = 0; p < plane_num; ++p) {
             // 创建 dumb buffer(这里只是内存上的缓冲区,无法交由其他线程或进程直接访问)
             // 每一个平面都需要创建
@@ -338,13 +359,14 @@ void CameraController::Impl::allocateDMABuffers() {
             // 对于多 plane 的总长度,可以在外面累计
             buffers_[i].length += create_arg.size;
             /* 不再需要使用 handle, 可以销毁 dumb buffer 
-             * 这只代表单前的 handle 不再可以使用,不影响导出的 dmabuf fd 
-             * 若需要释放物理内存需要释放 dmabuf fd
-             */ 
+            * 这只代表单前的 handle 不再可以使用,不影响导出的 dmabuf fd 
+            * 若需要释放物理内存需要释放 dmabuf fd
+            */ 
             drm_mode_destroy_dumb destroy_arg = {};
             destroy_arg.handle = create_arg.handle;
             ioctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
         }
+#endif
         // 如果是单平面 plane 数为 1,之执行一次,当个 length 即为总和
         if (V4L2_BUF_TYPE_VIDEO_CAPTURE == buf_type_) {
             buffers_[i].dmabuf_fd = buffers_[i].planes[0].dmabuf_fd;
@@ -542,7 +564,7 @@ void CameraController::Impl::captureLoop() {
             }
         } else {
             if (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_) {
-                // 采用单平面连续物理内存的思想处理多平面
+                // --- 采用单平面连续物理内存的思想处理多平面
                 if (buf.length < 1) {
                     throw V4L2Exception("Invalid number of planes", EINVAL);
                 }
