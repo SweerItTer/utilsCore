@@ -10,7 +10,7 @@
 
 #include <cstdint>
 #include <cstddef>
-#include "v4l2/v4l2_exception.h"
+#include "v4l2/v4l2Exception.h"
 
 // 统一帧接口(MMAP&DMABUF)
 class Frame {
