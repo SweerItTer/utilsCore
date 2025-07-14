@@ -45,6 +45,7 @@ private:
 
     void closeFd() {
         if (fd_ >= 0) {
+            fprintf(stdout, "close fd: %d\n", fd_);
             close(fd_);
             fd_ = -1;
         }

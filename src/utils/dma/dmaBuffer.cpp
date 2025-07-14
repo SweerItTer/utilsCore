@@ -72,6 +72,7 @@ DmaBuffer::~DmaBuffer()
 void DmaBuffer::cleanup() noexcept
 {
     if (-1 != m_fd) {
+        // fprintf(stdout, "close primer fd: %d\n",m_fd);
         ::close(m_fd);
         m_fd = -1;
     }
@@ -79,10 +80,10 @@ void DmaBuffer::cleanup() noexcept
     if (0 != m_handle && -1 != drm_fd.get()) {
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = m_handle;
+        // fprintf(stdout, "destroy handle: %d\n", m_handle);
         drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
         m_handle = 0;
     }
-    fprintf(stdout,"DmaBuffer::cleanup\n");
 }
 
 void DmaBuffer::initialize_drm_fd()

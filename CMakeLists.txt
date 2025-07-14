@@ -25,9 +25,6 @@ if(USE_CROSS_COMPILE)
     # 设置库路径
     link_directories(${CMAKE_SYSROOT}/usr/lib)
 
-    # set(RKMEDIA_INC ${CMAKE_SYSROOT}/usr/include/easymedia/)
-# else()
-#     set(RKMEDIA_INC "/home/mouj/RV1126/external/rkmedia/include")
 endif()
 
 find_package(Qt5 COMPONENTS Core Quick Widgets Gui OpenGL REQUIRED)
