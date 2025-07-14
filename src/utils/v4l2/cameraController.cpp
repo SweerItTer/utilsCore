@@ -61,7 +61,8 @@ private:
         int dmabuf_fd = -1;
         void* start = nullptr;
         size_t length = 0;
-
+        DmaBufferPtr buf;
+        
         // vector 需要调用默认构造函数,需要显式声明
         Plane() = default;
         // 禁止拷贝避免出现多次析构
@@ -316,11 +317,11 @@ void CameraController::Impl::allocateDMABuffers() {
             buffers_[i].planes[p].dmabuf_fd = buf->fd();
             buffers_[i].planes[p].length = buf->size();
             buffers_[i].length += buf->size();
-
-            // drm_mode_destroy_dumb destroy_arg = {
-            //     .handle = buf->handle()
-            // };
-            // drmIoctl(DmaBuffer::get_drm_fd(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
+            /* 需要移动保证生命周期
+             * shared_ptr 的意义不在这,意义在于给其他硬件共享 prime fd
+             * 如果在这里引用 +1 后又 -1 ,白白浪费了一次拷贝销耗的性能
+             */
+            buffers_[i].planes[p].buf = std::move(buf); 
         }
 #else // 如果未定义 _XF86DRM_H_ 则保留内核级 ioctl 版本
         for (size_t p = 0; p < plane_num; ++p) {

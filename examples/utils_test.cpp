@@ -4,14 +4,73 @@
 #include "safeQueue.h"
 
 #include <iostream>
+#include <thread>
 
 int rgaTest();
 int dmabufTest();
 
-int main(int argc, char const *argv[])
-{
+int main(int argc, char const *argv[]) {
+    // 资源初始化
+    DmaBuffer::initialize_drm_fd();
+    
     int ret = 0;
-    ret = dmabufTest();
+    // 参数定义
+    const char* rgatest_opt = "--rgatest";
+    const char* dmatest_opt = "--dmatest";
+    const char* help_opt = "--help";
+    
+    // 参数解析
+    bool rgatest_flag = false;
+    bool dmatest_flag = false;
+    bool help_flag = false;
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], rgatest_opt) == 0) {
+            rgatest_flag = true;
+        } else if (strcmp(argv[i], dmatest_opt) == 0) {
+            dmatest_flag = true;
+        } else if (strcmp(argv[i], help_opt) == 0) {
+            help_flag = true;
+        } else {
+            std::cerr << "未知选项: " << argv[i] << std::endl;
+            return 1;
+        }
+    }
+
+    // 显示帮助信息
+    if (help_flag || argc == 1) {
+        std::cout << "用法: " << argv[0] << " [选项]" << std::endl;
+        std::cout << "选项:" << std::endl;
+        std::cout << "  --rgatest   运行RGA测试" << std::endl;
+        std::cout << "  --dmatest   运行DMABUF测试" << std::endl;
+        std::cout << "  --help     显示此帮助信息" << std::endl;
+        return 0;
+    }
+
+    // 验证互斥选项
+    if (rgatest_flag && dmatest_flag) {
+        std::cerr << "错误: 不能同时指定--rgatest和--dmatest" << std::endl;
+        return 1;
+    }
+
+    try {
+        if (rgatest_flag) {
+            ret = rgaTest();
+        } else if (dmatest_flag) {
+            ret = dmabufTest();
+        } else {
+            std::cerr << "未指定任何测试选项" << std::endl;
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "运行时错误: " << e.what() << std::endl;
+        ret = 1;
+    } catch (...) {
+        std::cerr << "未知错误发生" << std::endl;
+        ret = 1;
+    }
+    // 资源清理
+    DmaBuffer::close_drm_fd();
     return ret;
 }
 
@@ -55,6 +114,7 @@ int rgaTest(){
     // 取出一帧
     Frame frame(nullptr,0,0,-1);
     while (!queue.try_dequeue(frame));
+    // 暂停采集线程
     cctr.pause();
 
     // dmabuf_fd 由 V4L2 提供
@@ -108,27 +168,32 @@ int rgaTest(){
         free(dst_data);
         return -1;
     }
-    
-    // 保存为图像文件
-    FILE* fp = fopen("output.rgba", "wb");
-    if (nullptr == fp) {
-        fprintf(stderr, "Failed to open output file");
-        free(dst_data);
-        // 转换后入队buffer
-        cctr.returnBuffer(frame.index());
-        // 停止相机
-        cctr.stop();
-        return -1;
-    }
-    fwrite(dst_data, 1, dst_size, fp);
-    fclose(fp);
-
-    // 释放内存
-    free(dst_data);
-    // 转换后入队buffer
+    // 转换后入队v4l2 buf
     cctr.returnBuffer(frame.index());
+    while (1)
+    { 
+        // 目的:查看采集线程的资源占用情况
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
     // 停止相机
     cctr.stop();
+    // // 保存为图像文件
+    // FILE* fp = fopen("output.rgba", "wb");
+    // if (nullptr == fp) {
+    //     fprintf(stderr, "Failed to open output file");
+    //     free(dst_data);
+    //     // 转换后入队buffer
+    //     cctr.returnBuffer(frame.index());
+    //     // 停止相机
+    //     cctr.stop();
+    //     return -1;
+    // }
+    // fwrite(dst_data, 1, dst_size, fp);
+    // fclose(fp);
+
+    // // 释放内存
+    // free(dst_data);
+    
     return 0;
 }
 
@@ -136,7 +201,6 @@ int dmabufTest()
 {   
     SafeQueue<DmaBufferPtr> queue_(8);
 
-    DmaBuffer::initialize_drm_fd();
     for (int i = 0; i < 8; ++i)
     {
         DmaBufferPtr buf = DmaBuffer::create(1920, 1080, DRM_FORMAT_XRGB8888);
@@ -148,7 +212,6 @@ int dmabufTest()
         std::cout << "Prime fd: " << buf->fd() << ", Size: " << buf->size()
             << ", Width: " << buf->width() << ", Height: " << buf->height() << std::endl;
     }
-    DmaBuffer::close_drm_fd();
     return 0;
 }
 
