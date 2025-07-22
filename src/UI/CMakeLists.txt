@@ -9,8 +9,8 @@ file(GLOB_RECURSE HEADERS "${PROJECT_SOURCE_DIR}/include/UI/*.h")
 
 # 查找 .ui 文件
 file(GLOB_RECURSE UI_FILES "${CMAKE_CURRENT_SOURCE_DIR}/uis/*.ui")
-
-file(GLOB_RECURSE QRC_FILES "${PROJECT_SOURCE_DIR}/src/UI/uis/res/*.qrc")
+# .qrc 文件
+file(GLOB_RECURSE QRC_FILES "${PROJECT_SOURCE_DIR}/src/UI/res/*.qrc")
 
 # 添加 UI 模块库
 add_library(UI STATIC
