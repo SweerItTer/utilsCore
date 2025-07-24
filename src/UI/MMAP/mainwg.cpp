@@ -52,7 +52,7 @@ void MainWg::initVar()
                         10);
     playThread 		= std::make_unique<PlayThread>(
 						nullptr, frameQueue, rgaThread, cfg.width, cfg.height);
-    glwidget    	= std::make_unique<MyOpenGLWidget>(this);
+    
 	// 设置回调队列
     cctr->setFrameCallback([this](Frame f) {
         rawFrameQueue->enqueue(std::move(f));
@@ -65,7 +65,7 @@ void MainWg::initSignal(){
     [this](const QImage& img){
         // TestWindow->updateImage(img);
 
-        glwidget->updateFrame(img);
+        ui->openGLWidget->updateFrame(img);
     });
 }
 
@@ -79,7 +79,6 @@ void MainWg::on_pushButton_clicked()
         cctr->start();
         rgaThread->start();
         playThread->startCapture();  // 内部读取 frameQueue
-        // TestWindow->show();  // 可放按钮点击中也行
     } else {
         ui->pushButton->setText("Closed");
         status = 0;

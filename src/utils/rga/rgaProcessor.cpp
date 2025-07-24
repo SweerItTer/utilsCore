@@ -102,7 +102,7 @@ void RgaProcessor::run()
         }
         if (index == -1) {
             // 无可用 buffer
-            std::cerr << "RGA: No free buffer, dropping frame.\n";
+            // std::cerr << "RGA: No free buffer, dropping frame.\n";
             // 丢帧
             cctr_->returnBuffer(frame.index());
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
