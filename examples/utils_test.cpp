@@ -87,8 +87,6 @@ int rgaTest(){
         .plane_count = 2,
         .use_dmabuf = true,
         .device = "/dev/video0",
-        // .width = 2560,
-        // .height = 1440,
         .width = 3840,
         .height = 2160,
         .format = V4L2_PIX_FMT_NV12
@@ -159,9 +157,9 @@ int rgaTest(){
     // 转换
     IM_STATUS status;
     if (RK_FORMAT_YCbCr_420_SP == format){
-        status = converter.NV12toRGBA(rgaP);
+        status = converter.NV12toXRGB(rgaP);
     } else {
-        status = converter.NV16toRGBA(rgaP);
+        status = converter.NV16toXRGB(rgaP);
     }
     if (IM_STATUS_SUCCESS != status) {
         printf("1");
@@ -177,22 +175,22 @@ int rgaTest(){
     }
     // 停止相机
     cctr.stop();
-    // // 保存为图像文件
-    // FILE* fp = fopen("output.rgba", "wb");
-    // if (nullptr == fp) {
-    //     fprintf(stderr, "Failed to open output file");
-    //     free(dst_data);
-    //     // 转换后入队buffer
-    //     cctr.returnBuffer(frame.index());
-    //     // 停止相机
-    //     cctr.stop();
-    //     return -1;
-    // }
-    // fwrite(dst_data, 1, dst_size, fp);
-    // fclose(fp);
+    // 保存为图像文件
+    FILE* fp = fopen("output.rgba", "wb");
+    if (nullptr == fp) {
+        fprintf(stderr, "Failed to open output file");
+        free(dst_data);
+        // 转换后入队buffer
+        cctr.returnBuffer(frame.index());
+        // 停止相机
+        cctr.stop();
+        return -1;
+    }
+    fwrite(dst_data, 1, dst_size, fp);
+    fclose(fp);
 
-    // // 释放内存
-    // free(dst_data);
+    // 释放内存
+    free(dst_data);
     
     return 0;
 }
