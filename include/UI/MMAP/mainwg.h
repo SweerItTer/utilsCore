@@ -64,7 +64,10 @@ private: /* -------- 私有成员变量 ------------- */
 	// RGA 处理后图像捕获线程
 	std::unique_ptr<PlayThread> playThread;
 	// OpenGL 显示线程
-	std::unique_ptr<MyOpenGLWidget> glwidget;
+	/* 别想了,哥们在这种简单的
+	小问题上花了3天时间
+	 * UI提升的时候会自动给你实例化了,直接调用ui->gl即可
+	 */
 	
 	Ui::MainWg *ui;
 
