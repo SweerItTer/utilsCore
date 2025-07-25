@@ -69,6 +69,11 @@ public:
      * @return IM_STATUS 转换状态 (成功返回IM_STATUS_SUCCESS)
      */
     IM_STATUS NV12toRGBA(RgaParams& params);
+
+    IM_STATUS NV16toXRGB(RgaParams& params);
+
+    IM_STATUS NV12toXRGB(RgaParams& params);
+
     
     // 禁用拷贝和赋值
     RgaConverter(const RgaConverter&) = delete;
@@ -86,7 +91,7 @@ private:
      * @param params 转换参数
      * @return IM_STATUS 转换状态
      */
-    IM_STATUS convertImage(RgaSURF_FORMAT src_fmt, RgaParams& params);
+    IM_STATUS convertImage(RgaSURF_FORMAT src_fmt, RgaSURF_FORMAT dst_fmt, RgaParams &params);
 };
 
 #endif // !RGA_CONVERTER_H
