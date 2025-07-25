@@ -75,13 +75,13 @@ private:
         // RAII
         ~Plane() {
             if (start) {
-                fprintf(stderr, "Unmapping plane at %p, length %zu\n", start, length);
+                fprintf(stdout, "Unmapping plane at %p, length %zu\n", start, length);
                 munmap(start, length);
                 start = nullptr;
             }
             // 在版本 86766c63 没有使用 DmaBuffer 封装时使用的 
             if (0 <= dmabuf_fd) {
-                fprintf(stderr, "Closing plane dmabuf fd %d\n", dmabuf_fd);
+                fprintf(stdout, "Closing plane dmabuf fd %d\n", dmabuf_fd);
                 close(dmabuf_fd);
                 dmabuf_fd = -1;
             }
@@ -401,7 +401,8 @@ void CameraController::Impl::startStreaming() {
                     planes[p].m.fd = buffers_[i].planes[p].dmabuf_fd;
                     planes[p].length = buffers_[i].planes[p].length;
                 }
-            } else {
+            } 
+            else {
                 // MMAP: 不需要额外填 fd,内核知道 offset
                 for (size_t p = 0; p < buffers_[i].planes.size(); ++p) {
                     planes[p].length = buffers_[i].planes[p].length;
@@ -688,14 +689,14 @@ void CameraController::Impl::reclaimAllBuffers()
 
 void CameraController::Impl::releaseBuffers()
 {
-    v4l2_requestbuffers req = {};
-    req.count = 0;
-    req.type = buf_type_;
-    req.memory = memory_type_;
+    // v4l2_requestbuffers req = {};
+    // req.count = 0;
+    // req.type = buf_type_;
+    // req.memory = memory_type_;
 
-    if (0 > ioctl(fd_.get(), VIDIOC_REQBUFS, &req)) {
-        perror("VIDIOC_REQBUFS(0) failed");
-    }
+    // if (0 > ioctl(fd_.get(), VIDIOC_REQBUFS, &req)) {
+    //     perror("VIDIOC_REQBUFS(0) failed");
+    // }
 
     // 清空 vector,自动触发每个 Buffer 析构
     auto temp = std::vector<Buffer>();

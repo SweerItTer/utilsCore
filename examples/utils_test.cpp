@@ -175,22 +175,22 @@ int rgaTest(){
     }
     // 停止相机
     cctr.stop();
-    // 保存为图像文件
-    FILE* fp = fopen("output.rgba", "wb");
-    if (nullptr == fp) {
-        fprintf(stderr, "Failed to open output file");
-        free(dst_data);
-        // 转换后入队buffer
-        cctr.returnBuffer(frame.index());
-        // 停止相机
-        cctr.stop();
-        return -1;
-    }
-    fwrite(dst_data, 1, dst_size, fp);
-    fclose(fp);
+    // // 保存为图像文件
+    // FILE* fp = fopen("output.rgba", "wb");
+    // if (nullptr == fp) {
+    //     fprintf(stderr, "Failed to open output file");
+    //     free(dst_data);
+    //     // 转换后入队buffer
+    //     cctr.returnBuffer(frame.index());
+    //     // 停止相机
+    //     cctr.stop();
+    //     return -1;
+    // }
+    // fwrite(dst_data, 1, dst_size, fp);
+    // fclose(fp);
 
-    // 释放内存
-    free(dst_data);
+    // // 释放内存
+    // free(dst_data);
     
     return 0;
 }

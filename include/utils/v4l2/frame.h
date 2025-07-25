@@ -15,6 +15,7 @@
 // 统一帧接口(MMAP&DMABUF)
 class Frame {
 public:
+    Frame() = default;
     // 强类型枚举
     enum class MemoryType { MMAP, DMABUF };
     
