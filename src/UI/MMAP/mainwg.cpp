@@ -65,11 +65,7 @@ void MainWg::initSignal(){
     [this](const QImage& img){
         // TestWindow->updateImage(img);
 
-<<<<<<< HEAD
-        glwidget->updateFrame(img);
-=======
         ui->openGLWidget->updateFrame(img);
->>>>>>> origin/qt
     });
 }
 
@@ -83,10 +79,6 @@ void MainWg::on_pushButton_clicked()
         cctr->start();
         rgaThread->start();
         playThread->startCapture();  // 内部读取 frameQueue
-<<<<<<< HEAD
-        // TestWindow->show();  // 可放按钮点击中也行
-=======
->>>>>>> origin/qt
     } else {
         ui->pushButton->setText("Closed");
         status = 0;

@@ -1,10 +1,7 @@
 #include "MMAP/myopenglwidget.h"
 #include <QDebug>
 #include <QOpenGLShader>
-<<<<<<< HEAD
-=======
 #include <QImage>
->>>>>>> origin/qt
 
 MyOpenGLWidget::MyOpenGLWidget(QWidget *parent)
     : QOpenGLWidget(parent), vbo(QOpenGLBuffer::VertexBuffer),
@@ -37,18 +34,11 @@ void MyOpenGLWidget::initializeGL()
 {
     initializeOpenGLFunctions();
 
-<<<<<<< HEAD
-    qDebug() << "OpenGL version:" << reinterpret_cast<const char*>(glGetString(GL_VERSION));
-    qDebug() << "GLSL version:" << reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION));
-
-    // 顶点和纹理坐标数据
-=======
     qDebug() << "\033[0m\033[1;33mOpenGL version:\033[0m" << reinterpret_cast<const char*>(glGetString(GL_VERSION)) ;
     qDebug() << "\033[0m\033[1;33mGLSL version:\033[0m" << reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION));
     qDebug() << "\033[0m\033[1;33mRenderer:\033[0m" << reinterpret_cast<const char*>(glGetString(GL_RENDERER));
     qDebug() << "\033[0m\033[1;33mVendor:\033[0m" << reinterpret_cast<const char*>(glGetString(GL_VENDOR));
 
->>>>>>> origin/qt
     Vertex vertices[] = {
         {{-1.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
         {{ 1.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
@@ -87,11 +77,6 @@ void MyOpenGLWidget::initializeGL()
 
     program.addCacheableShaderFromSourceCode(QOpenGLShader::Vertex, vertCode);
     program.addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, fragCode);
-<<<<<<< HEAD
-    
-=======
-
->>>>>>> origin/qt
     if (!program.link()) {
         qCritical() << "Shader link error:" << program.log();
         // 输出详细的着色器错误信息
@@ -121,15 +106,6 @@ void MyOpenGLWidget::initializeGL()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-<<<<<<< HEAD
-    // 创建初始占位纹理 (1x1 红色像素)
-    unsigned char initData[] = {255, 0, 0, 255}; // RGBA
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, initData);
-
-    vao.release();
-    program.release();
-    
-=======
     // 初始化 checkerboard 测试图
     QImage image(1920, 1080, QImage::Format_RGBA8888);
     image.fill(Qt::black);
@@ -146,19 +122,15 @@ void MyOpenGLWidget::initializeGL()
     vao.release();
     program.release();
 
->>>>>>> origin/qt
     // 检查OpenGL错误
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
         qWarning() << "OpenGL error after initialization:" << err;
     }
-<<<<<<< HEAD
-=======
 
     m_currentFrame = image;        // 赋值当前帧
     textureReady.storeRelease(true);
     update();                     // 触发绘制
->>>>>>> origin/qt
 }
 
 void MyOpenGLWidget::resizeGL(int w, int h)
