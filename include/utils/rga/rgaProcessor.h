@@ -18,7 +18,16 @@
 
 struct RgbaBuffer {
     void* data = nullptr;
+    DmaBufferPtr dma_buf = nullptr;
+    
     bool in_use = false;
+    RgbaBuffer() = default; 
+    ~RgbaBuffer(){
+        if (nullptr != data){
+            free(data);
+            data = nullptr;
+        }
+    }
 };
 
 class RgaProcessor {
@@ -26,7 +35,8 @@ public:
     RgaProcessor(std::shared_ptr<CameraController> cctr = nullptr,
                 std::shared_ptr<FrameQueue> rawQueue = nullptr,
                 std::shared_ptr<FrameQueue> outQueue = nullptr,
-                int width = 0, int height = 0,
+                uint32_t width = 0, uint32_t height = 0,
+                Frame::MemoryType frameType = Frame::MemoryType::MMAP,
                 int dstFormat = RK_FORMAT_RGBA_8888, int srcformat = RK_FORMAT_YCbCr_420_SP,
                 int poolSize = 4
                 );
@@ -36,6 +46,12 @@ public:
     void start();
     void stop();
     void releaseBuffer(int index);
+
+private:
+    void initpool();
+    int getAvailableBufferIndex();
+    int dmabufFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, int dmabuf_fd);
+    int mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void* data);
 
 private:
     void run();
@@ -48,14 +64,15 @@ private:
     std::shared_ptr<CameraController> cctr_;
     RgaConverter converter_;
     
-    int width_;
-    int height_;
+    uint32_t width_;
+    uint32_t height_;
     int dstFormat_;
     int srcFormat_;
 
     std::vector<RgbaBuffer> bufferPool_;
     int currentIndex_ = 0;
     const int poolSize_ = 0;
+    const Frame::MemoryType frameType_;
 };
     
 
