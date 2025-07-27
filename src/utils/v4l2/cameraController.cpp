@@ -130,26 +130,30 @@ private:
 
 CameraController::Impl::Impl(const Config& config) 
     : config_(config) {
-    
-    // 打开 video 设备
-    fd_ = FdWrapper(open(config_.device.c_str(), O_RDWR | O_NONBLOCK));
-    if (fd_.get() < 0) {
-        throw V4L2Exception("Failed to open device: " + config_.device, errno);
+    try{
+        // 打开 video 设备
+        fd_ = FdWrapper(open(config_.device.c_str(), O_RDWR | O_NONBLOCK));
+        if (fd_.get() < 0) {
+            throw V4L2Exception("Failed to open device: " + config_.device, errno);
+        }
+        
+        // 查询设备能力
+        v4l2_capability cap = {};
+        if (ioctl(fd_.get(), VIDIOC_QUERYCAP, &cap) < 0) {
+            throw V4L2Exception("VIDIOC_QUERYCAP failed", errno);
+        }
+        
+        // 确定缓冲区类型
+        buf_type_ = (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) ?
+            V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : 
+            V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        memory_type_ = config_.use_dmabuf ? V4L2_MEMORY_DMABUF : V4L2_MEMORY_MMAP;
+        // 初始化设备
+        init();
+    } catch (const V4L2Exception& ex) {
+        fprintf(stderr, "CameraController : %s\n", ex.what());
+        throw;  // 也可以选择不向上传递，或者改成其他处理
     }
-    
-    // 查询设备能力
-    v4l2_capability cap = {};
-    if (ioctl(fd_.get(), VIDIOC_QUERYCAP, &cap) < 0) {
-        throw V4L2Exception("VIDIOC_QUERYCAP failed", errno);
-    }
-    
-    // 确定缓冲区类型
-    buf_type_ = (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) ?
-        V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : 
-        V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    memory_type_ = config_.use_dmabuf ? V4L2_MEMORY_DMABUF : V4L2_MEMORY_MMAP;
-    // 初始化设备
-    init();
 }
 
 CameraController::Impl::~Impl() {
@@ -311,8 +315,11 @@ void CameraController::Impl::allocateDMABuffers() {
     // --- 创建DMABUF缓冲区 ---
 #ifdef _XF86DRM_H_     
         for (size_t p = 0; p < plane_num; ++p) {
-            
-            DmaBufferPtr buf = DmaBuffer::create(config_.width, config_.height, config_.format);
+            auto format = convertV4L2ToDrmFormat(config_.format);
+            if (-1 == format){
+                throw V4L2Exception("Unsupported V4L2 -> DRM format: " + std::to_string(config_.format));
+            }
+            DmaBufferPtr buf = DmaBuffer::create(config_.width, config_.height, format);
                         
             buffers_[i].planes[p].dmabuf_fd = buf->fd();
             buffers_[i].planes[p].length = buf->size();
@@ -480,6 +487,7 @@ void CameraController::Impl::captureLoop() {
     while (running_) {
         if (true == paused_) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            if (false == running_) break;
             continue;
         }
         fd_set fds;

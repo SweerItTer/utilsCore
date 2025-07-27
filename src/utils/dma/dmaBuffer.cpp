@@ -12,7 +12,7 @@ FdWrapper DmaBuffer::drm_fd;
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, uint32_t format)
 {
     if (-1 == drm_fd.get()) {
-        throw std::runtime_error("DRM fd not initialized, please call initialize_drm_fd() first");
+        fprintf(stderr, "DRM fd not initialized, please call initialize_drm_fd() first");
     }
 
     drm_mode_create_dumb create_arg = {};
@@ -21,12 +21,13 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
 
     uint32_t bpp = calculate_bpp(format);
     if (-1 == bpp) {
-        throw std::runtime_error("Unsupported pixel format");
+        fprintf(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
+        return nullptr;
     }
     create_arg.bpp = bpp;
 
     if (0 > drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg)) {
-        throw std::runtime_error("DRM_IOCTL_MODE_CREATE_DUMB failed");
+        fprintf(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed");
     }
 
     int prime_fd = -1;
@@ -34,7 +35,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = create_arg.handle;
         drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
-        throw std::runtime_error("drmPrimeHandleToFD failed");
+        fprintf(stderr, "drmPrimeHandleToFD failed");
     }
 
     /* 如果完全依赖 prime fd，可立即销毁 handle。
@@ -89,11 +90,15 @@ void DmaBuffer::cleanup() noexcept
 void DmaBuffer::initialize_drm_fd()
 {
     if (-1 == drm_fd.get()) {
-        int fd = ::open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
-        if (-1 == fd) {
-            throw std::system_error(errno, std::system_category(), "Failed to open DRM device");
+        try{
+            int fd = ::open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+            if (-1 == fd) {
+                throw std::system_error(errno, std::system_category(), "Failed to open DRM device");
+            }
+            drm_fd = FdWrapper(fd);
+        } catch (const std::system_error& ex){
+            fprintf(stderr, "DmaBuffer::initialize_drm_fd: %s\n",ex.what());
         }
-        drm_fd = FdWrapper(fd);
     }
 }
 
