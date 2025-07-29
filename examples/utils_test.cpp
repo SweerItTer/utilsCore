@@ -147,13 +147,11 @@ int rgaTest(){
     // im_rect src_rect = {0, 0, cfg.width, cfg.height};
     // im_rect dst_rect = {0, 0, cfg.width, cfg.height};
 
-    // // 参数
-    // RgaConverter::RgaParams rgaP {
-    //     .src = src,
-    //     .src_rect = src_rect,
-    //     .dst = dst,
-    //     .dst_rect = dst_rect
-    // };
+    // 源、目标矩形区域（默认全部图像）
+    im_rect rect = {0, 0, static_cast<int>(cfg.width), static_cast<int>(cfg.height)};
+
+    // 参数
+    RgaConverter::RgaParams rgaP { src, rect, dst, rect};
 
     
     // // 转换

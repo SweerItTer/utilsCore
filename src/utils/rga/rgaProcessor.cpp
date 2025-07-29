@@ -11,48 +11,38 @@
 #include <iostream>
 #include <chrono>
 
-RgaProcessor::RgaProcessor(std::shared_ptr<CameraController> cctr,
-                           std::shared_ptr<FrameQueue> rawQueue,
-                           std::shared_ptr<FrameQueue> outQueue,
-                           uint32_t width, uint32_t height,
-                           Frame::MemoryType frameType,
-                           int srcFormat, int dstFormat,
-                           int poolSize)
-    : rawQueue_(std::move(rawQueue))
-    , outQueue_(std::move(outQueue))
-    , cctr_(std::move(cctr))
-    , width_(width)
-    , height_(height)
-    , frameType_(frameType)
-    , srcFormat_(srcFormat)
-    , dstFormat_(dstFormat)
-    , poolSize_(poolSize)
+RgaProcessor::RgaProcessor(Config& cfg)
+    : cctr_(std::move(cfg.cctr))
+    , rawQueue_(std::move(cfg.rawQueue))
+    , outQueue_(std::move(cfg.outQueue))
+    , width_(cfg.width)
+    , height_(cfg.height)
+    , frameType_(cfg.frameType)
+    , srcFormat_(cfg.srcFormat)
+    , dstFormat_(cfg.dstFormat)
+    , poolSize_(cfg.poolSize)
     , running_(false)
 {
     initpool();
 }
 
-void RgaProcessor::initpool(){
-    int buffer_size = width_ * height_ * 4;
-
+void RgaProcessor::initpool() {
     for (int i = 0; i < poolSize_; ++i) {
         RgbaBuffer buf;
+        int buffer_size = width_ * height_ * 4;
 
         if (Frame::MemoryType::MMAP == frameType_) {
             buf.data = malloc(buffer_size);
             if (nullptr == buf.data) {
-                std::cerr << "RGA: malloc buffer failed at #" << i << std::endl;
-                continue;
+                throw std::runtime_error("RGA: malloc buffer failed");
             }
         } else {
             uint32_t format = (RK_FORMAT_RGBA_8888 == dstFormat_)
                                 ? DRM_FORMAT_RGBA8888
                                 : DRM_FORMAT_XRGB8888;
-
             buf.dma_buf = DmaBuffer::create(width_, height_, format);
             if (!buf.dma_buf || buf.dma_buf->fd() < 0) {
-                std::cerr << "RGA: dmabuf create failed at #" << i << std::endl;
-                continue;
+                throw std::runtime_error("RGA: dmabuf create failed");
             }
         }
 
@@ -81,6 +71,13 @@ void RgaProcessor::stop()
     if (worker_.joinable()) {
         worker_.join();
     }
+
+    auto size = rawQueue_->size();
+    for (int i=0; i < size; i++){
+        cctr_->returnBuffer(rawQueue_->dequeue().index());
+    }
+
+    outQueue_->clear();
 }
 
 void RgaProcessor::releaseBuffer(int index)
