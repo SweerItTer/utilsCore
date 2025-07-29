@@ -114,83 +114,85 @@ int rgaTest(){
     while (!queue.try_dequeue(frame));
     // 暂停采集线程
     cctr.pause();
+    fprintf(stdout, "frame dmabuf fd:%d\n",frame.dmabuf_fd());
+    cctr.returnBuffer(frame.index());
+    cctr.stop();
+    // // dmabuf_fd 由 V4L2 提供
+    // rga_buffer_t src;
+    // memset(&src, 0, sizeof(src));
+    // src.fd = frame.dmabuf_fd();
+    // src.width = cfg.width;
+    // src.height = cfg.height;
+    // src.wstride = cfg.width;
+    // src.hstride = cfg.height;
+    // src.format = format;
 
-    // dmabuf_fd 由 V4L2 提供
-    rga_buffer_t src;
-    memset(&src, 0, sizeof(src));
-    src.fd = frame.dmabuf_fd();
-    src.width = cfg.width;
-    src.height = cfg.height;
-    src.wstride = cfg.width;
-    src.hstride = cfg.height;
-    src.format = format;
+    // // 目标 buffer（需要申请新 fd 或分配内存，这里举例分配 virAddr）
+    // int dst_size = cfg.width * cfg.height * 4; // RGBA8888 一般按4字节算
+    // void* dst_data = malloc(dst_size);
+    // if (nullptr == dst_data) {
+    //     fprintf(stderr, "Failed to allocate dst buffer");
+    //     return -1;
+    // }
 
-    // 目标 buffer（需要申请新 fd 或分配内存，这里举例分配 virAddr）
-    int dst_size = cfg.width * cfg.height * 4; // RGBA8888 一般按4字节算
-    void* dst_data = malloc(dst_size);
-    if (nullptr == dst_data) {
-        fprintf(stderr, "Failed to allocate dst buffer");
-        return -1;
-    }
+    // rga_buffer_t dst;
+    // memset(&dst, 0, sizeof(dst));
+    // dst.vir_addr = dst_data;
+    // dst.width = cfg.width;
+    // dst.height = cfg.height;
+    // dst.wstride = cfg.width;
+    // dst.hstride = cfg.height;
 
-    rga_buffer_t dst;
-    memset(&dst, 0, sizeof(dst));
-    dst.vir_addr = dst_data;
-    dst.width = cfg.width;
-    dst.height = cfg.height;
-    dst.wstride = cfg.width;
-    dst.hstride = cfg.height;
+    // // 源、目标矩形区域（默认全部图像）
+    // im_rect src_rect = {0, 0, cfg.width, cfg.height};
+    // im_rect dst_rect = {0, 0, cfg.width, cfg.height};
 
-    // 源、目标矩形区域（默认全部图像）
-    im_rect src_rect = {0, 0, cfg.width, cfg.height};
-    im_rect dst_rect = {0, 0, cfg.width, cfg.height};
-
-    // 参数
-    RgaConverter::RgaParams rgaP {
-        .src = src,
-        .src_rect = src_rect,
-        .dst = dst,
-        .dst_rect = dst_rect
-    };
+    // // 参数
+    // RgaConverter::RgaParams rgaP {
+    //     .src = src,
+    //     .src_rect = src_rect,
+    //     .dst = dst,
+    //     .dst_rect = dst_rect
+    // };
 
     
-    // 转换
-    IM_STATUS status;
-    if (RK_FORMAT_YCbCr_420_SP == format){
-        status = converter.NV12toXRGB(rgaP);
-    } else {
-        status = converter.NV16toXRGB(rgaP);
-    }
-    if (IM_STATUS_SUCCESS != status) {
-        printf("1");
-        free(dst_data);
-        return -1;
-    }
-    // 转换后入队v4l2 buf
-    cctr.returnBuffer(frame.index());
-    while (1)
-    { 
-        // 目的:查看采集线程的资源占用情况
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    }
-    // 停止相机
-    cctr.stop();
-    // 保存为图像文件
-    FILE* fp = fopen("output.rgba", "wb");
-    if (nullptr == fp) {
-        fprintf(stderr, "Failed to open output file");
-        free(dst_data);
-        // 转换后入队buffer
-        cctr.returnBuffer(frame.index());
-        // 停止相机
-        cctr.stop();
-        return -1;
-    }
-    fwrite(dst_data, 1, dst_size, fp);
-    fclose(fp);
+    // // 转换
+    // IM_STATUS status;
+    // if (RK_FORMAT_YCbCr_420_SP == format){
+    //     status = converter.NV12toXRGB(rgaP);
+    // } else {
+    //     status = converter.NV16toXRGB(rgaP);
+    // }
+    // if (IM_STATUS_SUCCESS != status) {
+    //     printf("1");
+    //     free(dst_data);
+    //     return -1;
+    // }
+    // // 转换后入队v4l2 buf
+    // cctr.returnBuffer(frame.index());
+    // while (1)
+    // { 
+    //     // 目的:查看采集线程的资源占用情况
+    //     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    // }
+    // // 停止相机
+    // cctr.stop();
+    // // 保存为图像文件
+    // FILE* fp = fopen("output.rgba", "wb");
+    // if (nullptr == fp) {
+    //     fprintf(stderr, "Failed to open output file");
+    //     free(dst_data);
+    //     // 转换后入队buffer
+    //     cctr.returnBuffer(frame.index());
+    //     // 停止相机
+    //     cctr.stop();
+    //     return -1;
+    // }
+    // fwrite(dst_data, 1, dst_size, fp);
+    // fclose(fp);
 
-    // 释放内存
-    free(dst_data);
+    // // 释放内存
+    // free(dst_data);
     
     return 0;
 }

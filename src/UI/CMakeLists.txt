@@ -23,9 +23,8 @@ add_library(UI STATIC
 # 设置头文件查找路径
 target_include_directories(UI PUBLIC
     ${PROJECT_SOURCE_DIR}/include/UI
+    ${CMAKE_SYSROOT}/usr/include/EGL
 )
-
-
 # 链接 Qt 库和 utils
 target_link_libraries(UI PUBLIC
     utils
@@ -34,4 +33,6 @@ target_link_libraries(UI PUBLIC
     Qt5::Core
     Qt5::Quick
     Qt5::Gui
+    mali
+    EGL
 )

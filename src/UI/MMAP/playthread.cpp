@@ -5,15 +5,17 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "MMAP/playthread.h"
-
+#include <QImage>
 #include <iostream>
 
 PlayThread::PlayThread(QObject *parent,
-					std::shared_ptr<FrameQueue> frameQueue, std::shared_ptr<RgaProcessor> rgaProcessor,
-					int width, int height)
+					std::shared_ptr<FrameQueue> frameQueue,
+					std::shared_ptr<RgaProcessor> rgaProcessor,
+					QSize size)
 	: QThread(parent), frameQueue_(frameQueue)
 	, rgaProcessor_(rgaProcessor)
-	, width_(width), height_(height), running(false)
+	, size_(size)
+	, running(false)
 {}
 
 void PlayThread::startCapture()
@@ -29,34 +31,28 @@ void PlayThread::stopCapture()
 	wait(); // 等待线程结束
 }
 
+void PlayThread::retuenBuff(const int index)
+{
+	// 后续槽函数处理完成后调用以回收资源(不管是fd还是ptr)
+	int index_ = index;
+	rgaProcessor_->releaseBuffer(index_);
+}
+
 void PlayThread::run()
 {
-	QImage img;
 	Frame frame(nullptr,0,0,-1);
 	while( true == running ){
-		// 取出数据
+		// 取出数据 后续可做图像处理什么的
 		if(frameQueue_->try_dequeue(frame)){
-			void* data = frame.data();
-            if (nullptr == data) {
-                rgaProcessor_->releaseBuffer(frame.index());
-                continue;
-            }
-            
-            img = QImage( 
-                static_cast<const uchar*>(data),
-                width_,
-                height_,
-                QImage::Format_RGBA8888  // 匹配 RGA 输出的 RGBA 格式
-            );
-			// 归还处理后buffer
-			rgaProcessor_->releaseBuffer(frame.index());
-			if( running != true ) break;
-			// fprintf(stdout, "emit frameReady\n");
-			// 加入缓存队列
-			emit frameReady(img.copy());
+			if (Frame::MemoryType::DMABUF == frame.type()){
+				// 转发 dmabuf
+				emit frameReadyDmabuf(frame.dmabuf_fd(), size_, frame.index());
+			} else {
+				// 转发 mmap 数据裸指针
+				emit frameReady(frame.data(), size_, frame.index());
+			}
 		} else {
 			// std::cout << "frame is empty" << std::endl;
-			//避免空转消耗 CPU
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 

@@ -1,13 +1,19 @@
 #include "MMAP/myopenglwidget.h"
 #include <QDebug>
 #include <QOpenGLShader>
-#include <QImage>
+#include <QElapsedTimer>
+#include <unistd.h>
+
+extern "C" {
+#include <drm/drm_fourcc.h>
+}
+    
 
 MyOpenGLWidget::MyOpenGLWidget(QWidget *parent)
     : QOpenGLWidget(parent), vbo(QOpenGLBuffer::VertexBuffer),
-      textureReady(true)
+      texture(0), textureReady(true)
 {
-    // 使用 OpenGL ES 3.2，适配 RK3568 平台
+    // 使用 OpenGL ES 3.2 适用于 rk3568
     QSurfaceFormat format;
     format.setRenderableType(QSurfaceFormat::OpenGLES);
     format.setVersion(3, 2);
@@ -34,11 +40,23 @@ void MyOpenGLWidget::initializeGL()
 {
     initializeOpenGLFunctions();
 
+    // 输出调试信息
     qDebug() << "\033[0m\033[1;33mOpenGL version:\033[0m" << reinterpret_cast<const char*>(glGetString(GL_VERSION)) ;
     qDebug() << "\033[0m\033[1;33mGLSL version:\033[0m" << reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION));
     qDebug() << "\033[0m\033[1;33mRenderer:\033[0m" << reinterpret_cast<const char*>(glGetString(GL_RENDERER));
     qDebug() << "\033[0m\033[1;33mVendor:\033[0m" << reinterpret_cast<const char*>(glGetString(GL_VENDOR));
 
+    // 加载扩展函数指针
+    eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+    eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
+    glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+
+    if ((nullptr == eglCreateImageKHR) || (nullptr == eglDestroyImageKHR) || (nullptr == glEGLImageTargetTexture2DOES)) {
+        qCritical() << "EGL extensions not available";
+    }
+
+
+    // 三角形坐标级纹理坐标
     Vertex vertices[] = {
         {{-1.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
         {{ 1.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
@@ -96,28 +114,19 @@ void MyOpenGLWidget::initializeGL()
     program.enableAttributeArray(1);
     program.setAttributeBuffer(1, GL_FLOAT, offsetof(Vertex, texCoord), 2, sizeof(Vertex));
 
-    // 生成纹理
+    // 初始化纹理对象
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
-
-    // 纹理参数设置 - 使用CLAMP_TO_EDGE避免边缘问题
+    
+    // 设置默认纹理参数
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    // 初始化 checkerboard 测试图
-    QImage image(1920, 1080, QImage::Format_RGBA8888);
-    image.fill(Qt::black);
-    for (int y = 0; y < image.height(); ++y) {
-        for (int x = 0; x < image.width(); ++x) {
-            if ((x / 40 + y / 30) % 2 == 0)
-                image.setPixelColor(x, y, Qt::red);
-            else
-                image.setPixelColor(x, y, Qt::yellow);
-        }
-    }
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width(), image.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, image.bits());
+    
+    // 分配初始纹理内存
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1920, 1080, 0, 
+                GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
     vao.release();
     program.release();
@@ -127,10 +136,6 @@ void MyOpenGLWidget::initializeGL()
     if (err != GL_NO_ERROR) {
         qWarning() << "OpenGL error after initialization:" << err;
     }
-
-    m_currentFrame = image;        // 赋值当前帧
-    textureReady.storeRelease(true);
-    update();                     // 触发绘制
 }
 
 void MyOpenGLWidget::resizeGL(int w, int h)
@@ -144,105 +149,182 @@ void MyOpenGLWidget::paintGL()
     glClear(GL_COLOR_BUFFER_BIT);
 
     QMutexLocker locker(&mutex);
-    if (m_currentFrame.isNull()) {
-        qDebug() << "No frame to render";
+
+    // 仅当有新帧时渲染
+    if (currentFrameType == NONE) {
         return;
     }
 
-    // 上传纹理
-    uploadTexture(m_currentFrame);
-
-    // 渲染纹理
     program.bind();
     vao.bind();
-
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
     program.setUniformValue("ourTexture", 0);
+    bool frameProcessed = false;
 
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    // 处理MMAP帧
+    if (currentFrameType == MMAP && currentFrameData) {
+        uploadTexture(currentFrameData, currentFrameSize);
+        frameProcessed = true;
+    }
+    // 处理DMABUF帧
+    else if (currentFrameType == DMABUF && currentDmabufFd >= 0) {
+        if (importDmabufToTexture(currentDmabufFd, currentFrameSize)) {
+            frameProcessed = true;
+        } else {
+            qWarning() << "Failed to import DMABUF frame";
+        }
+    }
+
+    if (frameProcessed) {
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        // 通知 playthread 回收
+        emit framedone(currentFrameIndex);
+    }
 
     vao.release();
     program.release();
 
-    // 标记纹理操作完成
+    // 重置状态
+    currentFrameType = NONE;
+    currentFrameData = nullptr;
+    currentDmabufFd = -1;
     textureReady.storeRelease(true);
 
     // 强制刷新
     glFlush();
 }
 
-void MyOpenGLWidget::uploadTexture(const QImage& img)
+void MyOpenGLWidget::uploadTexture(const void* data, const QSize& size)
 {
-    // 确保纹理绑定
+    if (!data || size.isEmpty()) return;
+
     glBindTexture(GL_TEXTURE_2D, texture);
 
-    // 处理字节对齐 - RK3568平台需要特别注意
-    int bpl = img.bytesPerLine();
-    int bpp = img.depth() / 8;
-
-    // 计算对齐方式
-    GLint alignment = 1;
-    if ((bpl % 8) == 0) alignment = 8;
-    else if ((bpl % 4) == 0) alignment = 4;
-    else if ((bpl % 2) == 0) alignment = 2;
-
+    // 计算字节对齐
+    int bytesPerLine = size.width() * 4;
+    int alignment = 1;
+    if ((bytesPerLine % 8) == 0) alignment = 8;
+    else if ((bytesPerLine % 4) == 0) alignment = 4;
+    else if ((bytesPerLine % 2) == 0) alignment = 2;
+    
     glPixelStorei(GL_UNPACK_ALIGNMENT, alignment);
 
-    // 检查是否需要重新分配纹理内存
-    if (img.size() != lastFrameSize) {
-        lastFrameSize = img.size();
-
-        // 分配新的纹理内存
-        glTexImage2D(
-            GL_TEXTURE_2D,
-            0,
-            GL_RGBA8,  // 使用明确的内部格式
-            img.width(),
-            img.height(),
-            0,
-            GL_RGBA,
-            GL_UNSIGNED_BYTE,
-            img.constBits()
-        );
-        qDebug() << "Texture reallocated:" << img.size();
-    } else {
-        // 更新现有纹理
-        glTexSubImage2D(
-            GL_TEXTURE_2D,
-            0,
-            0, 0,
-            img.width(),
-            img.height(),
-            GL_RGBA,
-            GL_UNSIGNED_BYTE,
-            img.constBits()
-        );
+    // 尺寸变化时重新分配纹理
+    if (size != lastFrameSize) {
+        lastFrameSize = size;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 
+                    size.width(), size.height(), 0,
+                    GL_RGBA, GL_UNSIGNED_BYTE, data);
+    } 
+    // 尺寸相同时更新纹理
+    else {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                       size.width(), size.height(),
+                       GL_RGBA, GL_UNSIGNED_BYTE, data);
     }
-    // 检查OpenGL错误
+
+    // 检查错误
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
         qWarning() << "Texture upload error:" << err;
-    } else qDebug() << "upload successed.";
+    }
 }
 
-void MyOpenGLWidget::updateFrame(const QImage &frame)
+void MyOpenGLWidget::updateFrame(const void* data, const QSize& size, const int index)
 {
-    if (false == textureReady.loadAcquire()) {
+    // 检查纹理是否就绪
+    if (!textureReady.testAndSetAcquire(true, false)) {
         qDebug() << "Skipped frame: texture busy";
+        emit framedone(index);
         return;
     }
 
-    QMutexLocker locker(&mutex);
+    // 更新帧数据
+    currentFrameType = MMAP;
+    currentFrameData = data;
+    currentFrameSize = size;
+    currentFrameIndex = index;
 
-    // 标记纹理操作开始
-    textureReady.storeRelease(false);
-
-    // 确保使用RGBA8888格式
-    if (frame.format() != QImage::Format_RGBA8888) {
-        m_currentFrame = frame.convertToFormat(QImage::Format_RGBA8888);
-    } else {
-        m_currentFrame = frame;
-    }
+    // 请求重绘
     update();
+}
+
+void MyOpenGLWidget::updateFrameDmabuf(int fd, const QSize& size, int index)
+{
+    // 检查纹理是否就绪
+    if (!textureReady.testAndSetAcquire(true, false)) {
+        qDebug() << "Skipped DMABUF frame: texture busy";
+        emit framedone(index);
+        return;
+    }
+
+    // 更新帧数据
+    currentFrameType = DMABUF;
+    currentDmabufFd = fd;
+    currentFrameSize = size;
+    currentFrameIndex = index;
+
+    // 请求重绘
+    update();
+}
+
+bool MyOpenGLWidget::importDmabufToTexture(int fd, const QSize& size)
+{
+    EGLDisplay eglDisplay = eglGetCurrentDisplay();
+    if (eglDisplay == EGL_NO_DISPLAY) {
+        qWarning() << "Invalid EGL display";
+        return false;
+    }
+
+    if (QOpenGLContext::currentContext() == nullptr) {
+        qWarning() << "No OpenGL context";
+        return false;
+    }
+
+    // 设置EGLImage属性
+    const EGLint attribs[] = {
+        EGL_WIDTH, size.width(),
+        EGL_HEIGHT, size.height(),
+        EGL_LINUX_DRM_FOURCC_EXT, DRM_FORMAT_RGBA8888,
+        EGL_DMA_BUF_PLANE0_FD_EXT, fd,
+        EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0,
+        EGL_DMA_BUF_PLANE0_PITCH_EXT, size.width() * 4,
+        EGL_NONE
+    };
+
+    // 创建EGLImage
+    EGLImageKHR image = eglCreateImageKHR(
+        eglDisplay,
+        EGL_NO_CONTEXT,
+        EGL_LINUX_DMA_BUF_EXT,
+        nullptr,
+        attribs
+    );
+
+    if (image == EGL_NO_IMAGE_KHR) {
+        qWarning() << "Failed to create EGLImage:" << eglGetError();
+        return false;
+    }
+
+    // 绑定到纹理
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+
+    // 更新纹理尺寸
+    if (lastFrameSize != size) {
+        lastFrameSize = size;
+    }
+
+    // 清理资源
+    eglDestroyImageKHR(eglDisplay, image);
+
+    // 检查错误
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        qWarning() << "OpenGL error:" << err;
+        return false;
+    }
+
+    return true;
 }

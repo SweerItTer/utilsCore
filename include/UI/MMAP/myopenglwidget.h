@@ -17,6 +17,11 @@
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLShaderProgram>
 
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <QOpenGLContext>
+#define EGL_EGLEXT_PROTOTYPES
+
 class MyOpenGLWidget : public QOpenGLWidget, protected QOpenGLFunctions
 {
     Q_OBJECT
@@ -26,7 +31,8 @@ public:
     ~MyOpenGLWidget();
 
     // 槽函数
-    void updateFrame(const QImage& frame);
+    void updateFrame(const void* data, const QSize& size, const int index);
+    void updateFrameDmabuf(const int fd, const QSize& size, const int index);
     
 protected:
     void initializeGL() override;
@@ -34,12 +40,31 @@ protected:
     void paintGL() override;
     
 private:
-    void uploadTexture(const QImage& img);
-    
+    void uploadTexture(const void* data, const QSize& size);
+    bool importDmabufToTexture(int fd, const QSize& size);
+signals:
+    // 缓冲区返回由 playthread 管理
+	void framedone(const int index); // 请求返回数据
+
 private:
+    enum FrameType { NONE, MMAP, DMABUF };
+
     QMutex mutex;
-    QImage m_currentFrame;          // 当前帧
-    QAtomicInteger<bool> textureReady; // 纹理更新标志
+    QAtomicInteger<bool> textureReady; // 纹理可更新标志
+
+    union {
+    /* 所有资源 fd, ptr都由外界管理
+     * fd -> rgathread -> std::shared_ptr<DmaBuffer>
+     * ptr -> rgathread
+     */
+        const void* currentFrameData; // mmap模式下裸指针
+        int currentDmabufFd ;   // dmabuf模式下文件描述符
+    };
+    
+
+    FrameType currentFrameType = NONE;// 标志位 - 帧类型
+    QSize currentFrameSize; // 帧宽高
+    int currentFrameIndex = -1; // 用于释放内存池的序号标志
     
     // 顶点数据结构（位置 + 纹理坐标）
     struct Vertex {
@@ -53,6 +78,11 @@ private:
     QOpenGLShaderProgram program;   // 着色器程序
     GLuint texture;                 // 纹理对象
     QSize lastFrameSize;            // 上次纹理尺寸
+
+    PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR = nullptr;
+    PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR = nullptr;
+    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES = nullptr;
+
 };
 
 #endif // MYOPENGLWIDGET_H

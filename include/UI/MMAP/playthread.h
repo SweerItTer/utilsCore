@@ -11,7 +11,7 @@
 
 #include <QObject>
 #include <QThread>
-#include <QImage>
+#include <QSize>
 
 #include "types.h"
 #include "rga/rgaProcessor.h"
@@ -23,7 +23,7 @@ public:
 	explicit PlayThread(QObject *parent = nullptr,
 					std::shared_ptr<FrameQueue> frameQueue = nullptr,
 					std::shared_ptr<RgaProcessor> rgaProcessor = nullptr,
-					int width = 0, int height = 0);
+					QSize size = QSize());
 	~PlayThread(){
 		stopCapture();
 	}
@@ -31,8 +31,11 @@ public:
 	void startCapture();
 	void stopCapture();
 
+	void retuenBuff(int index);
+
 signals:
-	void frameReady(const QImage& img);
+    void frameReady(const void* data, const QSize& size, int index);     // for MMAP
+    void frameReadyDmabuf(const int fd, const QSize& size, const int index); // for DMABUF
 
 protected:
 	void run() override;
@@ -41,8 +44,7 @@ private:
 	std::atomic_bool running;
 	std::shared_ptr<FrameQueue> frameQueue_;
 	std::shared_ptr<RgaProcessor> rgaProcessor_;
-	int width_;
-	int height_;
+	QSize size_;
 };
 
 #endif // PLAYTHREAD_H
