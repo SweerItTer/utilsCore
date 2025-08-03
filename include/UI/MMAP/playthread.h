@@ -30,7 +30,7 @@ public:
 
 	void startCapture();
 	void stopCapture();
-
+	void pause();
 	void retuenBuff(int index);
 
 signals:
@@ -42,6 +42,7 @@ protected:
 
 private:
 	std::atomic_bool running;
+	std::atomic_bool paused;
 	std::shared_ptr<FrameQueue> frameQueue_;
 	std::shared_ptr<RgaProcessor> rgaProcessor_;
 	QSize size_;

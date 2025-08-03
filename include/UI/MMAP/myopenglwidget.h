@@ -61,6 +61,7 @@ private:
         int currentDmabufFd ;   // dmabuf模式下文件描述符
     };
     
+    EGLImageKHR currentEGLImage = EGL_NO_IMAGE_KHR;
 
     FrameType currentFrameType = NONE;// 标志位 - 帧类型
     QSize currentFrameSize; // 帧宽高

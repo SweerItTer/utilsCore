@@ -7,6 +7,8 @@
 extern "C" {
 #include <drm/drm_fourcc.h>
 }
+
+#include "v4l2/frame.h"
     
 
 MyOpenGLWidget::MyOpenGLWidget(QWidget *parent)
@@ -33,7 +35,13 @@ MyOpenGLWidget::~MyOpenGLWidget()
         texture = 0;
     }
 
+    if (currentEGLImage != EGL_NO_IMAGE_KHR) {
+        eglDestroyImageKHR(eglGetCurrentDisplay(), currentEGLImage);
+        currentEGLImage = EGL_NO_IMAGE_KHR;
+    }
+    
     doneCurrent();
+    fprintf(stdout, "MyOpenGLWidget::~MyOpenGLWidget()\n");
 }
 
 void MyOpenGLWidget::initializeGL()
@@ -286,15 +294,20 @@ bool MyOpenGLWidget::importDmabufToTexture(int fd, const QSize& size)
     const EGLint attribs[] = {
         EGL_WIDTH, size.width(),
         EGL_HEIGHT, size.height(),
-        EGL_LINUX_DRM_FOURCC_EXT, DRM_FORMAT_RGBA8888,
+        EGL_LINUX_DRM_FOURCC_EXT, DRM_FORMAT_ABGR8888,
         EGL_DMA_BUF_PLANE0_FD_EXT, fd,
         EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0,
         EGL_DMA_BUF_PLANE0_PITCH_EXT, size.width() * 4,
         EGL_NONE
     };
 
+    if (EGL_NO_IMAGE_KHR != currentEGLImage) {
+        eglDestroyImageKHR(eglDisplay, currentEGLImage);
+        currentEGLImage = EGL_NO_IMAGE_KHR;
+    }    
+
     // 创建EGLImage
-    EGLImageKHR image = eglCreateImageKHR(
+    currentEGLImage = eglCreateImageKHR(
         eglDisplay,
         EGL_NO_CONTEXT,
         EGL_LINUX_DMA_BUF_EXT,
@@ -302,14 +315,14 @@ bool MyOpenGLWidget::importDmabufToTexture(int fd, const QSize& size)
         attribs
     );
 
-    if (image == EGL_NO_IMAGE_KHR) {
+    if (currentEGLImage == EGL_NO_IMAGE_KHR) {
         qWarning() << "Failed to create EGLImage:" << eglGetError();
         return false;
     }
 
     // 绑定到纹理
     glBindTexture(GL_TEXTURE_2D, texture);
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, currentEGLImage);
 
     // 更新纹理尺寸
     if (lastFrameSize != size) {
@@ -317,7 +330,7 @@ bool MyOpenGLWidget::importDmabufToTexture(int fd, const QSize& size)
     }
 
     // 清理资源
-    eglDestroyImageKHR(eglDisplay, image);
+    eglDestroyImageKHR(eglDisplay, currentEGLImage);
 
     // 检查错误
     GLenum err = glGetError();

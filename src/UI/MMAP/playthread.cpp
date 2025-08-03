@@ -15,11 +15,15 @@ PlayThread::PlayThread(QObject *parent,
 	: QThread(parent), frameQueue_(frameQueue)
 	, rgaProcessor_(rgaProcessor)
 	, size_(size)
-	, running(false)
+	, running(false), paused(false)
 {}
 
 void PlayThread::startCapture()
 {
+	if (true == paused) {
+		paused = false;
+	}
+	
 	if (true == running) return;
 	running = true;
 	start();
@@ -29,6 +33,10 @@ void PlayThread::stopCapture()
 {
 	running = false;
 	wait(); // 等待线程结束
+}
+
+void PlayThread::pause(){
+	paused = true;
 }
 
 void PlayThread::retuenBuff(const int index)
@@ -42,6 +50,10 @@ void PlayThread::run()
 {
 	Frame frame(nullptr,0,0,-1);
 	while( true == running ){
+		if ( true == paused ) {
+			this->sleep(10);
+			if ( false == running ) break;
+		}
 		// 取出数据 后续可做图像处理什么的
 		if(frameQueue_->try_dequeue(frame)){
 			if (Frame::MemoryType::DMABUF == frame.type()){
