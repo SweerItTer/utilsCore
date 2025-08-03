@@ -2,7 +2,7 @@
  * @FilePath: /EdgeVision/include/utils/rga/rgaProcessor.h
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-17 22:51:16
- * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
+ * @LastEditors: Please set LastEditors
  */
 #ifndef RGAPROCESSTHREAD_H
 #define RGAPROCESSTHREAD_H
@@ -86,7 +86,12 @@ public:
 
     void start();
     void stop();
+
+    void pause();
+
     void releaseBuffer(int index);
+
+    static bool dumpDmabufAsRGBA(int dmabuf_fd, uint32_t width, uint32_t height, uint32_t size, uint32_t pitch, const char* path);
 
 private:
     void initpool();
@@ -98,6 +103,7 @@ private:
     void run();
 
     std::atomic_bool running_;
+    std::atomic_bool paused;
     std::thread worker_;
 
     std::shared_ptr<FrameQueue> rawQueue_;
