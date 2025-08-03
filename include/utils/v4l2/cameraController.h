@@ -2,7 +2,7 @@
  * @FilePath: /EdgeVision/include/utils/v4l2/cameraController.h
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-05 00:43:04
- * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
+ * @LastEditors: Please set LastEditors
  */
 
 /* 
@@ -31,8 +31,8 @@ public:
         __u32 plane_count = 2; // plane 个数
         bool use_dmabuf = false;    // 默认使用MMAP
         std::string device = "/dev/video0";
-        int width = 1280;
-        int height = 720;
+        uint32_t width = 1280;
+        uint32_t height = 720;
         uint32_t format = V4L2_PIX_FMT_NV12;
     };
     
@@ -47,6 +47,8 @@ public:
     
     // 帧回调
     void setFrameCallback(FrameCallback&& callback);
+    // 获取设备 fd
+    int getDeviceFd() const;
     
     // 禁用拷贝和移动
     CameraController(const CameraController&) = delete;

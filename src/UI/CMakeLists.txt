@@ -9,8 +9,8 @@ file(GLOB_RECURSE HEADERS "${PROJECT_SOURCE_DIR}/include/UI/*.h")
 
 # 查找 .ui 文件
 file(GLOB_RECURSE UI_FILES "${CMAKE_CURRENT_SOURCE_DIR}/uis/*.ui")
-
-file(GLOB_RECURSE QRC_FILES "${PROJECT_SOURCE_DIR}/src/UI/uis/res/*.qrc")
+# .qrc 文件
+file(GLOB_RECURSE QRC_FILES "${PROJECT_SOURCE_DIR}/src/UI/res/*.qrc")
 
 # 添加 UI 模块库
 add_library(UI STATIC
@@ -23,9 +23,8 @@ add_library(UI STATIC
 # 设置头文件查找路径
 target_include_directories(UI PUBLIC
     ${PROJECT_SOURCE_DIR}/include/UI
+    ${CMAKE_SYSROOT}/usr/include/EGL
 )
-
-
 # 链接 Qt 库和 utils
 target_link_libraries(UI PUBLIC
     utils
@@ -34,4 +33,6 @@ target_link_libraries(UI PUBLIC
     Qt5::Core
     Qt5::Quick
     Qt5::Gui
+    mali
+    EGL
 )

@@ -69,6 +69,11 @@ public:
      * @return IM_STATUS 转换状态 (成功返回IM_STATUS_SUCCESS)
      */
     IM_STATUS NV12toRGBA(RgaParams& params);
+
+    IM_STATUS NV16toXRGB(RgaParams& params);
+
+    IM_STATUS NV12toXRGB(RgaParams& params);
+
     
     // 禁用拷贝和赋值
     RgaConverter(const RgaConverter&) = delete;
@@ -85,8 +90,10 @@ private:
      * @param src_fmt 源格式 (RK_FORMAT_YCbCr_422_SP 或 RK_FORMAT_YCbCr_420_SP)
      * @param params 转换参数
      * @return IM_STATUS 转换状态
+     * 使用 DMABUF 时 RGA 输出的是 DRM_FORMAT_RGBA8888 即从低位到高位是 [R][G][B][A] 排列
+     * 实际 OpenGL 使用的是 [A][B][G][R] 的顺序,所以应该使用 DRM_FORMAT_ABGR8888
      */
-    IM_STATUS convertImage(RgaSURF_FORMAT src_fmt, RgaParams& params);
+    IM_STATUS convertImage(RgaSURF_FORMAT src_fmt, RgaSURF_FORMAT dst_fmt, RgaParams &params);
 };
 
 #endif // !RGA_CONVERTER_H
