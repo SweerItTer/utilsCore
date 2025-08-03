@@ -43,7 +43,6 @@ public:
     size_t size() const { return size_; }
     uint64_t timestamp() const { return timestamp_; }
     int index() const { return index_; }
-
 private:
     // 私有成员不允许外部修改(优于结构体)
     MemoryType type_;

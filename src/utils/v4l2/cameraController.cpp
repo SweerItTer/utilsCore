@@ -37,6 +37,7 @@ public:
     void setFrameCallback(FrameCallback&& callback);
     int returnBuffer(int index);
 
+    int getDeviceFd() const;
 private:
     void init();
     void setupFormat();
@@ -173,6 +174,10 @@ void CameraController::Impl::init() {
     } else {
         mapBuffers(); // MMAP专属初始化
     }
+}
+
+int CameraController::Impl::getDeviceFd() const {
+    return fd_.get();
 }
 
 void CameraController::Impl::setupFormat() {
@@ -352,7 +357,7 @@ void CameraController::Impl::allocateDMABuffers() {
             }
 
             // 根据实际长宽分配内存
-            DmaBufferPtr buf = DmaBuffer::create(currentWidth, currentHeight, currentformat);
+            DmaBufferPtr buf = DmaBuffer::create(currentWidth, currentHeight, currentformat, planes_length);
             if (nullptr == buf) {
                 throw V4L2Exception("create DmaBuffer failed.");
             }
@@ -365,14 +370,14 @@ void CameraController::Impl::allocateDMABuffers() {
                 }
             }
 
+            buffers_[i].planes[p].dmabuf_fd = buf->fd();
+            buffers_[i].planes[p].length = buf->size();
+            buffers_[i].length += buffers_[i].planes[p].length;
             /* 需要移动保证生命周期
              * shared_ptr 的意义不在这,意义在于给其他硬件共享 prime fd
              * 如果在这里引用 +1 后又 -1 ,白白浪费了一次拷贝销耗的性能
              */
             buffers_[i].planes[p].bufptr = std::move(buf); 
-            buffers_[i].planes[p].dmabuf_fd = buf->fd();
-            buffers_[i].planes[p].length = buf->size();
-            buffers_[i].length += buffers_[i].planes[p].length;
         }
 #else // 如果未定义 _XF86DRM_H_ 则保留内核级 ioctl 版本
         for (size_t p = 0; p < plane_num; ++p) {
@@ -774,5 +779,7 @@ void CameraController::stop() { impl_->stop(); }
 void CameraController::pause(){ impl_->pause(); }
 
 void CameraController::setFrameCallback(FrameCallback &&callback){ impl_->setFrameCallback(std::move(callback)); }
+
+int CameraController::getDeviceFd() const { return impl_->getDeviceFd(); }
 
 void CameraController::returnBuffer(int index){ impl_->returnBuffer(index); }

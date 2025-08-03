@@ -2,7 +2,7 @@
  * @FilePath: /EdgeVision/src/utils/rga/rgaProcessor.cpp
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-17 22:51:38
- * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
+ * @LastEditors: Please set LastEditors
  */
 #include "rga/rgaProcessor.h"
 
@@ -21,7 +21,7 @@ RgaProcessor::RgaProcessor(Config& cfg)
     , srcFormat_(cfg.srcFormat)
     , dstFormat_(cfg.dstFormat)
     , poolSize_(cfg.poolSize)
-    , running_(false)
+    , running_(false), paused(false)
 {
     initpool();
 }
@@ -29,9 +29,9 @@ RgaProcessor::RgaProcessor(Config& cfg)
 void RgaProcessor::initpool() {
     for (int i = 0; i < poolSize_; ++i) {
         RgbaBuffer buf;
-        int buffer_size = width_ * height_ * 4;
 
         if (Frame::MemoryType::MMAP == frameType_) {
+            int buffer_size = width_ * height_ * 4;
             buf.data = malloc(buffer_size);
             if (nullptr == buf.data) {
                 throw std::runtime_error("RGA: malloc buffer failed");
@@ -59,6 +59,10 @@ RgaProcessor::~RgaProcessor()
 
 void RgaProcessor::start()
 {
+    if (true == paused) {
+		paused = false;
+	}
+
     if (running_) return;
 
     running_ = true;
@@ -78,6 +82,10 @@ void RgaProcessor::stop()
     }
 
     outQueue_->clear();
+}
+
+void RgaProcessor::pause(){
+	paused = true;
 }
 
 void RgaProcessor::releaseBuffer(int index)
@@ -167,6 +175,10 @@ void RgaProcessor::run()
 
     while (true == running_)
     {
+        if ( true == paused ) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if ( false == running_ ) break;
+        }
         Frame frame(nullptr, 0, 0, -1);
         int index = 0;
 
@@ -210,7 +222,7 @@ void RgaProcessor::run()
         cctr_->returnBuffer(frame.index());
         
         if (IM_STATUS_SUCCESS != status) {
-            std::cerr << "RGA convert failed\n";
+            fprintf(stderr, "RGA convert failed: %d\n", status);
             // 不释放内存，仅标记缓冲区可用
             bufferPool_[index].in_use = false;
             continue;
@@ -222,5 +234,45 @@ void RgaProcessor::run()
             ? Frame(bufferPool_[index].data, buffer_size, 0, index)
             : Frame(bufferPool_[index].dma_buf->fd(), buffer_size, 0, index);
         outQueue_->enqueue(std::move(result));
+        // static int a = 1;
+        // if (1 == a){
+        //     a = 0;
+        //     auto temp = bufferPool_[index].dma_buf;
+        //     dumpDmabufAsRGBA(temp->fd(), temp->width(), temp->height(), temp->size(), temp->pitch(), "/end.rgba");
+        // }
     }
+}
+
+bool RgaProcessor::dumpDmabufAsRGBA(int dmabuf_fd, uint32_t width, uint32_t height, uint32_t size, uint32_t pitch, const char* path)
+{
+    if (dmabuf_fd < 0 || width == 0 || height == 0 || size == 0 || pitch == 0) {
+        fprintf(stderr, "[dump] Invalid argument\n");
+        return false;
+    }
+
+    void* data = mmap(nullptr, size, PROT_READ, MAP_SHARED, dmabuf_fd, 0);
+    if (MAP_FAILED == data) {
+        perror("mmap failed");
+        return false;
+    }
+
+    FILE* fp = fopen(path, "wb");
+    if (!fp) {
+        perror("fopen failed");
+        munmap(data, size);
+        return false;
+    }
+
+    // 写入原始 RGBA 图像数据（每像素 4 字节，含 Alpha）
+    uint8_t* ptr = static_cast<uint8_t*>(data);
+    for (uint32_t y = 0; y < height; ++y) {
+        uint8_t* row = ptr + y * pitch;
+        fwrite(row, 1, width * 4, fp);  // 每行写 width × 4 字节
+    }
+
+    fclose(fp);
+    munmap(data, size);
+
+    fprintf(stderr, "[dump] Saved %dx%d RGBA8888 raw image to %s\n", width, height, path);
+    return true;
 }

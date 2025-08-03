@@ -2,7 +2,7 @@
  * @FilePath: /EdgeVision/include/utils/v4l2/cameraController.h
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-05 00:43:04
- * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
+ * @LastEditors: Please set LastEditors
  */
 
 /* 
@@ -47,6 +47,8 @@ public:
     
     // 帧回调
     void setFrameCallback(FrameCallback&& callback);
+    // 获取设备 fd
+    int getDeviceFd() const;
     
     // 禁用拷贝和移动
     CameraController(const CameraController&) = delete;
