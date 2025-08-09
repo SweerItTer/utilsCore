@@ -52,11 +52,11 @@ void MainWg::initVar() {
         .plane_count = 2,
         .use_dmabuf = true,
         .device = "/dev/video0",
-		// .width = 1920,
-        // .height = 1080,
+		.width = 2592,
+        .height = 1944,
 
-        .width = 3840,
-        .height = 2160,
+        // .width = 3840,
+        // .height = 2160,
         .format = V4L2_PIX_FMT_NV12
     };
 
