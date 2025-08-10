@@ -7,18 +7,20 @@
 #include <sys/ioctl.h>
 #include <system_error>
 
+#include "logger.h"
+
 FdWrapper DmaBuffer::drm_fd;
 
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size)
 {
     if (-1 == drm_fd.get()) {
-        fprintf(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
+        Logger::log(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
         return nullptr;
     }
 
     uint32_t bpp = calculate_bpp(format);
     if ((uint32_t)-1 == bpp) {
-        fprintf(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
+        Logger::log(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
         return nullptr;
     }
 
@@ -36,7 +38,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
         create_arg.height = curr_height;
 
         if (drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg) < 0) {
-            fprintf(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed on attempt %d: %d\n", attempts + 1, errno);
+            Logger::log(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed on attempt %d: %d\n", attempts + 1, errno);
             return nullptr;  // 失败直接返回
         }
 
@@ -44,7 +46,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
             // 满足需求，导出 fd 并返回
             int primefd = exportFD(create_arg);
             if (0 > primefd) {
-                fprintf(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
+                Logger::log(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
                 return nullptr;
             }
 
@@ -65,7 +67,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
         attempts++;
     }
 
-    fprintf(stderr, "Failed to create dumb buffer with required size %u after %d attempts\n", required_size, max_attempts);
+    Logger::log(stderr, "Failed to create dumb buffer with required size %u after %d attempts\n", required_size, max_attempts);
     return nullptr;
 }
 
@@ -73,7 +75,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, uint32_t format)
 {
     if (-1 == drm_fd.get()) {
-        fprintf(stderr, "DRM fd not initialized, please call initialize_drm_fd() first");
+        Logger::log(stderr, "DRM fd not initialized, please call initialize_drm_fd() first");
         return nullptr;
     }
 
@@ -83,18 +85,18 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
 
     uint32_t bpp = calculate_bpp(format);
     if (-1 == bpp) {
-        fprintf(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
+        Logger::log(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
         return nullptr;
     }
 
     create_arg.bpp = bpp;
     if (0 > drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg)) {
-        fprintf(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed: %d\n", errno);
+        Logger::log(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed: %d\n", errno);
     }
 
     int primefd = exportFD(create_arg);
     if (0 > primefd) {
-        fprintf(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
+        Logger::log(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
         return nullptr;
     }
 
@@ -111,7 +113,7 @@ int DmaBuffer::exportFD(drm_mode_create_dumb& create_arg)
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = create_arg.handle;
         drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
-        fprintf(stderr, "drmPrimeHandleToFD failed");
+        Logger::log(stderr, "drmPrimeHandleToFD failed");
     }
 
     /* 如果完全依赖 prime fd，可立即销毁 handle。
@@ -144,7 +146,7 @@ DmaBuffer::~DmaBuffer()
 
 void DmaBuffer::cleanup() noexcept
 {
-    fprintf(stdout,"DmaBuffer::cleanup(): fd=%d, handle=%d\n", m_fd, m_handle);
+    Logger::log(stdout,"DmaBuffer::cleanup(): fd=%d, handle=%d\n", m_fd, m_handle);
     if (-1 != m_fd) {
         ::close(m_fd);
         m_fd = -1;
@@ -153,7 +155,7 @@ void DmaBuffer::cleanup() noexcept
     if (0 != m_handle && -1 != drm_fd.get()) {
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = m_handle;
-        // fprintf(stdout, "destroy handle: %d\n", m_handle);
+        // Logger::log(stdout, "destroy handle: %d\n", m_handle);
         drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
         m_handle = 0;
     }
@@ -169,7 +171,7 @@ void DmaBuffer::initialize_drm_fd()
             }
             drm_fd = FdWrapper(fd);
         } catch (const std::system_error& ex){
-            fprintf(stderr, "DmaBuffer::initialize_drm_fd: %s\n",ex.what());
+            Logger::log(stderr, "DmaBuffer::initialize_drm_fd: %s\n",ex.what());
         }
     }
 }

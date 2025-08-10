@@ -9,6 +9,7 @@
 RgaConverter::RgaConverter() {
     // 初始化RGA上下文
     m_rga.RkRgaInit();
+    fprintf(stdout, "%s", querystring(RGA_VERSION));
     m_initialized = true;
 }
 
