@@ -2,10 +2,10 @@
  * @FilePath: /EdgeVision/src/utils/rga/rgaProcessor.cpp
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-17 22:51:38
- * @LastEditors: Please set LastEditors
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "rga/rgaProcessor.h"
-
+#include "logger.h"
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
@@ -187,6 +187,10 @@ void RgaProcessor::run()
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
+        // 计算 RGA_submit timestamp
+        uint64_t t1;
+        mk::makeTimestamp(t1);
+        Logger::log(stdout, "[DQ→RGA_submit] = %llu", t1-frame.timestamp());
         
         switch (frameType_) {
             case Frame::MemoryType::MMAP:
@@ -216,7 +220,10 @@ void RgaProcessor::run()
         IM_STATUS status = (RK_FORMAT_YCbCr_420_SP == srcFormat_)
                          ? converter_.NV12toRGBA(params)
                          : converter_.NV16toRGBA(params);
-        
+        // 同步回调时间点
+        uint64_t t2;
+        mk::makeTimestamp(t2);
+        Logger::log(stdout, "[RGA_process] = %llu", t2-t1);
         // rawQueue_ 需要 returnBuffer, 需要传递 CameraController
         // 不管是否转换成功都归还
         cctr_->returnBuffer(frame.index());
@@ -231,8 +238,8 @@ void RgaProcessor::run()
 
         // 构造新 Frame
         Frame result = (Frame::MemoryType::MMAP == frameType_)
-            ? Frame(bufferPool_[index].data, buffer_size, 0, index)
-            : Frame(bufferPool_[index].dma_buf->fd(), buffer_size, 0, index);
+            ? Frame(bufferPool_[index].data, buffer_size, t2, index)
+            : Frame(bufferPool_[index].dma_buf->fd(), buffer_size, t2, index);
         outQueue_->enqueue(std::move(result));
         // static int a = 1;
         // if (1 == a){

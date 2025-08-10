@@ -16,6 +16,7 @@
 #include "v4l2/v4l2Exception.h"
 
 #include "fdWrapper.h"      // fd RAII处理类
+#include "logger.h"
 #include "dma/dmaBuffer.h"    // 包含 drm 头文件
 
 #ifndef _XF86DRM_H_
@@ -585,8 +586,6 @@ void CameraController::Impl::captureLoop() {
                 if (errno == EAGAIN) continue;
                 throw V4L2Exception("VIDIOC_DQBUF failed", errno);
             }
-            // 标记缓冲区已出队
-            buffers_[buf.index].queued = false;
         }
         /* 自动释放锁
          * 为什么这里就释放了锁?
@@ -594,9 +593,15 @@ void CameraController::Impl::captureLoop() {
          * 但是不保证所有人对该函数的理解一致,可能在回调函数内调用 returnBuffer 函数
          * 若不释放锁,在这样的情况下将会死锁 (在锁的范围里去抢锁,但是抢不到,欸,就死了)
          */
-
-        uint64_t ts = static_cast<uint64_t>(buf.timestamp.tv_sec) * 1000000ULL + buf.timestamp.tv_usec;
-
+        
+        // 计算 sensor_timestamp
+        uint64_t ts = static_cast<uint64_t>(buf.timestamp.tv_sec) * 1000000ULL + static_cast<uint64_t>(buf.timestamp.tv_usec);
+        // 计算 VIDIOC_DQBUF timestamp
+        uint64_t t0_DQ;
+        mk::makeTimestamp(t0_DQ);
+        Logger::log(stdout, "[Sensor→DQ] = %llu", t0_DQ-ts);
+        // 标记缓冲区已出队
+        buffers_[buf.index].queued = false;
 // 这里的 frame 仅仅是指针或者文件描述符的引用,并未持有实际数据,并非深拷贝,并且Frame禁用了拷贝构造,仅保留移动构造
         // 先声明后构造(美观而已,用多层if效果一样)
         std::unique_ptr<Frame> frame_opt;
@@ -614,12 +619,12 @@ void CameraController::Impl::captureLoop() {
                     // 获取所有平面占用空间总和
                     total_size += buf.m.planes[i].length;
                 }
-                frame_opt = std::make_unique<Frame>(plane0_ptr, total_size, ts, buf.index);
+                frame_opt = std::make_unique<Frame>(plane0_ptr, total_size, t0_DQ, buf.index);
             } else { // 单平面
                 frame_opt = std::make_unique<Frame>(
                     buffers_[buf.index].start,
                     buf.bytesused,
-                    ts,
+                    t0_DQ,
                     buf.index
                 );
             }
@@ -636,12 +641,12 @@ void CameraController::Impl::captureLoop() {
                     // 获取所有平面占用空间总和
                     total_size += buf.m.planes[i].length;
                 }
-                frame_opt = std::make_unique<Frame>(plane0_fd, total_size, ts, buf.index);
+                frame_opt = std::make_unique<Frame>(plane0_fd, total_size, t0_DQ, buf.index);
             } else {
                 frame_opt = std::make_unique<Frame>(
                     buffers_[buf.index].dmabuf_fd,
                     buf.bytesused,
-                    ts,
+                    t0_DQ,
                     buf.index
                 );
             }

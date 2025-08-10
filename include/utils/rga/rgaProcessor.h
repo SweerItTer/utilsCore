@@ -2,7 +2,7 @@
  * @FilePath: /EdgeVision/include/utils/rga/rgaProcessor.h
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-17 22:51:16
- * @LastEditors: Please set LastEditors
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #ifndef RGAPROCESSTHREAD_H
 #define RGAPROCESSTHREAD_H
