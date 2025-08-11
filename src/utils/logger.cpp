@@ -7,6 +7,7 @@
 
 FileStream Logger::logfileFp;
 std::mutex Logger::logMutex;
+bool Logger::LogFlag;
 
 void Logger::initLogger() {
     uint64_t dummy;
@@ -31,6 +32,7 @@ void Logger::initLogger() {
 }
 
 void Logger::log(FILE *stream, const char* format, ...) {
+    if (false == LogFlag) return;
     std::lock_guard<std::mutex> lock(logMutex);
 
     uint64_t ts_us;
@@ -58,22 +60,4 @@ void Logger::log(FILE *stream, const char* format, ...) {
     va_end(args_copy);
 
     va_end(args);
-}
-
-uint64_t Logger::logTimestamp(const std::string &description) {
-    std::lock_guard<std::mutex> lock(logMutex);
-
-    uint64_t ts_us;
-    std::string timestamp = mk::makeTimestamp(ts_us);
-
-    // stdout
-    std::fprintf(stdout, "[%s] %s\n", timestamp.c_str(), description.c_str());
-
-    // logfile
-    if (logfileFp) {
-        std::fprintf(logfileFp.get(), "[%s] %s\n", timestamp.c_str(), description.c_str());
-        std::fflush(logfileFp.get());
-    }
-
-    return ts_us;
 }

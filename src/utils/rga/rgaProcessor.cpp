@@ -188,9 +188,7 @@ void RgaProcessor::run()
             continue;
         }
         // 计算 RGA_submit timestamp
-        uint64_t t1;
-        mk::makeTimestamp(t1);
-        Logger::log(stdout, "[DQ→RGA_submit] = %llu", t1-frame.timestamp());
+        uint64_t t1 = mk::timeDiffMs(frame.timestamp(), "[DQ→RGA_submit]");
         
         switch (frameType_) {
             case Frame::MemoryType::MMAP:
@@ -221,9 +219,8 @@ void RgaProcessor::run()
                          ? converter_.NV12toRGBA(params)
                          : converter_.NV16toRGBA(params);
         // 同步回调时间点
-        uint64_t t2;
-        mk::makeTimestamp(t2);
-        Logger::log(stdout, "[RGA_process] = %llu", t2-t1);
+        auto t2 = mk::timeDiffMs(t1, "[RGA_process]");
+
         // rawQueue_ 需要 returnBuffer, 需要传递 CameraController
         // 不管是否转换成功都归还
         cctr_->returnBuffer(frame.index());

@@ -594,12 +594,10 @@ void CameraController::Impl::captureLoop() {
          * 若不释放锁,在这样的情况下将会死锁 (在锁的范围里去抢锁,但是抢不到,欸,就死了)
          */
         
-        // 计算 sensor_timestamp
-        uint64_t ts = static_cast<uint64_t>(buf.timestamp.tv_sec) * 1000000ULL + static_cast<uint64_t>(buf.timestamp.tv_usec);
-        // 计算 VIDIOC_DQBUF timestamp
-        uint64_t t0_DQ;
+        // 计算 sensor_timestamp(us)
+        uint64_t sensor_us = static_cast<uint64_t>(buf.timestamp.tv_sec) * 1000000ULL + buf.timestamp.tv_usec;
+        uint64_t t0_DQ; // 出队时间(us)
         mk::makeTimestamp(t0_DQ);
-        Logger::log(stdout, "[Sensor→DQ] = %llu", t0_DQ-ts);
         // 标记缓冲区已出队
         buffers_[buf.index].queued = false;
 // 这里的 frame 仅仅是指针或者文件描述符的引用,并未持有实际数据,并非深拷贝,并且Frame禁用了拷贝构造,仅保留移动构造
@@ -657,7 +655,7 @@ void CameraController::Impl::captureLoop() {
         } else returnBuffer(buf.index); // 未设置正确的回调时需要手动回收缓冲区
         
         // 帧率计算
-        frame_times_now = ts;
+        frame_times_now = sensor_us;
         time_span = frame_times_now - frame_times_old;
         if (time_span > 0) {
             current_fps_ = 1000000.0 / static_cast<double>(time_span);

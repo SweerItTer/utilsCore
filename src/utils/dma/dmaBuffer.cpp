@@ -155,7 +155,6 @@ void DmaBuffer::cleanup() noexcept
     if (0 != m_handle && -1 != drm_fd.get()) {
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = m_handle;
-        // Logger::log(stdout, "destroy handle: %d\n", m_handle);
         drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
         m_handle = 0;
     }
