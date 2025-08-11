@@ -2,7 +2,7 @@
  * @FilePath: /EdgeVision/src/UI/MMAP/mainwg.cpp
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-16 23:33:33
- * @LastEditors: Please set LastEditors
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "MMAP/mainwg.h"
 #include "./ui_mainwg.h"
@@ -14,7 +14,7 @@ MainWg::MainWg(QWidget *parent)
 	ui->setupUi(this);
     
     DmaBuffer::initialize_drm_fd();
-
+    Logger::LogFlag = false;
 	// 初始化成员
 	initVar();
     
@@ -48,7 +48,7 @@ void MainWg::initVar() {
     
 	// 相机配置
     CameraController::Config cctr_cfg = {
-        .buffer_count = 4,
+        .buffer_count = 2,
         .plane_count = 2,
         .use_dmabuf = true,
         .device = "/dev/video0",
@@ -87,7 +87,7 @@ void MainWg::initVar() {
         .srcFormat = (V4L2_PIX_FMT_NV12 == cctr_cfg.format)
                      ? RK_FORMAT_YCbCr_420_SP
                      : RK_FORMAT_YCrCb_422_SP,
-        .poolSize = 10
+        .poolSize = 2
     };
 	rgaThread 		= std::make_shared<RgaProcessor>(rga_cfg);
     
@@ -102,13 +102,13 @@ void MainWg::initVar() {
 void MainWg::initSignal(){
 	// void* 传递
 	connect(playThread.get(), &PlayThread::frameReady, 
-    [this](const void* data, const QSize& size, const int index){
-        ui->openGLWidget->updateFrame(data, size, index);
+    [this](const void* data, const QSize& size, uint64_t timestamp,const int index){
+        ui->openGLWidget->updateFrame(data, size, timestamp, index);
     });
     // dmabuf 传递
     connect(playThread.get(), &PlayThread::frameReadyDmabuf, 
-    [this](const int fd, const QSize& size, const int index){
-        ui->openGLWidget->updateFrameDmabuf(fd, size, index);
+    [this](const int fd, const QSize& size, uint64_t timestamp, const int index){
+        ui->openGLWidget->updateFrameDmabuf(fd, size, timestamp, index);
     });
     // 回收资源
     connect(ui->openGLWidget, &MyOpenGLWidget::framedone, playThread.get(), &PlayThread::retuenBuff);

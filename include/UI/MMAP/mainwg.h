@@ -2,7 +2,7 @@
  * @FilePath: /EdgeVision/include/UI/MMAP/mainwg.h
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-16 23:34:00
- * @LastEditors: Please set LastEditors
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #ifndef MAINWG_H
 #define MAINWG_H
@@ -17,6 +17,7 @@
 #include "MMAP/playthread.h"
 #include "MMAP/myopenglwidget.h"
 #include "MMAP/paramdialog.h"
+#include "logger.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWg; }

@@ -9,7 +9,7 @@ extern "C" {
 }
 
 #include "v4l2/frame.h"
-    
+#include "logger.h"
 
 MyOpenGLWidget::MyOpenGLWidget(QWidget *parent)
     : QOpenGLWidget(parent), vbo(QOpenGLBuffer::VertexBuffer),
@@ -170,6 +170,8 @@ void MyOpenGLWidget::paintGL()
     program.setUniformValue("ourTexture", 0);
     bool frameProcessed = false;
 
+    auto t4 = mk::timeDiffMs(dequeueTimestamp, "[tex upload]");
+
     // 处理MMAP帧
     if (currentFrameType == MMAP && currentFrameData) {
         uploadTexture(currentFrameData, currentFrameSize);
@@ -190,6 +192,9 @@ void MyOpenGLWidget::paintGL()
         emit framedone(currentFrameIndex);
     }
 
+    mk::timeDiffMs(t4, "[render]");
+    Logger::log(stdout, "===\n");
+    
     vao.release();
     program.release();
 
@@ -239,7 +244,7 @@ void MyOpenGLWidget::uploadTexture(const void* data, const QSize& size)
     }
 }
 
-void MyOpenGLWidget::updateFrame(const void* data, const QSize& size, const int index)
+void MyOpenGLWidget::updateFrame(const void* data, const QSize& size, uint64_t timestamp, const int index)
 {
     // 检查纹理是否就绪
     if (!textureReady.testAndSetAcquire(true, false)) {
@@ -249,6 +254,7 @@ void MyOpenGLWidget::updateFrame(const void* data, const QSize& size, const int 
     }
 
     // 更新帧数据
+    dequeueTimestamp = timestamp;
     currentFrameType = MMAP;
     currentFrameData = data;
     currentFrameSize = size;
@@ -258,7 +264,7 @@ void MyOpenGLWidget::updateFrame(const void* data, const QSize& size, const int 
     update();
 }
 
-void MyOpenGLWidget::updateFrameDmabuf(int fd, const QSize& size, int index)
+void MyOpenGLWidget::updateFrameDmabuf(int fd, const QSize& size, uint64_t timestamp, int index)
 {
     // 检查纹理是否就绪
     if (!textureReady.testAndSetAcquire(true, false)) {
@@ -268,6 +274,7 @@ void MyOpenGLWidget::updateFrameDmabuf(int fd, const QSize& size, int index)
     }
 
     // 更新帧数据
+    dequeueTimestamp = timestamp;
     currentFrameType = DMABUF;
     currentDmabufFd = fd;
     currentFrameSize = size;

@@ -34,8 +34,8 @@ public:
 	void retuenBuff(int index);
 
 signals:
-    void frameReady(const void* data, const QSize& size, int index);     // for MMAP
-    void frameReadyDmabuf(const int fd, const QSize& size, const int index); // for DMABUF
+    void frameReady(const void* data, const QSize& size, uint64_t timestamp, const int index);     	// for MMAP
+    void frameReadyDmabuf(const int fd, const QSize& size, uint64_t timestamp, const int index); 	// for DMABUF
 
 protected:
 	void run() override;

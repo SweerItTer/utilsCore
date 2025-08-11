@@ -8,6 +8,8 @@
 #include <QImage>
 #include <iostream>
 
+#include "logger.h"
+
 PlayThread::PlayThread(QObject *parent,
 					std::shared_ptr<FrameQueue> frameQueue,
 					std::shared_ptr<RgaProcessor> rgaProcessor,
@@ -56,12 +58,14 @@ void PlayThread::run()
 		}
 		// 取出数据 后续可做图像处理什么的
 		if(frameQueue_->try_dequeue(frame)){
+			uint64_t t3 = mk::timeDiffMs(frame.timestamp(), "[FrameDqueue]");
+			
 			if (Frame::MemoryType::DMABUF == frame.type()){
 				// 转发 dmabuf
-				emit frameReadyDmabuf(frame.dmabuf_fd(), size_, frame.index());
+				emit frameReadyDmabuf(frame.dmabuf_fd(), size_, t3, frame.index());
 			} else {
 				// 转发 mmap 数据裸指针
-				emit frameReady(frame.data(), size_, frame.index());
+				emit frameReady(frame.data(), size_, t3, frame.index());
 			}
 		} else {
 			// std::cout << "frame is empty" << std::endl;

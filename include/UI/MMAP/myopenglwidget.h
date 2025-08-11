@@ -31,8 +31,8 @@ public:
     ~MyOpenGLWidget();
 
     // 槽函数
-    void updateFrame(const void* data, const QSize& size, const int index);
-    void updateFrameDmabuf(const int fd, const QSize& size, const int index);
+    void updateFrame(const void* data, const QSize& size, uint64_t timestamp, const int index);
+    void updateFrameDmabuf(const int fd, const QSize& size, uint64_t timestamp, const int index);
     
 protected:
     void initializeGL() override;
@@ -62,7 +62,7 @@ private:
     };
     
     EGLImageKHR currentEGLImage = EGL_NO_IMAGE_KHR;
-
+    uint64_t dequeueTimestamp = 0;
     FrameType currentFrameType = NONE;// 标志位 - 帧类型
     QSize currentFrameSize; // 帧宽高
     int currentFrameIndex = -1; // 用于释放内存池的序号标志
