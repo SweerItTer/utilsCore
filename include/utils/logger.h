@@ -12,6 +12,7 @@
 #include <chrono>
 #include <string>
 #include <ctime>
+#include <sys/time.h>
 #include <sstream>
 #include <iomanip>
 #include <cstdarg>
@@ -84,27 +85,6 @@ private:
     FILE* fp_;
 };
 
-namespace mk{
-    // 生成当前时间戳字符串 + 微秒部分
-    inline std::string makeTimestamp(uint64_t &out_us_epoch) {
-        using namespace std::chrono;
-
-        auto now = system_clock::now();
-        auto now_sec = time_point_cast<seconds>(now);
-        std::time_t t_c = system_clock::to_time_t(now_sec);
-        auto us = duration_cast<microseconds>(now - now_sec).count();
-
-        out_us_epoch = static_cast<uint64_t>(t_c) * 1000000ULL + static_cast<uint64_t>(us);
-
-        std::tm tm_buf;
-        localtime_r(&t_c, &tm_buf);
-
-        std::ostringstream oss;
-        oss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S")
-            << "." << std::setw(6) << std::setfill('0') << us;
-        return oss.str();
-    }
-}
 /**
  * @class Logger
  * @brief 线程安全的日志记录器，提供静态方法进行日志记录
@@ -128,11 +108,12 @@ class Logger
 private:
     static FileStream logfileFp;      ///< 日志文件描述符包装对象，RAII管理文件资源
     static std::mutex logMutex;      ///< 互斥锁，确保线程安全的日志写入
-    
     Logger() = default;             ///< 私有构造函数，防止实例化
     ~Logger() = default;            ///< 私有析构函数
 
 public:
+    static bool LogFlag;
+
     /**
      * @brief 初始化日志系统
      * 
@@ -172,9 +153,61 @@ public:
      * @note 如果日志系统未初始化，消息将被静默丢弃
      */
     static void log(FILE *stream, const char* format, ...);
-    
-    static uint64_t logTimestamp(const std::string &description);
 };
 
 
+namespace mk{
+    // 生成当前时间戳字符串 + 微秒部分
+    inline std::string makeTimestamp(uint64_t &out_us_epoch) {
+        // 获取单调时钟时间点
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+    
+        // 计算微秒时间戳(单调时钟基准 CLOCK_MONOTONIC)
+        /*  tv_sec  -> 秒
+            tv_nsec -> 纳秒
+            tv_usec -> 微秒
+            out_us_epoch -> 微秒*/
+        out_us_epoch = static_cast<uint64_t>(ts.tv_sec) * 1000000ULL + ts.tv_nsec / 1000ULL;
+        
+        
+        /* == 获取系统实际时间用于log记录 == */
+        struct timeval tv;
+        gettimeofday(&tv, nullptr);
+    
+        std::time_t sec = tv.tv_sec;
+        int ms = tv.tv_usec / 1000;
+    
+        std::tm tm_buf;
+        localtime_r(&sec, &tm_buf);
+    
+        std::ostringstream oss;
+        oss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S")
+            << "." << std::setw(3) << std::setfill('0') << ms;
+    
+        return oss.str();
+    }
+
+    /**
+     * @brief 输出时间差到日志
+     * 
+     * @param t1 上一个时间,在调用函数前的某个时间点
+     * @param msg 描述时间差的字符串
+     * 
+     * 示例：
+     * @code
+     * mk::timeDiffMs(t, "[Deququ->rga]");
+     * @endcode
+     */
+    inline auto timeDiffMs(uint64_t t1, const char* msg) -> uint64_t{
+        if (false == Logger::LogFlag) return 0;
+        
+        uint64_t t2;
+        mk::makeTimestamp(t2);
+        if (t2 < t1) return t2;
+        double delta_ms = static_cast<double>(t2-t1) / 1000.0;
+        Logger::log(stdout, "%s = %.3f ms", msg, delta_ms);
+        return t2;
+    }
+}
 #endif // LOGGER_H
