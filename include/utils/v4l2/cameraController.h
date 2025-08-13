@@ -18,6 +18,7 @@
 #include <linux/videodev2.h>
 
 #include "frame.h"
+#include "sharedBufferState.h"
 
 class CameraController {
 public:

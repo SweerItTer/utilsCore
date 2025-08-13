@@ -31,7 +31,8 @@ public:
         std::unique_lock<std::mutex> lock(mutex_);
         if (max_size_ > 0 && queue_.size() >= max_size_) {
             // 超过限制时可丢弃最旧的帧、丢弃新帧、或者阻塞，按需求自行定制
-            // 这里示例：丢弃新帧
+            // 这里示例：丢弃旧帧
+            queue_.pop();
             return;
         }
         queue_.push(std::move(item));

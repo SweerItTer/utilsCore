@@ -18,8 +18,8 @@
 
 
 struct RgbaBuffer {
-    void* data = nullptr;
-    DmaBufferPtr dma_buf = nullptr;
+    std::shared_ptr<SharedBufferState> s;
+
     bool in_use = false;
 
     RgbaBuffer() = default;
@@ -30,37 +30,33 @@ struct RgbaBuffer {
 
     // 移动构造函数
     RgbaBuffer(RgbaBuffer&& other) noexcept
-        : data(other.data),
-          dma_buf(std::move(other.dma_buf)),
-          in_use(other.in_use)
+        : s(std::move(other.s))  // 转移所有权
+        , in_use(other.in_use)   // 复制状态
     {
-        other.data = nullptr;  // 转移后置空，避免析构时重复 free
-        other.in_use = false;
+        // 将被移动对象置于安全状态
+        other.in_use = false;  // 标记为不再使用
+        // s 已自动置空，无需额外操作
     }
 
     // 移动赋值操作符
     RgbaBuffer& operator=(RgbaBuffer&& other) noexcept {
         if (this != &other) {
-            // 释放当前对象已有资源
-            if (nullptr != data) {
-                free(data);
-            }
-            data = other.data;
-            dma_buf = std::move(other.dma_buf);
+            // 转移资源所有权
+            s = std::move(other.s);
             in_use = other.in_use;
-
-            // 转移后置空
-            other.data = nullptr;
-            other.in_use = false;
+            
+            // 重置被移动对象状态
+            other.in_use = false;  // 标记为不再使用
+            // s 已自动置空，无需额外操作
         }
         return *this;
     }
 
     // 析构函数
     ~RgbaBuffer() {
-        if (nullptr != data) {
-            free(data);
-            data = nullptr;
+        if (nullptr != s) {
+            s->valid = false;
+            s.reset();
         }
     }
 };

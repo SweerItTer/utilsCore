@@ -32,18 +32,23 @@ void RgaProcessor::initpool() {
 
         if (Frame::MemoryType::MMAP == frameType_) {
             int buffer_size = width_ * height_ * 4;
-            buf.data = malloc(buffer_size);
-            if (nullptr == buf.data) {
-                throw std::runtime_error("RGA: malloc buffer failed");
+            // 使用 mmap 替代 malloc 以适配 munmap 释放
+            void* data = mmap(nullptr, buffer_size, 
+                             PROT_READ | PROT_WRITE,
+                             MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+            if (data == MAP_FAILED) {
+                throw std::runtime_error("RGA: mmap buffer failed");
             }
+            buf.s = std::make_shared<SharedBufferState>(-1, data, buffer_size);
         } else {
             uint32_t format = (RK_FORMAT_RGBA_8888 == dstFormat_)
                                 ? DRM_FORMAT_RGBA8888
                                 : DRM_FORMAT_XRGB8888;
-            buf.dma_buf = DmaBuffer::create(width_, height_, format);
-            if (!buf.dma_buf || buf.dma_buf->fd() < 0) {
+            auto dma_buf = DmaBuffer::create(width_, height_, format);
+            if (!dma_buf || dma_buf->fd() < 0) {
                 throw std::runtime_error("RGA: dmabuf create failed");
             }
+            buf.s = std::make_shared<SharedBufferState>(dma_buf, nullptr);
         }
 
         bufferPool_.emplace_back(std::move(buf));
@@ -103,10 +108,20 @@ int RgaProcessor::getAvailableBufferIndex()
         int try_idx = (currentIndex_ + i) % poolSize_;
         auto& buf = bufferPool_[try_idx];
 
-        if (false == buf.in_use) {
-            if ((Frame::MemoryType::MMAP == frameType_ && nullptr != buf.data) ||
-                (Frame::MemoryType::DMABUF == frameType_ && buf.dma_buf && buf.dma_buf->fd() >= 0))
-            {
+        // 检查缓冲区是否可用
+        if (true == buf.in_use || nullptr == buf.s || false == buf.s->valid) {
+            continue;
+        }
+        if (Frame::MemoryType::DMABUF == frameType_) {
+            // 确保 DMABUF 有效
+            if (buf.s->dmabuf_ptr && 0 <= buf.s->dmabuf_ptr->fd()) {
+                buf.in_use = true;
+                currentIndex_ = (try_idx + 1) % poolSize_;
+                return try_idx;
+            }
+        } else if (Frame::MemoryType::MMAP == frameType_){
+            // 确保虚拟内存有效
+            if (buf.s->start) {
                 buf.in_use = true;
                 currentIndex_ = (try_idx + 1) % poolSize_;
                 return try_idx;
@@ -125,6 +140,8 @@ int RgaProcessor::dmabufFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, int d
         // 无可用buff
         return -1;
     }
+    // 数据无效
+    if (0 > dmabuf_fd) return -1;
 
     src.width = width_;
     src.height = height_;
@@ -135,7 +152,7 @@ int RgaProcessor::dmabufFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, int d
     dst = src;
     
     src.fd = dmabuf_fd;
-    dst.fd = bufferPool_[index].dma_buf->fd();
+    dst.fd = bufferPool_[index].s->dmabuf_ptr->fd();
     
     dst.format = dstFormat_;
     return index;
@@ -148,6 +165,8 @@ int RgaProcessor::mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void
         // 无可用buff
         return -1;
     }
+    // 数据无效
+    if (nullptr == data) return -1;
 
     src.width = width_;
     src.height = height_;
@@ -158,7 +177,7 @@ int RgaProcessor::mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void
     dst = src;
     
     src.vir_addr = data;
-    dst.vir_addr = bufferPool_[index].data;;
+    dst.vir_addr = bufferPool_[index].s->start;
     
     dst.format = dstFormat_;
     return index;
@@ -167,7 +186,6 @@ int RgaProcessor::mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void
 void RgaProcessor::run()
 {
     int buffer_size = width_ * height_ * 4;
-
     // 源图像
     rga_buffer_t src {};
     // 输出图像
@@ -179,7 +197,7 @@ void RgaProcessor::run()
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             if ( false == running_ ) break;
         }
-        Frame frame(nullptr, 0, 0, -1);
+        Frame frame;
         int index = 0;
 
         // 等待帧
@@ -231,19 +249,16 @@ void RgaProcessor::run()
             bufferPool_[index].in_use = false;
             continue;
         }
-        
 
-        // 构造新 Frame
-        Frame result = (Frame::MemoryType::MMAP == frameType_)
-            ? Frame(bufferPool_[index].data, buffer_size, t2, index)
-            : Frame(bufferPool_[index].dma_buf->fd(), buffer_size, t2, index);
-        outQueue_->enqueue(std::move(result));
-        // static int a = 1;
-        // if (1 == a){
-        //     a = 0;
-        //     auto temp = bufferPool_[index].dma_buf;
-        //     dumpDmabufAsRGBA(temp->fd(), temp->width(), temp->height(), temp->size(), temp->pitch(), "/end.rgba");
-        // }
+        // 创建新帧,直接使用池中的共享状态(使用状态在getAvailableBufferIndex更新)
+        auto new_frame = Frame(
+            bufferPool_[index].s,  // 直接使用池中的共享指针
+            t2,
+            index
+        );
+        
+        // 入队新帧
+        outQueue_->enqueue(std::move(new_frame));
     }
 }
 
