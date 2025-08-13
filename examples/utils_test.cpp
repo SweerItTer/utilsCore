@@ -76,24 +76,34 @@ int main(int argc, char const *argv[]) {
 
 int rgaTest(){
     // 创建队列
-    SafeQueue<Frame> queue(10);
-
-    // 创建 RGA 转换器
-    RgaConverter converter;
+    auto rawFrameQueue  	= std::make_shared<FrameQueue>(4);
+    auto frameQueue     	= std::make_shared<FrameQueue>(4);
 
     // 相机配置
     CameraController::Config cfg = {
-        .buffer_count = 4,
+        .buffer_count = 2,
         .plane_count = 2,
         .use_dmabuf = true,
         .device = "/dev/video0",
-        // .width = 2560,
-        // .height = 1440,
-        .width = 3840,
-        .height = 2160,
+        .width = 1920,
+        .height = 1080,
+        // .width = 3840,
+        // .height = 2160,
         .format = V4L2_PIX_FMT_NV12
     };
     
+    // 初始化相机控制器
+    auto cctr         	= std::make_shared<CameraController>(cfg);
+
+    cctr->setFrameCallback([rawFrameQueue](Frame f) {
+        rawFrameQueue->enqueue(std::move(f));
+    });
+
+    RgaConverter converter_ ;
+
+    Frame::MemoryType frameType = (true == cfg.use_dmabuf)
+    ? Frame::MemoryType::DMABUF
+    : Frame::MemoryType::MMAP;
 
     // 根据格式转换 RGA 格式
     int format = (V4L2_PIX_FMT_NV12 == cfg.format) ?
@@ -127,13 +137,7 @@ int rgaTest(){
     src.hstride = cfg.height;
     src.format = format;
 
-    // 目标 buffer（需要申请新 fd 或分配内存，这里举例分配 virAddr）
-    int dst_size = cfg.width * cfg.height * 4; // RGBA8888 一般按4字节算
-    void* dst_data = malloc(dst_size);
-    if (nullptr == dst_data) {
-        fprintf(stderr, "Failed to allocate dst buffer");
-        return -1;
-    }
+    auto bufptr =  DmaBuffer::create(cfg.width, cfg.height, DRM_FORMAT_RGBA8888);
 
     rga_buffer_t dst;
     memset(&dst, 0, sizeof(dst));
@@ -158,16 +162,7 @@ int rgaTest(){
         status = converter.NV16toRGBA(rgaP);
     }
     if (IM_STATUS_SUCCESS != status) {
-        printf("1");
-        free(dst_data);
-        return -1;
-    }
-    // 转换后入队v4l2 buf
-    cctr.returnBuffer(frame.index());
-    while (1)
-    { 
-        // 目的:查看采集线程的资源占用情况
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        fprintf(stderr, "RGA convert failed: %d\n", status);
     }
     // 停止相机
     cctr.stop();
