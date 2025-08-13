@@ -50,7 +50,7 @@ void PlayThread::retuenBuff(const int index)
 
 void PlayThread::run()
 {
-	Frame frame(nullptr,0,0,-1);
+	Frame frame;
 	while( true == running ){
 		if ( true == paused ) {
 			this->sleep(10);

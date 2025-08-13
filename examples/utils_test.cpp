@@ -93,29 +93,30 @@ int virSave(void *data, size_t buffer_size){
 
 int rgaTest(){
     // 创建队列
-    auto rawFrameQueue  	= std::make_shared<FrameQueue>(20);
-    auto frameQueue     	= std::make_shared<FrameQueue>(20);
+    auto rawFrameQueue  	= std::make_shared<FrameQueue>(4);
+    auto frameQueue     	= std::make_shared<FrameQueue>(4);
 
     // 相机配置
     CameraController::Config cfg = {
-        .buffer_count = 4,
+        .buffer_count = 2,
         .plane_count = 2,
         .use_dmabuf = true,
         .device = "/dev/video0",
-        // .width = 1920,
-        // .height = 1080,
-        .width = 3840,
-        .height = 2160,
+        .width = 1920,
+        .height = 1080,
+        // .width = 3840,
+        // .height = 2160,
         .format = V4L2_PIX_FMT_NV12
     };
     
     // 初始化相机控制器
     auto cctr         	= std::make_shared<CameraController>(cfg);
-    RgaConverter converter_ ;
 
     cctr->setFrameCallback([rawFrameQueue](Frame f) {
         rawFrameQueue->enqueue(std::move(f));
     });
+
+    RgaConverter converter_ ;
 
     Frame::MemoryType frameType = (true == cfg.use_dmabuf)
     ? Frame::MemoryType::DMABUF
@@ -143,8 +144,6 @@ int rgaTest(){
     cctr->pause();
     src.fd = frame.dmabuf_fd();
 
-    // int buffer_size = cfg.width * cfg.height * 4;
-    // auto data = malloc(buffer_size);
     auto bufptr =  DmaBuffer::create(cfg.width, cfg.height, DRM_FORMAT_RGBA8888);
 
     dst.fd = bufptr->fd();
@@ -164,7 +163,6 @@ int rgaTest(){
     
     if (IM_STATUS_SUCCESS != status) {
         fprintf(stderr, "RGA convert failed: %d\n", status);
-        // free(data);
     }
     RgaProcessor::dumpDmabufAsRGBA(bufptr->fd(), bufptr->width(), bufptr->height(), bufptr->size(), bufptr->pitch(), "./end.rgba");
 
