@@ -11,6 +11,7 @@
 
 FdWrapper DmaBuffer::drm_fd;
 
+// 根据指定大小分配(在需求内存对齐的情况下)
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size)
 {
     if (-1 == drm_fd.get()) {
@@ -25,53 +26,41 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
     }
 
     drm_mode_create_dumb create_arg = {};
-    create_arg.bpp = bpp;
+    create_arg.width  = width;
+    create_arg.height = height;
+    create_arg.bpp    = bpp;
 
-    uint32_t curr_width = width;
-    uint32_t curr_height = height;
+    // DRM dumb buffer 对齐要求（常见 64 字节对齐）
+    constexpr uint32_t align_options[] = {16, 32, 64, 128};
+    for (uint32_t align : align_options) {
+        create_arg.pitch = ((width * bpp / 8 + align - 1) / align) * align;  // 向上对齐
+        create_arg.size  = create_arg.pitch * height;
 
-    constexpr int max_attempts = 10;  // 最大尝试次数
-    int attempts = 0;
-
-    while (attempts < max_attempts) {
-        create_arg.width = curr_width;
-        create_arg.height = curr_height;
-
-        if (drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg) < 0) {
-            Logger::log(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed on attempt %d: %d\n", attempts + 1, errno);
-            return nullptr;  // 失败直接返回
+        if (create_arg.size < required_size) {
+            continue; // 尝试更大对齐
         }
 
-        if (create_arg.size >= required_size) {
-            // 满足需求，导出 fd 并返回
-            int primefd = exportFD(create_arg);
-            if (0 > primefd) {
-                Logger::log(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
-                return nullptr;
-            }
-
-            return std::shared_ptr<DmaBuffer>(
-                new DmaBuffer(primefd, create_arg.handle, curr_width, curr_height,
-                              format, create_arg.pitch, create_arg.size));
+        if (0 > drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg)) {
+            Logger::log(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed with align %u: %d\n", align, errno);
+            continue; // 尝试下一个对齐
         }
 
-        // 不满足要求，先销毁当前 handle 再尝试放大尺寸
-        drm_mode_destroy_dumb destroy_arg = {};
-        destroy_arg.handle = create_arg.handle;
-        drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
+        int primefd = exportFD(create_arg);
+        if (primefd < 0) {
+            Logger::log(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
+            return nullptr;
+        }
 
-        // 这里可调整放大策略，比如每次增加10%，或者调整某个维度
-        curr_width = static_cast<uint32_t>(curr_width * 1.1);
-        curr_height = static_cast<uint32_t>(curr_height * 1.1);
-
-        attempts++;
+        return std::shared_ptr<DmaBuffer>(
+            new DmaBuffer(primefd, create_arg.handle, width, height,
+                          format, create_arg.pitch, create_arg.size));
     }
 
-    Logger::log(stderr, "Failed to create dumb buffer with required size %u after %d attempts\n", required_size, max_attempts);
+    Logger::log(stderr, "Failed to create dumb buffer with required size %u\n", required_size);
     return nullptr;
 }
 
-
+// 无需内存对齐直接分配
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, uint32_t format)
 {
     if (-1 == drm_fd.get()) {
@@ -108,6 +97,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
 
 int DmaBuffer::exportFD(drm_mode_create_dumb& create_arg)
 {
+    // 将handle导出为fd(drmPrimeHandle -> drmPrimeFD)
     int prime_fd = -1;
     if (0 > drmPrimeHandleToFD(drm_fd.get(), create_arg.handle, DRM_CLOEXEC | DRM_RDWR, &prime_fd)) {
         drm_mode_destroy_dumb destroy_arg = {};
@@ -126,6 +116,7 @@ int DmaBuffer::exportFD(drm_mode_create_dumb& create_arg)
     return prime_fd;
 }
 
+// 赋值储存数据
 DmaBuffer::DmaBuffer(int prime_fd, uint32_t handle, uint32_t width,
                      uint32_t height, uint32_t format,
                      uint32_t pitch, uint32_t size)
@@ -135,12 +126,11 @@ DmaBuffer::DmaBuffer(int prime_fd, uint32_t handle, uint32_t width,
     , m_height(height)
     , m_format(format)
     , m_pitch(pitch)
-    , m_size(size)
-{
-}
+    , m_size(size){}
 
 DmaBuffer::~DmaBuffer()
 {
+    // 回收资源
     cleanup();
 }
 
@@ -148,10 +138,11 @@ void DmaBuffer::cleanup() noexcept
 {
     Logger::log(stdout,"DmaBuffer::cleanup(): fd=%d, handle=%d\n", m_fd, m_handle);
     if (-1 != m_fd) {
+        // 关闭 dambuf fd
         ::close(m_fd);
         m_fd = -1;
     }
-
+    // 销毁 Handle
     if (0 != m_handle && -1 != drm_fd.get()) {
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = m_handle;
@@ -160,6 +151,7 @@ void DmaBuffer::cleanup() noexcept
     }
 }
 
+// 打开全局 drm_fd (后续仍会使用到(不仅仅是导出dmabuf fd))
 void DmaBuffer::initialize_drm_fd()
 {
     if (-1 == drm_fd.get()) {
@@ -180,11 +172,13 @@ void DmaBuffer::close_drm_fd()
     drm_fd = FdWrapper(); // 析构自动关闭
 }
 
+// 移动构造
 DmaBuffer::DmaBuffer(DmaBuffer &&other) noexcept
 {
     *this = std::move(other);
 }
 
+// 移动操作符
 DmaBuffer& DmaBuffer::operator=(DmaBuffer&& other) noexcept
 {
     if (this != &other) {

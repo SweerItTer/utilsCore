@@ -114,32 +114,6 @@ ParamControl::ControlInfos ParamControl::queryAllControls() const {
         controls.push_back(info);
     }
 
-    // // 查询特殊扩展控制
-    // for (__u32 id = V4L2_CID_PRIVATE_BASE; id < V4L2_CID_PRIVATE_BASE + 0x1000; ++id) {
-    //     struct v4l2_queryctrl query = {};
-    //     query.id = id;
-
-    //     if (-1 == ioctl(fd_, VIDIOC_QUERYCTRL, &query)) {
-    //         continue;
-    //     }
-
-    //     if (query.flags & V4L2_CTRL_FLAG_DISABLED) {
-    //         continue;
-    //     }
-
-    //     V4L2ControlInfo info;
-    //     info.id    = query.id;
-    //     info.name  = reinterpret_cast<const char*>(query.name);
-    //     info.min   = query.minimum;
-    //     info.max   = query.maximum;
-    //     info.step  = query.step;
-    //     info.def   = query.default_value;
-    //     info.type  = query.type;
-    //     info.flags = query.flags;
-
-    //     controls.push_back(info);
-    // }
-
     return controls;
 }
 

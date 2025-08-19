@@ -153,9 +153,7 @@ int rgaTest(){
     im_rect rect = {0, 0, static_cast<int>(cfg.width), static_cast<int>(cfg.height)};
     RgaConverter::RgaParams params {src, rect, dst, rect};
     // 格式转换
-    IM_STATUS status = (RK_FORMAT_YCbCr_420_SP == format)
-                        ? converter_.NV12toRGBA(params)
-                        : converter_.NV16toRGBA(params);
+    IM_STATUS status = converter_.FormatTransform(params);
     
     // rawQueue_ 需要 returnBuffer, 需要传递 CameraController
     // 不管是否转换成功都归还

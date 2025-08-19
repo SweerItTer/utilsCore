@@ -233,9 +233,7 @@ void RgaProcessor::run()
         im_rect rect = {0, 0, static_cast<int>(width_), static_cast<int>(height_)};
         RgaConverter::RgaParams params {src, rect, dst, rect};
         // 格式转换
-        IM_STATUS status = (RK_FORMAT_YCbCr_420_SP == srcFormat_)
-                         ? converter_.NV12toRGBA(params)
-                         : converter_.NV16toRGBA(params);
+        IM_STATUS status = converter_.FormatTransform(params);
         // 同步回调时间点
         auto t2 = mk::timeDiffMs(t1, "[RGA_process]");
 

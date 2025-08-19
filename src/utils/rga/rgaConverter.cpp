@@ -20,31 +20,11 @@ RgaConverter::~RgaConverter() {
     }
 }
 
-IM_STATUS RgaConverter::NV16toRGBA(RgaParams& params) {
-    // { RK_FORMAT_YCbCr_422_SP,  "cbcr422sp" }  // 这是NV16
-    // { RK_FORMAT_YCrCb_422_SP,  "crcb422sp" }  // 这是NV61
-    fprintf(stdout, "Try to convert NV16 to RGBA\n");
-    return convertImage(RK_FORMAT_YCbCr_422_SP, RK_FORMAT_RGBA_8888, params);
+IM_STATUS RgaConverter::FormatTransform(RgaParams& params){
+    return convertImage(params.src.format, params.dst.format, params);
 }
 
-IM_STATUS RgaConverter::NV12toRGBA(RgaParams& params) {
-    // fprintf(stdout, "Try to convert NV12 to RGBA\n");
-    return convertImage(RK_FORMAT_YCbCr_420_SP, RK_FORMAT_RGBA_8888, params);
-}
-
-IM_STATUS RgaConverter::NV16toXRGB(RgaParams &params)
-{
-    // fprintf(stdout, "Try to convert NV12 to RGBA\n");
-    return convertImage(RK_FORMAT_YCbCr_422_SP, RK_FORMAT_XRGB_8888, params);
-}
-
-IM_STATUS RgaConverter::NV12toXRGB(RgaParams &params)
-{
-    // fprintf(stdout, "Try to convert NV12 to RGBA\n");
-    return convertImage(RK_FORMAT_YCbCr_420_SP, RK_FORMAT_XRGB_8888, params);
-}
-
-IM_STATUS RgaConverter::convertImage(RgaSURF_FORMAT src_fmt, RgaSURF_FORMAT dst_fmt, RgaParams &params)
+IM_STATUS RgaConverter::convertImage(int src_fmt, int dst_fmt, RgaParams &params)
 {
     if (false == m_initialized) {
         return IM_STATUS_NOT_SUPPORTED;
@@ -63,7 +43,7 @@ IM_STATUS RgaConverter::convertImage(RgaSURF_FORMAT src_fmt, RgaSURF_FORMAT dst_
         return ret;
     }
 
-    ret = imcvtcolor(params.src, params.dst, params.src.format, params.dst.format);
+    ret = imcvtcolor(params.src, params.dst, src_fmt, dst_fmt);
     if (IM_STATUS_SUCCESS != ret) {
         fprintf(stderr, "%s", imStrError(ret));
     }

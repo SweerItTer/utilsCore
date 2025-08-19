@@ -102,7 +102,22 @@ private:
 
     void reclaimAllBuffers();
     void releaseBuffers();
-    
+
+    // mmap单一平面
+    std::shared_ptr<SharedBufferState> mmapPlane(int fd, size_t length, off_t offset);
+    // 统一调用接口参数
+    std::shared_ptr<SharedBufferState> mapSinglePlaneBuffer(int fd, v4l2_buffer& buf);    
+    std::vector<Plane> mapMultiPlaneBuffer(int fd, v4l2_buffer& buf);
+    void resolutionVerify(v4l2_format& fmt);
+    // 等待帧 v4l2
+    bool waitForFrameReady();
+    // 计算帧率
+    void calculateFps(uint64_t timestamp);
+    // 出队 buf
+    bool dequeueBuffer(v4l2_buffer& buf);
+    // 构造 Frame
+    std::unique_ptr<Frame> makeFrame(const v4l2_buffer& buf, uint64_t timestamp);
+private:
     __u32 currentWidth;
     __u32 currentHeight;
 
@@ -171,28 +186,9 @@ int CameraController::Impl::getDeviceFd() const {
     return fd_.get();
 }
 
-void CameraController::Impl::setupFormat() {
-    v4l2_format fmt = {};
-    fmt.type = buf_type_;
-    // 配置格式
-    if (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_) {
-        fmt.fmt.pix_mp.width = config_.width;
-        fmt.fmt.pix_mp.height = config_.height;
-        fmt.fmt.pix_mp.pixelformat = config_.format;
-        fmt.fmt.pix_mp.field = V4L2_FIELD_NONE;
-        // 根据驱动需求修改
-        fmt.fmt.pix_mp.num_planes = config_.plane_count;
-    } else {
-        fmt.fmt.pix.width = config_.width;
-        fmt.fmt.pix.height = config_.height;
-        fmt.fmt.pix.pixelformat = config_.format;
-        fmt.fmt.pix.field = V4L2_FIELD_NONE;
-    }
-    
-    if (ioctl(fd_.get(), VIDIOC_S_FMT, &fmt) < 0) {
-        throw V4L2Exception("VIDIOC_S_FMT failed", errno);
-    }
-
+void CameraController::Impl::resolutionVerify(v4l2_format& fmt)
+{
+    // 根据实际情况修改分辨率
     currentWidth = config_.width;
 	currentHeight = config_.height;
     switch (buf_type_)
@@ -218,6 +214,31 @@ void CameraController::Impl::setupFormat() {
     }
 }
 
+void CameraController::Impl::setupFormat() {
+    v4l2_format fmt = {};
+    fmt.type = buf_type_;
+    // 配置格式
+    if (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_) {
+        fmt.fmt.pix_mp.width = config_.width;
+        fmt.fmt.pix_mp.height = config_.height;
+        fmt.fmt.pix_mp.pixelformat = config_.format;
+        fmt.fmt.pix_mp.field = V4L2_FIELD_NONE;
+        // 根据驱动需求修改
+        fmt.fmt.pix_mp.num_planes = config_.plane_count;
+    } else {
+        fmt.fmt.pix.width = config_.width;
+        fmt.fmt.pix.height = config_.height;
+        fmt.fmt.pix.pixelformat = config_.format;
+        fmt.fmt.pix.field = V4L2_FIELD_NONE;
+    }
+    
+    if (ioctl(fd_.get(), VIDIOC_S_FMT, &fmt) < 0) {
+        throw V4L2Exception("VIDIOC_S_FMT failed", errno);
+    }
+    // 验证
+    resolutionVerify(fmt);
+}
+
 void CameraController::Impl::requestBuffers() {
     // VIDIOC_REQBUFS 调用对于多平面与单平面是一样的
     v4l2_requestbuffers req = {};
@@ -234,6 +255,31 @@ void CameraController::Impl::requestBuffers() {
     buffers_.resize(req.count);
 }
 
+std::shared_ptr<SharedBufferState> CameraController::Impl::mmapPlane(int fd, size_t length, off_t offset) {
+    // nullptr - 系统自动选定地址
+    void* start = mmap(nullptr, length, 
+        PROT_READ | PROT_WRITE, 
+        MAP_SHARED, fd, offset);
+    // 检查
+    if (MAP_FAILED == start) {
+        throw V4L2Exception("mmap failed", errno);
+    }
+    return std::make_shared<SharedBufferState>(-1, start, length);
+}
+
+std::shared_ptr<SharedBufferState> CameraController::Impl::mapSinglePlaneBuffer(int fd, v4l2_buffer& buf) {
+    return mmapPlane(fd, buf.length, buf.m.offset);
+}
+
+std::vector<CameraController::Impl::Plane> CameraController::Impl::mapMultiPlaneBuffer(int fd, v4l2_buffer& buf) {
+    // 根据实际情况分配栈内存
+    std::vector<Plane> planes(buf.length);
+    for (int p = 0; p < buf.length; ++p) {
+        planes[p].state = mmapPlane(fd, buf.m.planes[p].length, buf.m.planes[p].m.mem_offset);
+    }
+    return planes;
+}
+
 void CameraController::Impl::mapBuffers() {
     for (int i = 0; i < buffers_.size(); i++) {
         v4l2_buffer buf = {};
@@ -241,20 +287,8 @@ void CameraController::Impl::mapBuffers() {
         buf.memory = V4L2_MEMORY_MMAP; // memory_type_
         buf.index = i;
         
-        if (V4L2_BUF_TYPE_VIDEO_CAPTURE == buf_type_) {            
-            if (ioctl(fd_.get(), VIDIOC_QUERYBUF, &buf) < 0) {
-                throw V4L2Exception("VIDIOC_QUERYBUF failed", errno);
-            }
-            // nullptr - 系统自动选定地址
-            void* start = mmap(nullptr, buf.length, 
-                               PROT_READ | PROT_WRITE, 
-                               MAP_SHARED, fd_.get(), buf.m.offset);
-            
-            if (MAP_FAILED == start) {
-                throw V4L2Exception("mmap failed", errno);
-            }
-            buffers_[i].state = std::make_shared<SharedBufferState>(-1, start, buf.length);
-        } else { // V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
+        if (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_) {
+            // 多平面需要初始化
             v4l2_plane planes[VIDEO_MAX_PLANES] = {};
             buf.length = config_.plane_count; // 配置中写好的 plane 个数
             buf.m.planes = planes;
@@ -269,28 +303,17 @@ void CameraController::Impl::mapBuffers() {
              * 会在内存映射时出现尝试映射未分配内存的非法操作
              */
             buffers_[i].planes.resize(buf.length);
-            // 根据实际情况分配栈(临时)内存
-            std::vector<Plane> tmp_planes(buf.length);
-
-            for (int p = 0; p < buf.length; ++p) {
-                void* start = mmap(nullptr,
-                                   buf.m.planes[p].length,
-                                   PROT_READ | PROT_WRITE,
-                                   MAP_SHARED,
-                                   fd_.get(),
-                                   buf.m.planes[p].m.mem_offset);
-                if (MAP_FAILED == start) {
-                /* 这里若 throw 将会自动调用 tmp_planes 的析构
-                 * 自动释放内存解决了需要回滚释放的问题
-                 */  
-                 throw V4L2Exception("mmap failed", errno);
-                }
-                tmp_planes[p].state = std::make_shared<SharedBufferState>(-1, start, buf.m.planes[p].length);
-            }
+            
             // 只有所有平面都mmap成功才将平面给buffers_
-            buffers_[i].planes = std::move(tmp_planes);
+            buffers_[i].planes = std::move(mapMultiPlaneBuffer(fd_.get(), buf));
         }
-        // 映射成功只是内存映射成功
+        else if( V4L2_BUF_TYPE_VIDEO_CAPTURE == buf_type_ ) {
+            if (ioctl(fd_.get(), VIDIOC_QUERYBUF, &buf) < 0) {
+                throw V4L2Exception("VIDIOC_QUERYBUF failed", errno);
+            }
+            
+            buffers_[i].state = mapSinglePlaneBuffer(fd_.get(), buf);
+        }
     }
 }
 
@@ -467,143 +490,6 @@ void CameraController::Impl::stop() {
     releaseBuffers();
 }
 
-void CameraController::Impl::captureLoop() {
-    static int frame_count = 0;
-    double current_fps_ = 0.0;
-    uint64_t time_span = 0;
-    uint64_t frame_times_old = 0;
-    uint64_t frame_times_now = 0;
-    try
-    {
-    while (running_) {
-        if (true == paused_) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            if (false == running_) break;
-            continue;
-        }
-        fd_set fds;
-        FD_ZERO(&fds);
-        FD_SET(fd_.get(), &fds);
-        
-        timeval tv = {1, 0}; // 1秒超时
-        int ret = select(fd_.get() + 1, &fds, nullptr, nullptr, &tv);
-        
-        if (false == running_) break;
-        
-        if (ret < 0) {
-            if (errno == EINTR) continue;
-            throw V4L2Exception("select failed", errno);
-        }
-        
-        if (ret == 0) {
-            // 超时
-            continue;
-        }
-        
-        // 取出缓冲区
-        v4l2_buffer buf = {};
-        v4l2_plane planes[VIDEO_MAX_PLANES] = {};  // 为多平面准备数组
-        buf.type = buf_type_;
-        buf.memory = memory_type_;
-        // 多平面需要指定 plane 的 length 和m.planes 或者 fd
-        // 根据缓冲区类型进行不同设置
-        if (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_) {
-            // 多平面处理
-            buf.length = buffers_[0].planes.size();     // 最大平面数
-            buf.m.planes = planes;                      // 指向平面数组
-        } else { // 单平面处理
-            // 对于DMABUF需要设置长度
-            if (V4L2_MEMORY_DMABUF == memory_type_) {
-                buf.length = buffers_[0].state->length;
-            }
-        }
-        
-        {
-            std::lock_guard<std::mutex> lock(_mutex_);
-            if (ioctl(fd_.get(), VIDIOC_DQBUF, &buf) < 0) {
-                if (errno == EAGAIN) continue;
-                throw V4L2Exception("VIDIOC_DQBUF failed", errno);
-            }
-        }
-        /* 自动释放锁
-         * 为什么这里就释放了锁?
-         * 在我的预想里回调函数应该是一个打包的入队函数
-         * 但是不保证所有人对该函数的理解一致,可能在回调函数内调用 returnBuffer 函数
-         * 若不释放锁,在这样的情况下将会死锁 (在锁的范围里去抢锁,但是抢不到,欸,就死了)
-         */
-        
-        // 计算 sensor_timestamp(us)
-        uint64_t sensor_us = static_cast<uint64_t>(buf.timestamp.tv_sec) * 1000000ULL + buf.timestamp.tv_usec;
-        uint64_t t0_DQ; // 出队时间(us)
-        mk::makeTimestamp(t0_DQ);
-        // 标记缓冲区已出队
-        buffers_[buf.index].queued = false;
-// 这里的 frame 仅仅是指针或者文件描述符的引用,并未持有实际数据,并非深拷贝,并且Frame禁用了拷贝构造,仅保留移动构造
-        // 先声明后构造(少一次默认构造)
-        std::unique_ptr<Frame> frame_opt;
-        size_t total_size = 0;
-        switch (buf_type_)
-        {
-        case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
-            // --- 采用单平面连续物理内存的思想处理多平面
-            if (buf.length < 1) {
-                throw V4L2Exception("Invalid number of planes", EINVAL);
-            }
-            // 该部分基于一个理论实现(不保证全部平台支持)(连续内存区域不需要传递所有平面指针) 见 utils/rga/rgaConverter.h L27
-            // void* plane0_ptr = buffers_[buf.index].planes[0].start;
-            // int plane0_fd = buffers_[buf.index].planes[0].dmabuf_fd;
-            for (uint32_t i = 0; i < buf.length; ++i) {
-                // 获取所有平面占用空间总和
-                total_size += buf.m.planes[i].length;
-            }
-            buffers_[buf.index].planes[0].state->length = total_size;
-            frame_opt = std::make_unique<Frame>(
-                buffers_[buf.index].planes[0].state,
-                t0_DQ, 
-                buf.index);
-            break;
-        case V4L2_BUF_TYPE_VIDEO_CAPTURE:
-            // DMA/MMAP 交由 SharedBufferState 管理
-            buffers_[buf.index].state->length = buf.bytesused;
-            frame_opt = std::make_unique<Frame>(
-                buffers_[buf.index].state,
-                t0_DQ,
-                buf.index); 
-            break;
-
-        default:
-            frame_opt = std::make_unique<Frame>(nullptr,0,-1);
-            break;
-        }
-
-        // 回调传递
-        if (frame_callback_ && 0 < frame_opt->index()) {
-            frame_callback_(std::move(*frame_opt));
-        } else returnBuffer(buf.index); // 未设置正确的回调时需要手动回收缓冲区
-        
-        // 帧率计算
-        // static constexpr int FPS_WINDOW = 30;
-        // static std::deque<uint64_t> timestamps;
-
-        // timestamps.push_back(sensor_us);
-        // if (timestamps.size() > FPS_WINDOW) {
-        //     timestamps.pop_front();
-        // }
-
-        // if (timestamps.size() >= 2) {
-        //     double avg_fps = (timestamps.size() - 1) * 1e6 / 
-        //                     (timestamps.back() - timestamps.front());
-        //     if (frame_count % FPS_WINDOW == 0) {
-        //         fprintf(stdout, "Avg fps: %.1f\n", avg_fps);
-        //     }
-        // }
-    }
-    } catch (const std::exception& e) {
-        fprintf(stderr, "Capture loop error: %s\n", e.what());
-        running_ = false;
-    }
-}
-
 int CameraController::Impl::returnBuffer(int index) {
     std::lock_guard<std::mutex> lock(_mutex_);
     v4l2_buffer buf = {};
@@ -716,6 +602,154 @@ void CameraController::Impl::setFrameCallback(FrameCallback&& callback) {
     frame_callback_ = std::move(callback);
 }
 
+// False:next loop | True:keep on
+bool CameraController::Impl::waitForFrameReady() {
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(fd_.get(), &fds);
+    timeval tv = {1, 0}; // 1秒超时
+    int ret = select(fd_.get() + 1, &fds, nullptr, nullptr, &tv);
+    if (ret < 0) {
+        if (errno == EINTR) return false;
+        throw V4L2Exception("select failed", errno);
+    }
+    return (ret > 0);
+}
+
+void CameraController::Impl::calculateFps(uint64_t timestamp) {
+    static int frame_count = 0;
+    static constexpr int FPS_WINDOW = 30;
+    static std::deque<uint64_t> timestamps;
+
+    timestamps.push_back(timestamp);
+    if (timestamps.size() > FPS_WINDOW) {
+        timestamps.pop_front();
+    }
+
+    if (timestamps.size() >= 2) {
+        double avg_fps = (timestamps.size() - 1) * 1e6 / 
+                        (timestamps.back() - timestamps.front());
+        if (frame_count % FPS_WINDOW == 0) {
+            fprintf(stdout, "Avg fps: %.1f\n", avg_fps);
+        }
+        frame_count++;
+    }
+}
+
+bool CameraController::Impl::dequeueBuffer(v4l2_buffer& buf) {
+    buf.type = buf_type_;
+    buf.memory = memory_type_;
+    // 多平面需要指定 plane 的 length 和m.planes 或者 fd
+    // 根据缓冲区类型进行不同设置
+    if (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_) {
+        v4l2_plane planes[VIDEO_MAX_PLANES] = {};  // 为多平面准备数组
+        // 多平面处理
+        buf.length = buffers_[0].planes.size();     // 最大平面数
+        buf.m.planes = planes;                      // 指向平面数组
+    } else { // 单平面处理
+        // 对于DMABUF需要设置长度
+        if (V4L2_MEMORY_DMABUF == memory_type_) {
+            buf.length = buffers_[0].state->length;
+        }
+    }
+    
+    std::lock_guard<std::mutex> lock(_mutex_);
+    if (ioctl(fd_.get(), VIDIOC_DQBUF, &buf) < 0) {
+        if (errno == EAGAIN) 
+            return false;
+        throw V4L2Exception("VIDIOC_DQBUF failed", errno);
+    }
+    /* 自动释放锁
+     * 为什么这里就释放了锁?
+     * 在我的预想里回调函数应该是一个打包的入队函数
+     * 但是不保证所有人对该函数的理解一致,可能在回调函数内调用 returnBuffer 函数
+     * 若不释放锁,在这样的情况下将会死锁 (在锁的范围里去抢锁,但是抢不到,欸,就死了)
+     */
+    return true;
+}
+
+std::unique_ptr<Frame> CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t timestamp) {
+    // 这里的 frame 仅仅是指针或者文件描述符的引用,并未持有实际数据,并非深拷贝,并且Frame禁用了拷贝构造,仅保留移动构造
+    // 先声明后构造(少一次默认构造)
+    std::unique_ptr<Frame> frame_opt;
+    size_t total_size = 0;
+    switch (buf_type_)
+    {
+    case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
+        // --- 采用单平面连续物理内存的思想处理多平面
+        if (buf.length < 1) {
+            throw V4L2Exception("Invalid number of planes", EINVAL);
+        }
+        // 该部分基于一个理论实现(不保证全部平台支持)(连续内存区域不需要传递所有平面指针) 见 utils/rga/rgaConverter.h 说明
+        // void* plane0_ptr = buffers_[buf.index].planes[0].start;
+        // int plane0_fd = buffers_[buf.index].planes[0].dmabuf_fd;
+        for (uint32_t i = 0; i < buf.length; ++i) {
+            // 获取所有平面占用空间总和
+            total_size += buf.m.planes[i].length;
+        }
+        buffers_[buf.index].planes[0].state->length = total_size;
+        frame_opt = std::make_unique<Frame>(
+            buffers_[buf.index].planes[0].state,
+            timestamp, 
+            buf.index);
+        break;
+    case V4L2_BUF_TYPE_VIDEO_CAPTURE:
+        // DMA/MMAP 交由 SharedBufferState 管理
+        buffers_[buf.index].state->length = buf.bytesused;
+        frame_opt = std::make_unique<Frame>(
+            buffers_[buf.index].state,
+            timestamp,
+            buf.index); 
+        break;
+
+    default:
+        frame_opt = std::make_unique<Frame>(nullptr,0,-1);
+        break;
+    }
+    return std::move(frame_opt);
+}
+
+void CameraController::Impl::captureLoop() {
+    try
+    {
+    while (running_) {
+        if (true == paused_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            if (false == running_) break;
+            continue;
+        }
+        // 等待帧
+        if (false == waitForFrameReady()) continue;
+
+        // 出队缓冲区
+        v4l2_buffer buf = {};
+        dequeueBuffer(buf);
+        // 标记缓冲区已出队
+        buffers_[buf.index].queued = false;
+
+        // 计算 sensor_timestamp(us)
+        uint64_t sensor_us = static_cast<uint64_t>(buf.timestamp.tv_sec) * 1000000ULL + buf.timestamp.tv_usec;
+        uint64_t t0; // 出队时间(us)
+        mk::makeTimestamp(t0);
+
+        // 构造 Frame
+        /* 有点抽象,猜测是因为不允许复制uniqueptr,所以使用右值传递? */
+        auto frame_opt = makeFrame(buf, t0);
+
+        // 回调传递
+        if (frame_callback_ && 0 < frame_opt->index()) {
+            frame_callback_(std::move(*frame_opt));
+        } else returnBuffer(buf.index); // 未设置正确的回调时需要手动回收缓冲区
+        
+        // 帧率计算
+        calculateFps(sensor_us);
+    }
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Capture loop error: %s\n", e.what());
+        running_ = false;
+    }
+}
+
 int CameraController::Impl::changeConfig(const Config &config)
 {
     /* 关停线程
@@ -744,7 +778,6 @@ int CameraController::Impl::changeConfig(const Config &config)
 
 
 /* --- CameraController 公共接口实现 --- */
-
 CameraController::CameraController(const Config& config)
     : impl_(std::make_unique<Impl>(config)) {}
 
