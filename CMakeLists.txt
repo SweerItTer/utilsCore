@@ -1,6 +1,5 @@
-﻿cmake_minimum_required(VERSION 3.5)
-
-project(EdgeVision VERSION 0.1 LANGUAGES CXX)
+﻿cmake_minimum_required(VERSION 3.14)
+project(EdgeVision VERSION 1.0)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -27,6 +26,31 @@ if(USE_CROSS_COMPILE)
 
 endif()
 
+# 启用 ccache 加速编译
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
+# 优化编译选项
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    if(USE_CROSS_COMPILE)
+        set(march armv8.2-a)
+    else()
+        set(march native)
+    endif()
+    add_compile_options(
+        -O2                    # 最高优化级别
+        -march=${march}        # 本机编译时使用 native
+        -ffunction-sections    # 优化未使用的函数
+        -fdata-sections        # 优化未使用的数据
+    )
+    
+    add_link_options(
+        -Wl,--gc-sections     # 移除未使用的段
+    )
+endif()
+
 find_package(Qt5 COMPONENTS Core Quick Widgets Gui OpenGL REQUIRED)
 
 add_subdirectory(src/UI)            # GUI模块
@@ -34,5 +58,3 @@ add_subdirectory(src/model)         # 视觉模型模块
 add_subdirectory(src/utils)         # 工具模块
 
 add_subdirectory(examples)          # 例程
-# sshpass -p "root" scp ../build/examples/utils_test root@172.18.107.64:~/EdgeVision
-

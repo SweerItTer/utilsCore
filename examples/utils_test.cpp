@@ -6,13 +6,13 @@
 #include <iostream>
 #include <thread>
 
+// 资源初始化
+
 int rgaTest();
 int dmabufTest();
 
 int main(int argc, char const *argv[]) {
-    // 资源初始化
-    DmaBuffer::initialize_drm_fd();
-    
+    DrmDev::fd_ptr = DeviceController::create();
     int ret = 0;
     // 参数定义
     const char* rgatest_opt = "--rgatest";
@@ -69,8 +69,6 @@ int main(int argc, char const *argv[]) {
         std::cerr << "未知错误发生" << std::endl;
         ret = 1;
     }
-    // 资源清理
-    DmaBuffer::close_drm_fd();
     return ret;
 }
 
@@ -93,8 +91,8 @@ int virSave(void *data, size_t buffer_size){
 
 int rgaTest(){
     // 创建队列
-    auto rawFrameQueue  	= std::make_shared<FrameQueue>(4);
-    auto frameQueue     	= std::make_shared<FrameQueue>(4);
+    auto rawFrameQueue  	= std::make_shared<FrameQueue>(2);
+    auto frameQueue     	= std::make_shared<FrameQueue>(10);
 
     // 相机配置
     CameraController::Config cfg = {
@@ -112,11 +110,9 @@ int rgaTest(){
     // 初始化相机控制器
     auto cctr         	= std::make_shared<CameraController>(cfg);
 
-    cctr->setFrameCallback([rawFrameQueue](Frame f) {
+    cctr->setFrameCallback([rawFrameQueue](std::unique_ptr<Frame> f) {
         rawFrameQueue->enqueue(std::move(f));
     });
-
-    RgaConverter converter_ ;
 
     Frame::MemoryType frameType = (true == cfg.use_dmabuf)
     ? Frame::MemoryType::DMABUF
@@ -124,49 +120,30 @@ int rgaTest(){
 
     // 根据格式转换 RGA 格式
     int format = (V4L2_PIX_FMT_NV12 == cfg.format) ?
-        RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;
-
+    RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;
+    RgaProcessor::Config rgacfg{
+        cctr, rawFrameQueue, frameQueue, cfg.width,
+        cfg.height, frameType, RK_FORMAT_RGBA_8888, format, 10
+    };
+    RgaProcessor processor_(rgacfg) ;
+    
     cctr->start();
-    // 源图像
-    rga_buffer_t src {};
-    // 输出图像
-    rga_buffer_t dst {};
+    processor_.start();
 
-    src.width = cfg.width;
-    src.height = cfg.height;
-    src.wstride = cfg.width;
-    src.hstride = cfg.height;
-    src.format = format;
-    
-    dst = src;
-    
-    auto frame = rawFrameQueue->dequeue();
-    cctr->pause();
-    src.fd = frame.dmabuf_fd();
-
-    auto bufptr =  DmaBuffer::create(cfg.width, cfg.height, DRM_FORMAT_RGBA8888);
-
-    dst.fd = bufptr->fd();
-    
-    dst.format = RK_FORMAT_RGBA_8888;
-
-    im_rect rect = {0, 0, static_cast<int>(cfg.width), static_cast<int>(cfg.height)};
-    RgaConverter::RgaParams params {src, rect, dst, rect};
-    // 格式转换
-    IM_STATUS status = converter_.FormatTransform(params);
-    
-    // rawQueue_ 需要 returnBuffer, 需要传递 CameraController
-    // 不管是否转换成功都归还
-    cctr->returnBuffer(frame.index());
-    
-    if (IM_STATUS_SUCCESS != status) {
-        fprintf(stderr, "RGA convert failed: %d\n", status);
+    std::unique_ptr<Frame> frame;
+    while (!frameQueue->try_dequeue(frame)){
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        continue;
     }
-    RgaProcessor::dumpDmabufAsRGBA(bufptr->fd(), bufptr->width(), bufptr->height(), bufptr->size(), bufptr->pitch(), "./end.rgba");
+    std::cout << "frame Index:\t" << frame->meta.index << "\nframe fd:\t"
+    << frame->dmabuf_fd() << "\nw:\t" << frame->meta.w << "\nh:\t" << frame->meta.h
+    << "\t\n---\n";
+    auto bufptr = frame->sharedState()->dmabuf_ptr;
+    RgaProcessor::dumpDmabufAsRGBA(bufptr->fd(), frame->meta.w, frame->meta.h, bufptr->size(), bufptr->pitch(), "./end.rgba");
 
-    // 停止相机
+    processor_.releaseBuffer(frame->meta.index);
+    processor_.stop();
     cctr->stop();
-    
     return 0;
 }
 
@@ -182,44 +159,21 @@ int dmabufTest()
     auto size = queue_.size();
     for (int i = 0; i < size; i++){
         auto buf = queue_.dequeue();
-        std::cout << "Prime fd: " << buf->fd() << ", Size: " << buf->size()
-            << ", Width: " << buf->width() << ", Height: " << buf->height() << std::endl;
+        if (nullptr != buf) {
+            std::cout << "[rawDmabuf] Prime fd: " << buf->fd() << ", Size: " << buf->size()
+                << ", Width: " << buf->width() << ", Height: " << buf->height() << std::endl;
+        } else {
+            std::cerr << "Failed to create DmaBuffer\n";
+            continue;
+        }
+        // 从 fd 导入
+        auto ibuf = DmaBuffer::importFromFD(buf->fd(), buf->width(), buf->height(), buf->format());
+        if (nullptr != ibuf) {
+            std::cout << "[importDmabuf] Prime fd: " << ibuf->fd() << ", Size: " << ibuf->size()
+                << ", Width: " << ibuf->width() << ", Height: " << ibuf->height() << std::endl;
+        } else {
+            std::cerr << "Failed to import DmaBuffer from fd\n";
+        }
     }
     return 0;
 }
-
-/*root@ATK-DLRK3568:~/EdgeVision/examples# ./utils_test --rgatest
-rga_api version 1.3.1_[11] (RGA is compiling with meson base: $PRODUCT_BASE)
-Warning: driver changed resolution to 3840x2160
-Had init the rga dev ctx = 0xb9ae4d0
-rga_api version 1.3.1_[11] (RGA is compiling with meson base: $PRODUCT_BASE)
-Had init the rga dev ctx = 0xb9ae4d0
-rga_api version 1.3.1_[11] (RGA is compiling with meson base: $PRODUCT_BASE)
-Closing plane dmabuf fd 6
-DmaBuffer::cleanup(): fd=6, handle=1
-Closing plane dmabuf fd 7
-DmaBuffer::cleanup(): fd=7, handle=2
-Closing plane dmabuf fd 8
-DmaBuffer::cleanup(): fd=8, handle=3
-Closing plane dmabuf fd 9
-DmaBuffer::cleanup(): fd=9, handle=4
-close fd: 5
-close fd: 3
-root@ATK-DLRK3568:~/EdgeVision/examples# ^C
-root@ATK-DLRK3568:~/EdgeVision/examples# ./utils_test --rgatest
-Warning: driver changed resolution to 3840x2160
-rga_api version 1.3.1_[11] (RGA is compiling with meson base: $PRODUCT_BASE)
-Had init the rga dev ctx = 0x3a4998c0
-rga_api version 1.3.1_[11] (RGA is compiling with meson base: $PRODUCT_BASE)
-[dump] Saved 3840x2160 RGBA8888 image to /end.rgba
-Closing plane dmabuf fd 5
-DmaBuffer::cleanup(): fd=5, handle=1
-Closing plane dmabuf fd 6
-DmaBuffer::cleanup(): fd=6, handle=2
-Closing plane dmabuf fd 7
-DmaBuffer::cleanup(): fd=7, handle=3
-Closing plane dmabuf fd 8
-DmaBuffer::cleanup(): fd=8, handle=4
-DmaBuffer::cleanup(): fd=10, handle=5
-close fd: 4
-close fd: 3*/

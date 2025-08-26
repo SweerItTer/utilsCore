@@ -24,7 +24,7 @@ class CameraController {
 public:
     // 定义 FrameCallback 类型(更简洁,简化std::function<void(Frame)>声明)
     // 接受的参数是 Frame,返回类型为 void
-    using FrameCallback = std::function<void(Frame)>;
+    using FrameCallback = std::function<void(std::unique_ptr<Frame>)>;
     
     struct Config {
         // 默认配置

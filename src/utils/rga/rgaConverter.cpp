@@ -21,21 +21,13 @@ RgaConverter::~RgaConverter() {
 }
 
 IM_STATUS RgaConverter::FormatTransform(RgaParams& params){
-    return convertImage(params.src.format, params.dst.format, params);
-}
-
-IM_STATUS RgaConverter::convertImage(int src_fmt, int dst_fmt, RgaParams &params)
-{
     if (false == m_initialized) {
         return IM_STATUS_NOT_SUPPORTED;
     }
 
-    if (src_fmt != params.src.format) {
+    if (params.dst.format == params.src.format) {
         return IM_STATUS_ILLEGAL_PARAM;
     }
-
-    // 目标格式
-    if (params.dst.format != dst_fmt) params.dst.format = dst_fmt;
     
     IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
     if (IM_STATUS_NOERROR != ret) {
@@ -43,7 +35,7 @@ IM_STATUS RgaConverter::convertImage(int src_fmt, int dst_fmt, RgaParams &params
         return ret;
     }
 
-    ret = imcvtcolor(params.src, params.dst, src_fmt, dst_fmt);
+    ret = imcvtcolor(params.src, params.dst, params.src.format, params.dst.format);
     if (IM_STATUS_SUCCESS != ret) {
         fprintf(stderr, "%s", imStrError(ret));
     }
@@ -51,3 +43,23 @@ IM_STATUS RgaConverter::convertImage(int src_fmt, int dst_fmt, RgaParams &params
     return ret;
 }
 
+IM_STATUS RgaConverter::ImageResize(RgaParams& params){
+    if (!m_initialized) {
+        return IM_STATUS_NOT_SUPPORTED;
+    }
+    if (params.dst.width == params.src.width && params.dst.height == params.src.height){
+        return IM_STATUS_ILLEGAL_PARAM;
+    }
+
+    IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
+    if (ret != IM_STATUS_NOERROR) {
+        fprintf(stderr, "%s", imStrError(ret));
+        return ret;
+    }
+
+    ret = imresize(params.src, params.dst);
+    if (ret != IM_STATUS_SUCCESS) {
+        fprintf(stderr, "%s", imStrError(ret));
+    }
+    return ret;
+}

@@ -9,12 +9,18 @@
 
 #include "logger.h"
 
-FdWrapper DmaBuffer::drm_fd;
-
-// 根据指定大小分配(在需求内存对齐的情况下)
-std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size)
+/* 问题: 内核会强制修改我调整过的大小为它认为更好的
+ * 但是内核二次调整的结果并不总是符合预期
+ * 例如 v4l2 对齐后的要求 size 是 3133440, 通过内存对齐的方法得出的是 3179520
+ * 但是内核会修改为 3096576, 导致v4l2入队失败
+ * 解决: 保留 pitch 内存对齐方法, 直接将修改后的 pitch 传递给 width, 强制修改所需空间
+ * 这样哪怕内核二次对齐, 也不会小于所需空间
+ */
+std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
+                                             uint32_t format, uint32_t required_size)
 {
-    if (-1 == drm_fd.get()) {
+    std::lock_guard<std::mutex> lock(DrmDev::fd_mutex);
+    if (-1 == DrmDev::fd_ptr->get()) {
         Logger::log(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
         return nullptr;
     }
@@ -25,25 +31,33 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
         return nullptr;
     }
 
-    drm_mode_create_dumb create_arg = {};
-    create_arg.width  = width;
-    create_arg.height = height;
-    create_arg.bpp    = bpp;
-
-    // DRM dumb buffer 对齐要求（常见 64 字节对齐）
     constexpr uint32_t align_options[] = {16, 32, 64, 128};
     for (uint32_t align : align_options) {
-        create_arg.pitch = ((width * bpp / 8 + align - 1) / align) * align;  // 向上对齐
-        create_arg.size  = create_arg.pitch * height;
+        // 按字节对齐计算新的 pitch 和 width
+        uint32_t pitch_bytes = ((width * bpp / 8 + align - 1) / align) * align;
+        uint32_t aligned_width = pitch_bytes * 8 / bpp;
+
+        drm_mode_create_dumb create_arg = {};
+        create_arg.width  = aligned_width; // 直接将对齐后的宽度传入(避免内核二次对齐)
+        create_arg.height = height;
+        create_arg.bpp    = bpp;
+
+        if (drmIoctl(DrmDev::fd_ptr->get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg) < 0) {
+            Logger::log(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed with align %u: %d\n",
+                        align, errno);
+            continue;
+        }
 
         if (create_arg.size < required_size) {
-            continue; // 尝试更大对齐
+            // 销毁 handle, 尝试更大对齐
+            drm_mode_destroy_dumb destroy_arg = {};
+            destroy_arg.handle = create_arg.handle;
+            drmIoctl(DrmDev::fd_ptr->get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
+            continue;
         }
-
-        if (0 > drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg)) {
-            Logger::log(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed with align %u: %d\n", align, errno);
-            continue; // 尝试下一个对齐
-        }
+        // std::cout << "alignedWidth:\t"<< aligned_width << "\theight\t" << height
+        //     << "\tbpp:\t" << bpp << "\tpitch:\t" << create_arg.pitch
+        //     << "\tcreatedSize:\t" << create_arg.size << "\trequiredSize: \t" << required_size << "\n";
 
         int primefd = exportFD(create_arg);
         if (primefd < 0) {
@@ -52,7 +66,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
         }
 
         return std::shared_ptr<DmaBuffer>(
-            new DmaBuffer(primefd, create_arg.handle, width, height,
+            new DmaBuffer(primefd, create_arg.handle, aligned_width, height,
                           format, create_arg.pitch, create_arg.size));
     }
 
@@ -63,7 +77,8 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
 // 无需内存对齐直接分配
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, uint32_t format)
 {
-    if (-1 == drm_fd.get()) {
+    std::lock_guard<std::mutex> lock(DrmDev::fd_mutex);
+    if (-1 == DrmDev::fd_ptr->get()) {
         Logger::log(stderr, "DRM fd not initialized, please call initialize_drm_fd() first");
         return nullptr;
     }
@@ -79,7 +94,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
     }
 
     create_arg.bpp = bpp;
-    if (0 > drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg)) {
+    if (0 > drmIoctl(DrmDev::fd_ptr->get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg)) {
         Logger::log(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed: %d\n", errno);
     }
 
@@ -94,25 +109,62 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, ui
                       format, create_arg.pitch, create_arg.size)
     );
 }
+// 从外部导入
+std::shared_ptr<DmaBuffer> DmaBuffer::importFromFD(
+    int importFd, uint32_t width, uint32_t height, uint32_t format)
+{
+    if (importFd < 0) {
+        Logger::log(stderr, "Invalid import fd: %d\n", importFd);
+        return nullptr;
+    }
+    if (width == 0 || height == 0) {
+        Logger::log(stderr, "Invalid dimensions: %ux%u\n", width, height);
+        return nullptr;
+    }
 
-int DmaBuffer::exportFD(drm_mode_create_dumb& create_arg)
+    std::lock_guard<std::mutex> lock(DrmDev::fd_mutex);
+    if (-1 == DrmDev::fd_ptr->get()) {
+        Logger::log(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
+        return nullptr;
+    }
+
+    uint32_t bpp = calculate_bpp(format);
+    if ((uint32_t)-1 == bpp) {
+        Logger::log(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
+        return nullptr;
+    }
+
+    uint32_t raw_pitch = (width * bpp + 7) / 8;
+    uint32_t align = 64;
+    uint32_t pitch = (raw_pitch + align - 1) / align * align;
+    uint32_t size = pitch * height;
+
+    uint32_t handle = 0;
+    if (drmPrimeFDToHandle(DrmDev::fd_ptr->get(), importFd, &handle) < 0) {
+        Logger::log(stderr, "Failed to import DMA-BUF fd: %d\n", importFd);
+        return nullptr;
+    }
+
+    return std::shared_ptr<DmaBuffer>(
+        new DmaBuffer(importFd, handle, width, height, format, pitch, size));
+}
+
+
+int DmaBuffer::exportFD(drm_mode_create_dumb &create_arg)
 {
     // 将handle导出为fd(drmPrimeHandle -> drmPrimeFD)
     int prime_fd = -1;
-    if (0 > drmPrimeHandleToFD(drm_fd.get(), create_arg.handle, DRM_CLOEXEC | DRM_RDWR, &prime_fd)) {
+    if (0 > drmPrimeHandleToFD(DrmDev::fd_ptr->get(), create_arg.handle, DRM_CLOEXEC | DRM_RDWR, &prime_fd)) {
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = create_arg.handle;
-        drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
+        drmIoctl(DrmDev::fd_ptr->get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
         Logger::log(stderr, "drmPrimeHandleToFD failed");
     }
 
     /* 如果完全依赖 prime fd，可立即销毁 handle。
     * 如果后续需要 plane attach，必须保留 handle + drm_fd 直到 attach 完成。
-    * 此处注释为立即销毁 handle。
+    * 立即销毁 handle 实现见 DmaBuffer::cleanup()
     */
-    // drm_mode_destroy_dumb destroy_arg = {};
-    // destroy_arg.handle = create_arg.handle;
-    // drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);;
     return prime_fd;
 }
 
@@ -136,40 +188,21 @@ DmaBuffer::~DmaBuffer()
 
 void DmaBuffer::cleanup() noexcept
 {
-    Logger::log(stdout,"DmaBuffer::cleanup(): fd=%d, handle=%d\n", m_fd, m_handle);
+    // fprintf(stdout,"DmaBuffer:closed: fd=%d, handle=%d\n", m_fd, m_handle);
     if (-1 != m_fd) {
         // 关闭 dambuf fd
         ::close(m_fd);
         m_fd = -1;
     }
     // 销毁 Handle
-    if (0 != m_handle && -1 != drm_fd.get()) {
+    std::lock_guard<std::mutex> lock(DrmDev::fd_mutex);
+    if (0 != m_handle && -1 != DrmDev::fd_ptr->get()) {
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = m_handle;
-        drmIoctl(drm_fd.get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
+
+        drmIoctl(DrmDev::fd_ptr->get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
         m_handle = 0;
     }
-}
-
-// 打开全局 drm_fd (后续仍会使用到(不仅仅是导出dmabuf fd))
-void DmaBuffer::initialize_drm_fd()
-{
-    if (-1 == drm_fd.get()) {
-        try{
-            int fd = ::open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
-            if (-1 == fd) {
-                throw std::system_error(errno, std::system_category(), "Failed to open DRM device");
-            }
-            drm_fd = FdWrapper(fd);
-        } catch (const std::system_error& ex){
-            Logger::log(stderr, "DmaBuffer::initialize_drm_fd: %s\n",ex.what());
-        }
-    }
-}
-
-void DmaBuffer::close_drm_fd()
-{
-    drm_fd = FdWrapper(); // 析构自动关闭
 }
 
 // 移动构造
@@ -177,7 +210,6 @@ DmaBuffer::DmaBuffer(DmaBuffer &&other) noexcept
 {
     *this = std::move(other);
 }
-
 // 移动操作符
 DmaBuffer& DmaBuffer::operator=(DmaBuffer&& other) noexcept
 {

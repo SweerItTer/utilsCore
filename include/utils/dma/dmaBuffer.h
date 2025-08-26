@@ -9,18 +9,16 @@
 
 #include <memory>
 
-#include "drm/drmBpp.h"
-#include "fdWrapper.h"
+#include "drm/deviceController.h"
 
 class DmaBuffer {
-public:
-    static void initialize_drm_fd();
-    static void close_drm_fd();
-    
+public:    
     // 根据实际 size 尝试通过修改分辨率实现逼近
     static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size);
 
     static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format);
+
+    static std::shared_ptr<DmaBuffer> importFromFD(int importFd, uint32_t width, uint32_t height, uint32_t format);
 
     uint32_t handle() const noexcept { return m_handle; }
     uint32_t width()  const noexcept { return m_width;  }
@@ -37,9 +35,6 @@ public:
     DmaBuffer(DmaBuffer&& other) noexcept;
     DmaBuffer& operator=(DmaBuffer&& other) noexcept;
     ~DmaBuffer();
-    
-    // 内部全局唯一 drm_fd
-    static FdWrapper drm_fd;
 private:
     static int exportFD(drm_mode_create_dumb& create_arg);
 
