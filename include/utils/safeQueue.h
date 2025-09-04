@@ -52,6 +52,7 @@ private:
     std::condition_variable not_empty_cond_;
     std::condition_variable not_full_cond_;
 public:
+    size_t getBufferRealSize(){ return buffer_.size(); }
     // 溢出策略枚举
     enum class OverflowPolicy {
         DISCARD_OLDEST,  // 丢弃最旧的项目

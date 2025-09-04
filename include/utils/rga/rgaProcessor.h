@@ -15,7 +15,7 @@
 #include "v4l2/cameraController.h"
 #include "rga/rgaConverter.h"
 #include "dma/dmaBuffer.h"
-
+#include "rga/rga2drm.h"
 
 struct RgbaBuffer {
     std::shared_ptr<SharedBufferState> s;
@@ -68,7 +68,7 @@ public:
         std::shared_ptr<FrameQueue> outQueue = nullptr;
         uint32_t width = 0;
         uint32_t height = 0;
-        Frame::MemoryType frameType = Frame::MemoryType::MMAP;
+        bool usingDMABUF = false;
         int dstFormat = RK_FORMAT_RGBA_8888;
         int srcFormat = RK_FORMAT_YCbCr_420_SP;
         int poolSize = 4;
@@ -86,7 +86,7 @@ public:
 
     void releaseBuffer(int index);
 
-    static bool dumpDmabufAsRGBA(int dmabuf_fd, uint32_t width, uint32_t height, uint32_t size, uint32_t pitch, const char* path);
+    static bool dumpDmabufAsXXXX8888(int dmabuf_fd, uint32_t width, uint32_t height, uint32_t size, uint32_t pitch, const char* path);
 private:
     void initpool();
     int getAvailableBufferIndex();
@@ -113,7 +113,7 @@ private:
     std::vector<RgbaBuffer> bufferPool_;
     int currentIndex_ = 0;
     const int poolSize_ = 0;
-    const Frame::MemoryType frameType_;
+    Frame::MemoryType frameType_;
 
     int yoloW = 0;
     int yoloH = 0;

@@ -12,23 +12,35 @@
 #include "drm/deviceController.h"
 
 class DmaBuffer {
+struct dmaBufferData {
+    uint32_t handle;
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;
+    uint32_t pitch;
+    uint64_t size;
+    uint32_t offset;
+};
+
 public:    
     // 根据实际 size 尝试通过修改分辨率实现逼近
-    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size);
+    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size, uint32_t offset);
 
-    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format);
+    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t offset);
 
-    static std::shared_ptr<DmaBuffer> importFromFD(int importFd, uint32_t width, uint32_t height, uint32_t format);
-
-    uint32_t handle() const noexcept { return m_handle; }
-    uint32_t width()  const noexcept { return m_width;  }
-    uint32_t height() const noexcept { return m_height; }
-    uint32_t format() const noexcept { return m_format; }
-    uint32_t pitch()  const noexcept { return m_pitch;  }
-    uint32_t size()   const noexcept { return m_size;   }
+    static std::shared_ptr<DmaBuffer> importFromFD(int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t offset);
 
     int fd() const noexcept { return m_fd; }
 
+    uint32_t handle() const noexcept { return data_.handle; }
+    uint32_t width()  const noexcept { return data_.width;  }
+    uint32_t height() const noexcept { return data_.height; }
+    uint32_t format() const noexcept { return data_.format; }
+    uint32_t pitch()  const noexcept { return data_.pitch;  }
+    uint32_t size()   const noexcept { return data_.size;   }
+    uint32_t offset() const noexcept { return data_.offset; }
+    
+    // 禁止拷贝
     DmaBuffer(const DmaBuffer&) = delete;
     DmaBuffer& operator=(const DmaBuffer&) = delete;
 
@@ -37,19 +49,13 @@ public:
     ~DmaBuffer();
 private:
     static int exportFD(drm_mode_create_dumb& create_arg);
-
-    DmaBuffer(int prime_fd, uint32_t handle, uint32_t width,
-        uint32_t height, uint32_t format, uint32_t pitch, uint32_t size);
+    
+    DmaBuffer(int primeFd, dmaBufferData& data);
 
     void cleanup() noexcept;
     
     int m_fd = -1;
-    uint32_t m_handle  = 0;
-    uint32_t m_width  = 0;
-    uint32_t m_height = 0;
-    uint32_t m_format = 0;
-    uint32_t m_pitch  = 0;
-    uint32_t m_size   = 0;
+    dmaBufferData data_;
 };
 
 using DmaBufferPtr = std::shared_ptr<DmaBuffer>;

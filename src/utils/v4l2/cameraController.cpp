@@ -94,7 +94,7 @@ private:
     void requestBuffers();
     void mapBuffers();
     // 创建dmabuf
-    DmaBufferPtr createDmabuf(size_t planes_length);
+    DmaBufferPtr createDmabuf(size_t planes_length, uint32_t offset);
     void allocateDMABuffers();
     int  enqueueBuffer(int index);
     void startStreaming();
@@ -371,40 +371,29 @@ void CameraController::Impl::allocateDMABuffers() {
     // 使用DRM API创建DUMB缓冲区
     // --- 根据实际情况修改容器长度 ---
     for (int i = 0; i < buffers_.size(); i++) {
-        size_t plane_num = 1; // 实际 planes 个数
-        size_t planes_length = 0; // 实际 v4l2 需求的 planes 长度
+        size_t plane_num = config_.plane_count;     // 实际 planes 个数
+        v4l2_buffer buf = {};
+        buf.type = buf_type_;
+        buf.memory = V4L2_MEMORY_DMABUF;
+        buf.index = i;
+        buf.length = plane_num; // 先手动设置平面个数
         // 判断是否多平面格式
         if (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_) {
-            v4l2_buffer buf = {};
             v4l2_plane planes[VIDEO_MAX_PLANES] = {};
-
-            buf.type = buf_type_;
-            buf.memory = V4L2_MEMORY_DMABUF;
-            buf.index = i;
             buf.m.planes = planes;
-            buf.length = config_.plane_count; // 先手动设置平面个数
-
+            // 查询缓冲区信息
             if (0 > ioctl(fd_.get(), VIDIOC_QUERYBUF, &buf)) {
                 throw V4L2Exception("VIDIOC_QUERYBUF failed", errno);
-            }
-            
-            plane_num = buf.length; // 查询v4l2实际分配平面个数
+            } 
+            // 查询v4l2实际分配平面个数
+            plane_num = buf.length; 
             if (plane_num == 0 || plane_num > VIDEO_MAX_PLANES) {
                 throw V4L2Exception("Invalid number of planes reported by VIDIOC_QUERYBUF", EINVAL);
             }
-            // 获取实际需求长度
-            /* 通常只取第一个平面的长度是不正确的,但是若仅支持NV12的话
-             * 第一个平面(Y)长度 = 宽 × 高
-             * 第二个平面(UV)长度 = 宽 × 高 / 2
-             * 完全可以使用p1的长度去分配p2,但是也有弊端,内存比实际需求要大
-             * 并且对多格式兼容性为0,后续优化可以是支持所有平面
-             */
-            planes_length = buf.m.planes[0].length;
             // 修改 buffers_.planes 容器大小为实际 planes 个数
             buffers_[i].planes.resize(plane_num);
         } else {
-            // 单平面情况下只需要一个
-            plane_num = 1;
+            plane_num = buf.length; 
         }
 
     // --- 创建DMABUF缓冲区 ---
@@ -413,19 +402,27 @@ void CameraController::Impl::allocateDMABuffers() {
          * 导致需要的 plane.length 比通过 currentWidth * currentHeight * bpp 估算的分配的大
          */
         if (V4L2_BUF_TYPE_VIDEO_CAPTURE == buf_type_){
-            auto buf = createDmabuf(planes_length);
+            auto dmabuf = createDmabuf(buf.m.offset, 0);
             // 单平面直接对buffers_赋值
             buffers_[i].state = std::make_shared<SharedBufferState>(
-                std::move(buf), nullptr);
+                std::move(dmabuf), nullptr);
             continue;
         }
         
         for (size_t p = 0; p < plane_num; ++p) {
+            /* 通常只取第一个平面的长度是不正确的,但是若仅支持NV12的话
+             * 第一个平面(Y)长度 = 宽 × 高
+             * 第二个平面(UV)长度 = 宽 × 高 / 2
+             * 完全可以使用p1的长度去分配p2,但是也有弊端,内存比实际需求要大
+             * 并且对多格式兼容性为0,后续优化可以是支持所有平面
+             */
+            size_t planes_length = buf.m.planes[p].length;        // 实际 v4l2 需求的 planes 长度
+            size_t planes_offset = buf.m.planes[p].data_offset;  // 数据偏移量
             // 创建dmabuf
-            auto buf = createDmabuf(planes_length);
+            auto dmabuf = createDmabuf(planes_length, planes_offset);
             // 多平面下给对应的平面赋值
             buffers_[i].planes[p].state = std::make_shared<SharedBufferState>(
-                std::move(buf), nullptr);
+                std::move(dmabuf), nullptr);
             /* 需要移动保证生命周期
              * shared_ptr 的意义不在这,意义在于给其他硬件共享 prime fd
              * 如果在这里引用 +1 后又 -1 ,白白浪费了一次拷贝销耗的性能
@@ -547,7 +544,7 @@ void CameraController::Impl::releaseBuffers()
     buffers_.swap(temp);
 }
 
-DmaBufferPtr CameraController::Impl::createDmabuf(size_t planes_length){
+DmaBufferPtr CameraController::Impl::createDmabuf(size_t planes_length, uint32_t offset){
     DmaBufferPtr buf = nullptr;
     // 获取bpp
     auto currentformat = convertV4L2ToDrmFormat(config_.format);
@@ -556,7 +553,7 @@ DmaBufferPtr CameraController::Impl::createDmabuf(size_t planes_length){
     }
 
     // 根据实际长宽分配内存
-    buf = DmaBuffer::create(currentWidth, currentHeight, currentformat, planes_length);
+    buf = DmaBuffer::create(currentWidth, currentHeight, currentformat, planes_length, offset);
     if (nullptr == buf) {
         throw V4L2Exception("create DmaBuffer failed.");
     }

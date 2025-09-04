@@ -34,8 +34,10 @@ public:
         {
         std::unique_lock<std::mutex> lock(queue_mutex_);
         if (false == running) throw std::runtime_error("enqueue on stopped ThreadPool");
-        // 解引用给出可调用对象
-        tasks.emplace([task]() { (*task)(); });
+        if (tasks.size() <= poolSize_){
+            // 解引用给出可调用对象
+            tasks.emplace([task]() { (*task)(); });
+        }
         }
         condition_.notify_one();
         return res;
@@ -43,6 +45,7 @@ public:
 private:
     void worker();
 private:
+    std::size_t poolSize_;
     std::vector<std::thread> workers;
     std::queue<std::function<void()>> tasks;
     std::atomic<bool> running;

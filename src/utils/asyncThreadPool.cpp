@@ -8,10 +8,11 @@
 
 
 asyncThreadPool::asyncThreadPool(std::size_t poolSize)
-: running(true) {
-    if (poolSize > std::thread::hardware_concurrency())
-        poolSize = std::thread::hardware_concurrency();
-    for (size_t i = 0; i < poolSize; i++)
+: running(true), poolSize_(poolSize)  {
+    // 直接去最大可用线程数
+    std::size_t worksSize = std::thread::hardware_concurrency();
+    
+    for (size_t i = 0; i < worksSize; i++)
     {
         workers.emplace_back([this](){
             worker();
