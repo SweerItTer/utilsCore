@@ -48,5 +48,5 @@ inline uint32_t formatRGAtoDRM(int rgaFmt) {
     if (it != rgaToDrmMap.end()) {
         return it->second;
     }
-    return DRM_FORMAT_INVALID; // 未找到对应格式
+    return -1; // 未找到对应格式
 }

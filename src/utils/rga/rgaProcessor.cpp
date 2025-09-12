@@ -84,10 +84,6 @@ void RgaProcessor::stop()
         worker_.join();
     }
 
-    // auto size = rawQueue_->size();
-    // for (int i=0; i < size; i++){
-    //     cctr_->returnBuffer(rawQueue_->dequeue()->index());
-    // }
     rawQueue_->clear();
 
     outQueue_->clear();
@@ -114,6 +110,7 @@ int RgaProcessor::getAvailableBufferIndex()
 
         // 检查缓冲区是否可用
         if (true == buf.in_use || nullptr == buf.s || false == buf.s->valid) {
+            // fprintf(stdout, "bufferPool_ using\n");
             continue;
         }
         if (Frame::MemoryType::DMABUF == frameType_) {

@@ -12,6 +12,7 @@
 #include <vector>
 #include <thread>
 #include <atomic>
+#include <functional>
 
 #include "drm/drmBpp.h"
 #include "fdWrapper.h"
@@ -119,6 +120,7 @@ using PlanesCachePtr = std::shared_ptr<PlanesPropertyCache>;
 // 全局唯一设备管理器
 class DeviceController {
 public:
+    using ResourceCallback = std::function<void()>;
     // 资源获取
     static DrmDevicePtr create(const std::string& path = "/dev/dri/card0");
     // 资源释放
@@ -128,17 +130,17 @@ public:
     DeviceController(const DeviceController&) = delete;
     DeviceController& operator=(const DeviceController&) = delete;
     
-    // 获取设备fd
+    // 获取DRM设备fd
     int get() const { return fd_.get(); }
-    // 资源获取
-    std::shared_ptr<drmModeRes> getResources() const { 
-        std::lock_guard<std::mutex> lock(resMutex_);
-        return resources_; 
-    }
-    std::shared_ptr<drmModePlaneRes> getPlaneResources() const { 
-        std::lock_guard<std::mutex> lock(resMutex_);
-        return planeResources_; 
-    }
+    
+    // 注册资源回调
+    void registerResourceCallback(
+        const ResourceCallback& preRefreshCallback,
+        const ResourceCallback& postRefreshCallback);
+
+    // 获取属性ID
+    uint32_t getPropertyId(int fd, drmModeObjectPropertiesPtr props, const char *name);
+
     // 获取设备组合
     SharedDev& getDevices() { 
         std::lock_guard<std::mutex> lock(devMutex_);
@@ -147,20 +149,8 @@ public:
     /* 获取指定类型的planeId
      * @param plane_type: DRM_PLANE_TYPE_OVERLAY , DRM_PLANE_TYPE_PRIMARY , DRM_PLANE_TYPE_CURSOR 
     */
-    void getPossiblePlane(int plane_type, std::vector<uint32_t> &out_ids) {
-        if (planesCache_.size() == 0) {
-            fprintf(stdout, "There is no plane cached.\n");
-            return;
-        }
-        std::lock_guard<std::mutex> lock(cacheMutex_);
-        out_ids.clear();
-        // 筛选指定类型plane
-        for (const auto &pair : planesCache_) {
-            if (pair.second->type == plane_type) {
-                out_ids.push_back(pair.first);
-            }
-        }
-    }
+   void getPossiblePlane(int plane_type, uint32_t format, std::vector<uint32_t>& out_ids);
+    
     // 通过ID获取缓存的plane
     PlanesCachePtr getPlaneById(uint32_t id) {
         std::lock_guard<std::mutex> lock(cacheMutex_);
@@ -171,11 +161,17 @@ public:
     // 刷新资源
     std::shared_ptr<drmModeRes> refreshResources();
     SharedDev& refreshAllDevices();
-    
-    // 平面属性查询
-    size_t refreshPlane(uint32_t format, uint32_t crtc_id);
-    uint32_t getPropertyId(int fd, drmModeObjectPropertiesPtr props, const char *name);
-
+    // 平面资源刷新
+    size_t refreshPlane(uint32_t crtc_id);
+    // 资源获取
+    std::shared_ptr<drmModeRes> getResources() const { 
+        std::lock_guard<std::mutex> lock(resMutex_);
+        return resources_; 
+    }
+    std::shared_ptr<drmModePlaneRes> getPlaneResources() const { 
+        std::lock_guard<std::mutex> lock(resMutex_);
+        return planeResources_; 
+    }
 private:
     // 绑定connector和crtc
     int bindConn2Crtc(int fd, uint32_t conn_id, uint32_t crtc_id, drmModeModeInfo& mode);
@@ -186,24 +182,36 @@ private:
     int getPlaneType(uint32_t plane_id);
     explicit DeviceController(int fd);
     
-    FdWrapper fd_;  // RAII 管理 drm fd
+    FdWrapper fd_;                                  // RAII 管理 drm fd
+
     mutable std::mutex crtcMutex_;
     std::unordered_map<uint32_t, bool> crtcStatu;   // CRTC 使用状态
 
     mutable std::mutex devMutex_;
-    SharedDev devices_;       // 设备组合列表(connector-encoder-crtc)
+    SharedDev devices_;                             // 设备组合列表(connector-encoder-crtc)
 
-    // 资源(裸)指针
+    // 资源指针
     mutable std::mutex resMutex_;
     std::shared_ptr<drmModeRes> resources_ = nullptr;
     std::shared_ptr<drmModePlaneRes> planeResources_ = nullptr;
 
+    // plane 缓存
     mutable std::mutex cacheMutex_;
     std::unordered_map<uint32_t, PlanesCachePtr> planesCache_ = {};
-    // 热插拔监听线程
+    
+    // 热插拔事件监听线程
+    void handleHotplugEvent();
     std::thread hotplugThread_;
     std::atomic<bool> hotplugRunning_{true};
     std::atomic<bool> hotplugFlag{false};
+    
+    // 资源刷新同步
+    void notifyPreRefresh();
+    void notifyPostRefresh();
+    
+    // 回调管理
+    std::mutex callbackMutex_;
+    std::vector<std::pair<ResourceCallback, ResourceCallback>> callbacks_;
 };
 
 #endif // DEVICE_CONTROLLER_H

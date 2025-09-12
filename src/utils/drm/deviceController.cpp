@@ -109,95 +109,128 @@ DeviceController::DeviceController(int fd) : fd_(fd) {
     // 初始化资源
     refreshResources();
     refreshAllDevices();
-    
+
     // 在构造函数中启动 Udev 监听线程
-    hotplugThread_ = std::thread([this]() {
-        struct udev *udev = udev_new();
-        if (!udev) {
-            fprintf(stderr, "Failed to create udev context\n");
-            return;
-        }
-        
-        // 创建监视器, 监听 DRM 子系统的事件
-        struct udev_monitor *monitor = udev_monitor_new_from_netlink(udev, "udev"); // udev: 事件源(可选项还有 kernel)
-        // 过滤drm子系统事件
-        udev_monitor_filter_add_match_subsystem_devtype(monitor, "drm", NULL);
-        // 启动监控过程
-        udev_monitor_enable_receiving(monitor);
-        // 获取监视器的文件描述符
-        int monitorFd = udev_monitor_get_fd(monitor);
+    hotplugThread_ = std::thread(&DeviceController::handleHotplugEvent, this);
+}
 
-        int epollFd = epoll_create1(0);  // 创建epoll实例,需要释放
-        if (epollFd < 0) {
-            perror("epoll_create1 failed");
-            udev_monitor_unref(monitor);
-            udev_unref(udev);
-            return;
-        }
+void DeviceController::handleHotplugEvent() {
+    struct udev *udev = udev_new();
+    if (!udev) {
+        fprintf(stderr, "Failed to create udev context\n");
+        return;
+    }
+    
+    // 创建监视器, 监听 DRM 子系统的事件
+    struct udev_monitor *monitor = udev_monitor_new_from_netlink(udev, "udev"); // udev: 事件源(可选项还有 kernel)
+    // 过滤drm子系统事件
+    udev_monitor_filter_add_match_subsystem_devtype(monitor, "drm", NULL);
+    // 启动监控过程
+    udev_monitor_enable_receiving(monitor);
+    // 获取监视器的文件描述符
+    int monitorFd = udev_monitor_get_fd(monitor);
 
-        epoll_event ev{};
-        ev.events = EPOLLIN;        // 设置监听事件类型
-        ev.data.fd = monitorFd;    // 设置监听的 fd
-
-        // 绑定 fd 和 事件 并添加到epoll红黑树
-        if (epoll_ctl(epollFd, EPOLL_CTL_ADD, monitorFd, &ev) < 0){
-            perror("epoll_ctl failed");
-            close(epollFd);
-            udev_monitor_unref(monitor);
-            udev_unref(udev);
-            return;
-        }
-
-        const int MAX_EVENTS = 4;
-        epoll_event events[MAX_EVENTS];
-
-        while (hotplugRunning_) {
-        
-            // 轮询 monitor 是否有drm类型的可读事件
-            // 并将使用events接收事件
-            int n = epoll_wait(epollFd, events, MAX_EVENTS, 1000); // 1000ms 超时
-            if (n <= 0) continue;
-            for (int i = 0; i < n; ++i) {
-                // 匹配到 monitor 的事件, 并且是可读
-                if (events[i].data.fd != monitorFd || !(events[i].events & EPOLLIN)) {
-                    continue;
-                }
-                // 获取产生事件的设备映射
-                struct udev_device *dev = udev_monitor_receive_device(monitor);
-                if (!dev) {
-                    continue;
-                }
-                // 获取设备事件
-                const char *action = udev_device_get_action(dev);
-                // 获取设备位置
-                const char *devpath = udev_device_get_devpath(dev);
-                if (!action || !devpath) {
-                    udev_device_unref(dev);
-                    continue;
-                }
-
-                fprintf(stdout, "DRM device event: %s on %s\n", action, devpath);
-                
-                // 使用异步方式处理热插拔事件, 避免死锁
-                if (strcmp(action, "change") == 0 
-                    || strcmp(action, "add") == 0 
-                    || strcmp(action, "remove") == 0) {
-                    // 等待系统稳定
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
-                    // 更新状态
-                    refreshResources();
-                    refreshAllDevices();
-                }
-                // 释放资源
-                udev_device_unref(dev);
-            }
-        }
-        close(epollFd);
-
-        // 循环外释放
+    int epollFd = epoll_create1(0);  // 创建epoll实例,需要释放
+    if (epollFd < 0) {
+        perror("epoll_create1 failed");
         udev_monitor_unref(monitor);
         udev_unref(udev);
-    });
+        return;
+    }
+
+    epoll_event ev{};
+    ev.events = EPOLLIN;        // 设置监听事件类型
+    ev.data.fd = monitorFd;    // 设置监听的 fd
+
+    // 绑定 fd 和 事件 并添加到epoll红黑树
+    if (epoll_ctl(epollFd, EPOLL_CTL_ADD, monitorFd, &ev) < 0){
+        perror("epoll_ctl failed");
+        close(epollFd);
+        udev_monitor_unref(monitor);
+        udev_unref(udev);
+        return;
+    }
+
+    const int MAX_EVENTS = 4;
+    epoll_event events[MAX_EVENTS];
+
+    while (hotplugRunning_) {
+    
+        // 轮询 monitor 是否有drm类型的可读事件
+        // 并将使用events接收事件
+        int n = epoll_wait(epollFd, events, MAX_EVENTS, 1000); // 1000ms 超时
+        if (n <= 0) continue;
+        for (int i = 0; i < n; ++i) {
+            // 匹配到 monitor 的事件, 并且是可读
+            if (events[i].data.fd != monitorFd || !(events[i].events & EPOLLIN)) {
+                continue;
+            }
+            // 获取产生事件的设备映射
+            struct udev_device *dev = udev_monitor_receive_device(monitor);
+            if (!dev) {
+                continue;
+            }
+            // 获取设备事件
+            const char *action = udev_device_get_action(dev);
+            // 获取设备位置
+            const char *devpath = udev_device_get_devpath(dev);
+            if (!action || !devpath) {
+                udev_device_unref(dev);
+                continue;
+            }
+
+            fprintf(stdout, "DRM device event: %s on %s\n", action, devpath);
+            
+            // 使用异步方式处理热插拔事件, 避免死锁
+            if (strcmp(action, "change") == 0 
+                || strcmp(action, "add") == 0 
+                || strcmp(action, "remove") == 0) {
+                // 通知释放资源 
+                notifyPreRefresh();
+
+                // 等待系统稳定
+                std::this_thread::sleep_for(std::chrono::milliseconds(1500)); 
+                // 更新资源
+                refreshResources();
+                refreshAllDevices();
+                // 重新获取资源
+                notifyPostRefresh();
+            }
+            // 释放资源
+            udev_device_unref(dev);
+        }
+    }
+    close(epollFd);
+
+    // 循环外释放
+    udev_monitor_unref(monitor);
+    udev_unref(udev);
+}
+
+void DeviceController::registerResourceCallback(const ResourceCallback& preRefreshCallback, 
+                                                const ResourceCallback& postRefreshCallback) {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    // 注册回调函数
+    callbacks_.emplace_back(preRefreshCallback, postRefreshCallback);
+}
+
+// 通知预刷新(释放资源)
+void DeviceController::notifyPreRefresh() {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    for (auto& callbackPair : callbacks_) {
+        if (callbackPair.first) {
+            callbackPair.first();
+        }
+    }
+}
+// 通知后刷新(资源再获取)
+void DeviceController::notifyPostRefresh() {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    for (auto& callbackPair : callbacks_) {
+        if (callbackPair.second) {
+            callbackPair.second();
+        }
+    }
 }
 
 std::shared_ptr<drmModeRes> DeviceController::refreshResources() {
@@ -285,6 +318,7 @@ SharedDev& DeviceController::refreshAllDevices()
         // 释放 connector 资源
         drmModeFreeConnector(connector);
     }
+    devices_.clear();
     devices_ = std::move(tempDevices);
     return devices_;
 }
@@ -311,7 +345,7 @@ int DeviceController::bindConn2Crtc(int fd, uint32_t conn_id, uint32_t crtc_id, 
     }
     auto property_active = getPropertyId(fd, crtcProps, "ACTIVE");
 	auto property_mode_id = getPropertyId(fd, crtcProps, "MODE_ID");
-    drmModeFreeObjectProperties(connProps);
+    drmModeFreeObjectProperties(crtcProps);
     // 创建模式 Blob // blob 是 DRM 中用于传递复杂数据 (如显示模式) 的机制
 	ret = drmModeCreatePropertyBlob(fd, &mode,
 				sizeof(mode), &blob_id);
@@ -427,7 +461,7 @@ bool DeviceController::isFormatSupported(uint32_t format, drmModePlanePtr plane)
             continue;
         } 
         if (planeFormat == format) {
-            fprintf(stdout, "Find matched format: %s for plane %u",
+            fprintf(stdout, "Find matched format: %s for plane %u\n",
                     fourccToString(planeFormat).c_str(), plane->plane_id);
             return true;
         }
@@ -464,7 +498,7 @@ int DeviceController::getPlaneType(uint32_t plane_id)
     return type;
 }
 
-size_t DeviceController::refreshPlane(uint32_t format, uint32_t crtc_id)
+size_t DeviceController::refreshPlane(uint32_t crtc_id)
 {
     std::lock_guard<std::mutex> fdLock(DrmDev::fd_mutex);
     std::lock_guard<std::mutex> resLock(resMutex_);
@@ -480,6 +514,7 @@ size_t DeviceController::refreshPlane(uint32_t format, uint32_t crtc_id)
     // 实际上drm没有给出过任何说明crtcid不为0,其为任意值,不能它通过==0来判断有效性
 
     std::vector<uint32_t> planeIDs;
+    planesCache_.clear();
     auto count_planes = planeResources_->count_planes;
     fprintf(stdout, "Find %zu planes in resources.\n", count_planes);
 
@@ -502,7 +537,7 @@ size_t DeviceController::refreshPlane(uint32_t format, uint32_t crtc_id)
             }
         }
         // 检查是否支持指定格式
-        if (supports_crtc && isFormatSupported(format, plane)) {
+        if (supports_crtc) {
             planeIDs.emplace_back(plane_id);
 
             PlanesCachePtr cache = std::make_shared<PlanesPropertyCache>();
@@ -519,6 +554,23 @@ size_t DeviceController::refreshPlane(uint32_t format, uint32_t crtc_id)
     if (planeIDs.empty()) fprintf(stdout, "No plane matched. Fxxk\n");
     // 返回planeID列表
     return planeIDs.size();
+}
+
+void DeviceController::getPossiblePlane(int plane_type, uint32_t format, std::vector<uint32_t>& out_ids) {
+    if (planesCache_.size() == 0) {
+        fprintf(stdout, "There is no plane cached.\n");
+        return;
+    }
+    out_ids.clear();
+    std::lock_guard<std::mutex> lock(cacheMutex_);
+    // 筛选指定类型plane
+    for (const auto &pair : planesCache_) {
+        // 不支持plane类型
+        if (pair.second->type != plane_type) continue;
+        // 不支持对应格式
+        if (false == isFormatSupported(format, pair.second->plane)) continue;
+        out_ids.push_back(pair.first);
+    }
 }
 
 uint32_t DeviceController::getPropertyId(int fd, drmModeObjectPropertiesPtr props, const char *name)

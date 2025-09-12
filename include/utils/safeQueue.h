@@ -52,7 +52,7 @@ private:
     std::condition_variable not_empty_cond_;
     std::condition_variable not_full_cond_;
 public:
-    size_t getBufferRealSize(){ return buffer_.size(); }
+    size_t getBufferRealSize(){ return buffer_.capacity(); }
     // 溢出策略枚举
     enum class OverflowPolicy {
         DISCARD_OLDEST,  // 丢弃最旧的项目
@@ -185,6 +185,14 @@ public:
         return item;
     }
 
+    using element = typename Ptr::element_type;
+    element* front() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (size_ == 0) return nullptr; 
+        auto item = buffer_[head_].get();
+        return item;
+    }
+    
     // 非阻塞尝试出队
     bool try_dequeue(Ptr& item) {
         std::lock_guard<std::mutex> lock(mutex_);

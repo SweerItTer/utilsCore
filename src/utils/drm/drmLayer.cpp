@@ -5,6 +5,7 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "drm/drmLayer.h"
+#include "rga/rga2drm.h"
 
 DrmLayer::DrmLayer(std::vector<DmaBufferPtr> buffers, size_t cacheSize)
     : cacheSize_(cacheSize) 
@@ -61,14 +62,14 @@ void DrmLayer::updateBuffer(std::vector<DmaBufferPtr> buffers)
         fprintf(stderr, "DrmLayer::updateBuffer: createFramebuffer failed\n");
         return;
     }
-    // 记录新 FB 为最新 in-flight
-    fbCache_.push_back(newFb);
-
+    
     // 更新 props_ 供回调使用
     props_.fb_id_ = newFb;
     if (updatelayer_){
         updatelayer_(shared_from_this(), props_.fb_id_);
     }
+    // 记录新 FB 为最新 in-flight
+    fbCache_.push_back(newFb);
 }
 
 uint32_t DrmLayer::createFramebuffer()
@@ -86,7 +87,12 @@ uint32_t DrmLayer::createFramebuffer()
         pitches[i] = buf->pitch();
         offsets[i] = buf->offset();
     }
-    
+    uint32_t format = convertV4L2ToDrmFormat(buffers_[0]->format());
+    if (format == -1){
+        format = formatRGAtoDRM(buffers_[0]->format());
+        if (format == -1) format = buffers_[0]->format();
+    }
+
     std::lock_guard<std::mutex> lock(DrmDev::fd_mutex);
     uint32_t fbId = -1;
     // 创建 framebuffer
@@ -94,7 +100,7 @@ uint32_t DrmLayer::createFramebuffer()
         DrmDev::fd_ptr->get(),  /* DRM 设备 fd */
         buffers_[0]->width(),   /* DmaBufferPtr 参数 */
         buffers_[0]->height(),
-        buffers_[0]->format(),
+        format,
         handles,
         pitches,
         offsets,

@@ -51,11 +51,12 @@ class PlanesCompositor{
 public:
     static std::unique_ptr<PlanesCompositor> create() { return std::unique_ptr<PlanesCompositor>(new PlanesCompositor()); }
     // 添加图层
-    void addLayer(const DrmLayerPtr& layer);
+    bool addLayer(const DrmLayerPtr& layer);
     // 移除图层
     void removeLayer(const DrmLayerPtr& layer);
+    void removeAllLayer();
     // 更新图层
-    void updateLayer(const DrmLayerPtr& layer);
+    bool updateLayer(const DrmLayerPtr& layer);
     void updateLayer(const DrmLayerPtr& layer, const uint32_t fb_id);
     // 提交合成
     int commit(int& fence);

@@ -1,15 +1,6 @@
-#include <unordered_map>
-#include <functional>
-#include <iostream>
-#include <thread>
+#include "fbshow.h"
 
-#include "rga/rgaProcessor.h"
-#include "v4l2/cameraController.h"
-#include "dma/dmaBuffer.h"
-#include "drm/drmLayer.h"
-#include "drm/planesCompositor.h"
-#include "safeQueue.h"
-#include "objectsPool.h"
+#include <csignal>
 
 using namespace DrmDev;
 
@@ -167,146 +158,6 @@ int layerTest(){
     return ret;
 }
 
-int fbShowTest(){
-    int ret = 0;
-    // 创建队列
-    auto rawFrameQueue  	= std::make_shared<FrameQueue>(2);
-    auto frameQueue     	= std::make_shared<FrameQueue>(10);
-
-    // 获取设备组合
-    auto& devices = DrmDev::fd_ptr->getDevices();
-    if (0 >= devices.size()){
-        std::cout << "Get no devices." << std::endl;
-        return -1;
-    }
-    // 取出第一个屏幕
-    auto& dev = devices[0];
-    std::cout << "Connector ID: " << dev->connector_id << ", CRTC ID: " << dev->crtc_id
-    << ", Resolution: " << dev->width << "x" << dev->height << "\n";
-
-    // 相机配置
-    CameraController::Config cfg = {
-        .buffer_count = 2,
-        .plane_count = 2,
-        .use_dmabuf = true,
-        .device = "/dev/video0",
-        .width = 3840,
-        .height = 2160,
-        // .width = 1280,
-        // .height = 720,
-        .format = V4L2_PIX_FMT_NV12
-    };
-    
-    // 初始化相机控制器
-    auto cctr         	= std::make_shared<CameraController>(cfg);
-    if (!cctr) {
-        std::cout << "Failed to create CameraController object.\n";
-        return -1;
-    }
-    // 设置入队队列
-    cctr->setFrameCallback([rawFrameQueue](std::unique_ptr<Frame> f) {
-        rawFrameQueue->enqueue(std::move(f));
-    });
-
-    // 根据格式转换 RGA 格式
-    int format = (V4L2_PIX_FMT_NV12 == cfg.format) ?
-    RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;
-    auto dstFormat = RK_FORMAT_RGBA_8888;
-    // 配置RGA参数
-    RgaProcessor::Config rgacfg{
-        cctr, rawFrameQueue, frameQueue, cfg.width,
-        cfg.height, cfg.use_dmabuf, dstFormat, format, 10
-    };
-    // 初始化转换线程
-    RgaProcessor processor_(rgacfg) ;
-
-    // 出队帧缓存
-    std::unique_ptr<Frame> frame;
-
-    // 导出合成器
-    auto const& compositor = PlanesCompositor::create();
-    if (!compositor){
-        std::cout << "Failed to create PlanesCompositor object.\n";
-        return -1;
-    } 
-
-    auto fx = [](uint32_t v){ return v << 16; };
-
-    // 初始化layer
-    std::vector<uint32_t> usingPlaneId;
-    // 获取所有支持目标格式并且在指定CRTC上的Plane
-    DrmDev::fd_ptr->refreshPlane(formatRGAtoDRM(dstFormat), dev->crtc_id);
-    // 获取指定类型Plane
-    DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_OVERLAY, usingPlaneId);
-    std::cout << "Gain " << usingPlaneId.size() <<" available planes";
-    for(auto& id : usingPlaneId){
-        std::cout << " " << id;
-    }
-    std::cout << ".\n";
-    // return -1; // 测试用
-    // 若无可以plane则退出
-    if (usingPlaneId.empty()){ return -1; }
-    // 初始化layer
-    auto layer = std::make_shared<DrmLayer>(std::vector<DmaBufferPtr>(), 2);
-    // 配置属性
-    DrmLayer::LayerProperties props{
-        .type_       = 0, 
-        .plane_id_   = usingPlaneId[0],  
-        .crtc_id_    = dev->crtc_id,
-        .fb_id_      = 0, 
-
-        // 源图像区域
-        // src_* 使用左移 16
-        .srcX_       = fx(0),
-        .srcY_       = fx(0),
-        .srcwidth_   = fx(cfg.width),
-        .srcheight_  = fx(cfg.height),
-        // 显示图像区域
-        // crtc_* 不使用左移
-        .crtcX_      = 0,
-        .crtcY_      = 0,
-        .crtcwidth_  = dev->width,
-        .crtcheight_ = dev->height
-    };
-    // 设置属性
-    layer->setProperty(props);
-    // 设置更新回调
-    layer->setUpdateCallback([&compositor](const std::shared_ptr<DrmLayer>& layer, uint32_t fbId){
-        compositor->updateLayer(layer, fbId);
-    });
-    // 将layer添加到合成器
-    compositor->addLayer(layer);
-    std::cout << "Layer initialized.\n"; 
-
-    // 开启采集和图像转换
-    cctr->start();
-    processor_.start();
-    int fence = -1;
-    while (true) {
-        // 取出一帧
-        if (!frameQueue->try_dequeue(frame)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            continue;
-        }
-        // 取出该帧的drmbuf
-        auto dmabuf = frame->sharedState()->dmabuf_ptr;
-        // 更新fb,同时回调触发合成器更新fbid
-        layer->updateBuffer({dmabuf});
-        // 提交一次
-        compositor->commit(fence);
-        wait_fence(fence, [&layer](){ layer->onFenceSignaled(); });
-        
-        // 释放drmbuf
-        processor_.releaseBuffer(frame->meta.index);
-    }
-    
-    processor_.releaseBuffer(frame->meta.index);
-    processor_.stop();
-    cctr->stop();
-
-    return 0;
-}
-
 int drmDevicesControllerTest(){
     auto fd = DrmDev::fd_ptr;
     // 测试各项资源获取
@@ -332,12 +183,12 @@ int drmDevicesControllerTest(){
         std::cout << "Connector ID: " << dev->connector_id << ", CRTC ID: " << dev->crtc_id
         << ", Resolution: " << dev->width << "x" << dev->height << "\n";
         // 通过格式筛选
-        planeCount = fd->refreshPlane(DRM_FORMAT_RGB888, dev->crtc_id);
+        planeCount = fd->refreshPlane(dev->crtc_id);
         std::cout << "Find " << planeCount << " matched planes.\n\n";
     }
     // 通过类型筛选
     std::vector<uint32_t> getsPlanesIds;
-    fd->getPossiblePlane(DRM_PLANE_TYPE_OVERLAY, getsPlanesIds);
+    fd->getPossiblePlane(DRM_PLANE_TYPE_OVERLAY, DRM_FORMAT_RGB888, getsPlanesIds);
     std::cout << "Find " << getsPlanesIds.size() << " matched OVERLAY planes.\n";
     if (getsPlanesIds.empty()) return -1;
     
@@ -356,6 +207,14 @@ int drmDevicesControllerTest(){
     return 0;
 }
 
+static std::atomic_bool running{true};
+static void handleSignal(int signal) {
+    if (signal == SIGINT) {
+        std::cout << "Ctrl+C received, stopping..." << std::endl;
+        running = false;
+    }
+}
+
 int main(int argc, char const *argv[]) {
     DrmDev::fd_ptr = DeviceController::create();
     if (!DrmDev::fd_ptr) {
@@ -363,6 +222,7 @@ int main(int argc, char const *argv[]) {
         return -1;
     }
     int ret = 0;
+    std::signal(SIGINT, handleSignal);
 
     // 定义测试用例映射表
     // key: 命令行参数 (如 "--rgatest")
@@ -372,7 +232,13 @@ int main(int argc, char const *argv[]) {
         {"--dmatest", dmabufTest},
         {"--layertest", layerTest},
         {"--devtest", drmDevicesControllerTest},
-        {"--fbshow", []() { return fbShowTest(); }} // 也可以用 Lambda 包装
+        {"--fbshow", [](){ 
+            FrameBufferTest test;
+            test.start();
+            while(running){ sleep(1000); }
+            test.stop();
+            return 0;
+        }} // 也可以用 Lambda 包装
     };
 
     const std::string help_opt = "--help";

@@ -11,6 +11,7 @@ using namespace DrmDev;
 
 PlanesCompositor::~PlanesCompositor()
 {
+    removeAllLayer();
     if(requires_)
     {
         drmModeAtomicFree(requires_);
@@ -23,28 +24,31 @@ PlanesCompositor::PlanesCompositor()
     requires_ = drmModeAtomicAlloc();
 }
 
-void PlanesCompositor::addLayer(const DrmLayerPtr& layer)
+bool PlanesCompositor::addLayer(const DrmLayerPtr& layer)
 {
     std::lock_guard<std::mutex> lock(layersMutex_);
     if (layers_.find(layer) != layers_.end())
-        return;
+        return false;
     // 更新图层状态缓存
     updateLayerCache(true, layer);
     // 更新 plane id / DRM 属性缓存
     updatePlaneProperty(true, layer);
+    fprintf(stdout, "[PlanesCompositor] Add Layer.\n");
+    return true;
 }
 
 
-void PlanesCompositor::updateLayer(const DrmLayerPtr& layer)
+bool PlanesCompositor::updateLayer(const DrmLayerPtr& layer)
 {
     std::lock_guard<std::mutex> lock(layersMutex_);
     if (layers_.find(layer) == layers_.end())
-        return;
-
+        return false;
     // 更新图层状态缓存
     updateLayerCache(false, layer);
     // 更新 plane id / DRM 属性缓存
     updatePlaneProperty(false, layer);
+    fprintf(stdout, "[PlanesCompositor] Update Layer.\n");
+    return true;
 }
 
 void PlanesCompositor::updateLayer(const DrmLayerPtr& layer, const uint32_t fb_id)
@@ -58,6 +62,11 @@ void PlanesCompositor::updateLayer(const DrmLayerPtr& layer, const uint32_t fb_i
 void PlanesCompositor::removeLayer(const DrmLayerPtr& layer) {
     std::lock_guard<std::mutex> lock(layersMutex_);
     layers_.erase(layer);
+}
+
+void PlanesCompositor::removeAllLayer(){
+    std::lock_guard<std::mutex> lock(layersMutex_);
+    layers_.clear();
 }
 
 int PlanesCompositor::commit(int& fence) {

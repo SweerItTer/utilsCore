@@ -33,22 +33,24 @@ if(CCACHE_PROGRAM)
     set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
 endif()
 # 优化编译选项
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    if(USE_CROSS_COMPILE)
-        set(march armv8.2-a)
-    else()
-        set(march native)
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        if(USE_CROSS_COMPILE)
+            set(march armv8.2-a)
+        else()
+            set(march native)
+        endif()
+        add_compile_options(
+            -O2                    # 最高优化级别
+            -march=${march}        # 本机编译时使用 native
+            -ffunction-sections    # 优化未使用的函数
+            -fdata-sections        # 优化未使用的数据
+        )
+        
+        add_link_options(
+            -Wl,--gc-sections     # 移除未使用的段
+        )
     endif()
-    add_compile_options(
-        -O2                    # 最高优化级别
-        -march=${march}        # 本机编译时使用 native
-        -ffunction-sections    # 优化未使用的函数
-        -fdata-sections        # 优化未使用的数据
-    )
-    
-    add_link_options(
-        -Wl,--gc-sections     # 移除未使用的段
-    )
 endif()
 
 find_package(Qt5 COMPONENTS Core Quick Widgets Gui OpenGL REQUIRED)
