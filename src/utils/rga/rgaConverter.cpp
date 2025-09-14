@@ -20,42 +20,14 @@ RgaConverter::~RgaConverter() {
     }
 }
 
-IM_STATUS RgaConverter::NV16toRGBA(RgaParams& params) {
-    // { RK_FORMAT_YCbCr_422_SP,  "cbcr422sp" }  // 这是NV16
-    // { RK_FORMAT_YCrCb_422_SP,  "crcb422sp" }  // 这是NV61
-    fprintf(stdout, "Try to convert NV16 to RGBA\n");
-    return convertImage(RK_FORMAT_YCbCr_422_SP, RK_FORMAT_RGBA_8888, params);
-}
-
-IM_STATUS RgaConverter::NV12toRGBA(RgaParams& params) {
-    // fprintf(stdout, "Try to convert NV12 to RGBA\n");
-    return convertImage(RK_FORMAT_YCbCr_420_SP, RK_FORMAT_RGBA_8888, params);
-}
-
-IM_STATUS RgaConverter::NV16toXRGB(RgaParams &params)
-{
-    // fprintf(stdout, "Try to convert NV12 to RGBA\n");
-    return convertImage(RK_FORMAT_YCbCr_422_SP, RK_FORMAT_XRGB_8888, params);
-}
-
-IM_STATUS RgaConverter::NV12toXRGB(RgaParams &params)
-{
-    // fprintf(stdout, "Try to convert NV12 to RGBA\n");
-    return convertImage(RK_FORMAT_YCbCr_420_SP, RK_FORMAT_XRGB_8888, params);
-}
-
-IM_STATUS RgaConverter::convertImage(RgaSURF_FORMAT src_fmt, RgaSURF_FORMAT dst_fmt, RgaParams &params)
-{
+IM_STATUS RgaConverter::FormatTransform(RgaParams& params){
     if (false == m_initialized) {
         return IM_STATUS_NOT_SUPPORTED;
     }
 
-    if (src_fmt != params.src.format) {
+    if (params.dst.format == params.src.format) {
         return IM_STATUS_ILLEGAL_PARAM;
     }
-
-    // 目标格式
-    if (params.dst.format != dst_fmt) params.dst.format = dst_fmt;
     
     IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
     if (IM_STATUS_NOERROR != ret) {
@@ -71,3 +43,23 @@ IM_STATUS RgaConverter::convertImage(RgaSURF_FORMAT src_fmt, RgaSURF_FORMAT dst_
     return ret;
 }
 
+IM_STATUS RgaConverter::ImageResize(RgaParams& params){
+    if (!m_initialized) {
+        return IM_STATUS_NOT_SUPPORTED;
+    }
+    if (params.dst.width == params.src.width && params.dst.height == params.src.height){
+        return IM_STATUS_ILLEGAL_PARAM;
+    }
+
+    IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
+    if (ret != IM_STATUS_NOERROR) {
+        fprintf(stderr, "%s", imStrError(ret));
+        return ret;
+    }
+
+    ret = imresize(params.src, params.dst);
+    if (ret != IM_STATUS_SUCCESS) {
+        fprintf(stderr, "%s", imStrError(ret));
+    }
+    return ret;
+}

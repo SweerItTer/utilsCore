@@ -11,18 +11,22 @@
 #include <iostream>
 #include <chrono>
 
+#include "asyncThreadPool.h"
+
 RgaProcessor::RgaProcessor(Config& cfg)
     : cctr_(std::move(cfg.cctr))
     , rawQueue_(std::move(cfg.rawQueue))
     , outQueue_(std::move(cfg.outQueue))
     , width_(cfg.width)
     , height_(cfg.height)
-    , frameType_(cfg.frameType)
     , srcFormat_(cfg.srcFormat)
     , dstFormat_(cfg.dstFormat)
     , poolSize_(cfg.poolSize)
     , running_(false), paused(false)
 {
+    frameType_ = (true == cfg.usingDMABUF)
+            ? Frame::MemoryType::DMABUF
+            : Frame::MemoryType::MMAP;
     initpool();
 }
 
@@ -41,10 +45,9 @@ void RgaProcessor::initpool() {
             }
             buf.s = std::make_shared<SharedBufferState>(-1, data, buffer_size);
         } else {
-            uint32_t format = (RK_FORMAT_RGBA_8888 == dstFormat_)
-                                ? DRM_FORMAT_RGBA8888
-                                : DRM_FORMAT_XRGB8888;
-            auto dma_buf = DmaBuffer::create(width_, height_, format);
+            uint32_t format = formatRGAtoDRM(dstFormat_);
+            // 实际格式是DRM的
+            auto dma_buf = DmaBuffer::create(width_, height_, format, 0);
             if (!dma_buf || dma_buf->fd() < 0) {
                 throw std::runtime_error("RGA: dmabuf create failed");
             }
@@ -81,10 +84,7 @@ void RgaProcessor::stop()
         worker_.join();
     }
 
-    auto size = rawQueue_->size();
-    for (int i=0; i < size; i++){
-        cctr_->returnBuffer(rawQueue_->dequeue().index());
-    }
+    rawQueue_->clear();
 
     outQueue_->clear();
 }
@@ -95,10 +95,10 @@ void RgaProcessor::pause(){
 
 void RgaProcessor::releaseBuffer(int index)
 {
-    // fprintf(stdout, "Buffer released\n");
     // 在 size 范围内
     if (index >= 0 && index < static_cast<int>(bufferPool_.size())) {
         bufferPool_[index].in_use = false;
+        // fprintf(stdout, "Buffer %d released\n", bufferPool_[index].s->dmabuf_ptr->fd());
     }
 }
 
@@ -110,6 +110,7 @@ int RgaProcessor::getAvailableBufferIndex()
 
         // 检查缓冲区是否可用
         if (true == buf.in_use || nullptr == buf.s || false == buf.s->valid) {
+            // fprintf(stdout, "bufferPool_ using\n");
             continue;
         }
         if (Frame::MemoryType::DMABUF == frameType_) {
@@ -131,7 +132,6 @@ int RgaProcessor::getAvailableBufferIndex()
 
     return -1; // 无可用缓冲
 }
-
 
 int RgaProcessor::dmabufFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, int dmabuf_fd)
 {
@@ -183,13 +183,26 @@ int RgaProcessor::mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void
     return index;
 }
 
+int RgaProcessor::getIndex_auto(rga_buffer_t& src, rga_buffer_t& dst, Frame* frame){
+    int index = -1;
+    switch (frameType_) {
+        case Frame::MemoryType::MMAP:
+            index = mmapPtrFrameProcess(src, dst, frame->data());
+            break;
+        case Frame::MemoryType::DMABUF:
+            index = dmabufFrameProcess(src, dst, frame->dmabuf_fd());
+            break;
+        default:
+            std::cerr << "Unsupported frame type.\n";
+            break;
+    }
+    return index;
+}
+
 void RgaProcessor::run()
 {
+    asyncThreadPool rgaThreadPool(poolSize_);
     int buffer_size = width_ * height_ * 4;
-    // 源图像
-    rga_buffer_t src {};
-    // 输出图像
-    rga_buffer_t dst {};
 
     while (true == running_)
     {
@@ -197,72 +210,73 @@ void RgaProcessor::run()
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             if ( false == running_ ) break;
         }
-        Frame frame;
-        int index = 0;
+        // 添加异步任务
+        rgaThreadPool.enqueue([this]() {
+            rga_buffer_t src {};// 源图像参数
+            rga_buffer_t dst {};// 输出图像参数
+            std::unique_ptr<Frame> rawFrame;
+            // 等待帧
+            if (!rawQueue_->try_dequeue(rawFrame)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                return;
+            }
+            // 计算 RGA_submit timestamp
+            // uint64_t t1 = mk::timeDiffMs(rawFrame->timestamp(), "[DQ→RGA_submit]");
+            int index = getIndex_auto(src, dst, rawFrame.get());
 
-        // 等待帧
-        if (!rawQueue_->try_dequeue(frame)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            continue;
-        }
-        // 计算 RGA_submit timestamp
-        uint64_t t1 = mk::timeDiffMs(frame.timestamp(), "[DQ→RGA_submit]");
-        
-        switch (frameType_) {
-            case Frame::MemoryType::MMAP:
-                index = mmapPtrFrameProcess(src, dst, frame.data());
-                break;
-            case Frame::MemoryType::DMABUF:
-                index = dmabufFrameProcess(src, dst, frame.dmabuf_fd());
-                break;
-            default:
-                std::cerr << "Unsupported frame type.\n";
-                cctr_->returnBuffer(frame.index());
-                continue;
-        }
-        
-        if (0 > index) {
-            // 无可用 buffer
-            // std::cerr << "RGA: No free buffer, dropping frame.\n";
-            // 丢帧
-            cctr_->returnBuffer(frame.index());
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
-        }
+            if (0 > index) {
+                // 无可用 buffer(或格式错误)
+                fprintf(stdout,"RGA: No free buffer, dropping rawFrame.\n");
+                // 丢帧
+                cctr_->returnBuffer(rawFrame->index());
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                return;
+            }
+            // 若提前释放内存需撤销占用
+            if (false == rawFrame->sharedState()->valid){
+                bufferPool_[index].in_use = false;
+                return;
+            }
+            
+            im_rect rect = {0, 0, static_cast<int>(width_), static_cast<int>(height_)};
+            RgaConverter::RgaParams params {src, rect, dst, rect};
+            // 格式转换
+            IM_STATUS status = converter_.FormatTransform(params);
 
-        im_rect rect = {0, 0, static_cast<int>(width_), static_cast<int>(height_)};
-        RgaConverter::RgaParams params {src, rect, dst, rect};
-        // 格式转换
-        IM_STATUS status = (RK_FORMAT_YCbCr_420_SP == srcFormat_)
-                         ? converter_.NV12toRGBA(params)
-                         : converter_.NV16toRGBA(params);
-        // 同步回调时间点
-        auto t2 = mk::timeDiffMs(t1, "[RGA_process]");
+            // 同步回调时间点mk::timeDiffMs(t1, "[RGA_process]");
+            auto rgaMeta = rawFrame->meta;
+            // std::cout << "[RGAProcessor] rawframe Index: " << rgaMeta.index << "\n";
+            rgaMeta.index = index;
+            // std::cout << "[RGAProcessor] rga4kframe Index: " << rgaMeta.index << "\n";
+            
+            // 不管是否转换成功都归还
+            cctr_->returnBuffer(rawFrame->index());
+            
+            if (IM_STATUS_SUCCESS != status) {
+                fprintf(stderr, "RGA convert failed: %d\n", status);
+                // 不释放内存，仅标记缓冲区可用
+                bufferPool_[index].in_use = false;
+                return;
+            }
 
-        // rawQueue_ 需要 returnBuffer, 需要传递 CameraController
-        // 不管是否转换成功都归还
-        cctr_->returnBuffer(frame.index());
-        
-        if (IM_STATUS_SUCCESS != status) {
-            fprintf(stderr, "RGA convert failed: %d\n", status);
-            // 不释放内存，仅标记缓冲区可用
-            bufferPool_[index].in_use = false;
-            continue;
-        }
-
-        // 创建新帧,直接使用池中的共享状态(使用状态在getAvailableBufferIndex更新)
-        auto new_frame = Frame(
-            bufferPool_[index].s,  // 直接使用池中的共享指针
-            t2,
-            index
-        );
-        
-        // 入队新帧
-        outQueue_->enqueue(std::move(new_frame));
+            // 创建新帧,直接使用池中的共享状态(使用状态在getAvailableBufferIndex更新)
+            auto new_frame = std::make_unique<Frame>(
+                bufferPool_[index].s  // 直接使用池中的共享指针
+            );
+            new_frame->meta = rgaMeta;
+            
+            // 入队新帧
+            outQueue_->enqueue(std::move(new_frame));
+        });
     }
 }
 
-bool RgaProcessor::dumpDmabufAsRGBA(int dmabuf_fd, uint32_t width, uint32_t height, uint32_t size, uint32_t pitch, const char* path)
+void RgaProcessor::setYoloInputSize(int w, int h){
+    yoloW = w;
+    yoloH = h;
+}
+
+bool RgaProcessor::dumpDmabufAsXXXX8888(int dmabuf_fd, uint32_t width, uint32_t height, uint32_t size, uint32_t pitch, const char* path)
 {
     if (dmabuf_fd < 0 || width == 0 || height == 0 || size == 0 || pitch == 0) {
         fprintf(stderr, "[dump] Invalid argument\n");
@@ -282,7 +296,7 @@ bool RgaProcessor::dumpDmabufAsRGBA(int dmabuf_fd, uint32_t width, uint32_t heig
         return false;
     }
 
-    // 写入原始 RGBA 图像数据（每像素 4 字节，含 Alpha）
+    // 写入原始图像数据 每像素 4 字节, 4字节 形如 [R,G,B,A]
     uint8_t* ptr = static_cast<uint8_t*>(data);
     for (uint32_t y = 0; y < height; ++y) {
         uint8_t* row = ptr + y * pitch;
