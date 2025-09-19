@@ -199,11 +199,8 @@ private:
     mutable std::mutex cacheMutex_;
     std::unordered_map<uint32_t, PlanesCachePtr> planesCache_ = {};
     
-    // 热插拔事件监听线程
+    // 热插拔事件监听
     void handleHotplugEvent();
-    std::thread hotplugThread_;
-    std::atomic<bool> hotplugRunning_{true};
-    std::atomic<bool> hotplugFlag{false};
     
     // 资源刷新同步
     void notifyPreRefresh();

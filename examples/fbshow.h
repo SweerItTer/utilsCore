@@ -135,7 +135,7 @@ public:
             return;
         }
         // 设置入队队列
-        cctr->setFrameCallback([this](std::unique_ptr<Frame> f) {
+        cctr->setFrameCallback([this](FramePtr f) {
             rawFrameQueue->enqueue(std::move(f));
         });
 
@@ -192,7 +192,7 @@ private:
     void run(){
         bool usingRknn = false; 
         // 出队帧缓存
-        std::unique_ptr<Frame> frame;
+        FramePtr frame;
         while (running) {
             // 等待刷新完成
             if (true == refreshing) {
@@ -213,7 +213,8 @@ private:
             compositor->commit(fence);
             wait_fence(fence, [this](){ frameLayer->onFenceSignaled(); });
             // 释放drmbuf
-            processor->releaseBuffer(frame->meta.index);
+            frame.reset();
+            // processor->releaseBuffer(frame->meta.index);
         }
     }
 

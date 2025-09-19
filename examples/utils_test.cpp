@@ -56,7 +56,7 @@ int rgaTest(){
         return -1;
     }
     // 设置入队队列
-    cctr->setFrameCallback([&rawFrameQueue](std::unique_ptr<Frame> f) {
+    cctr->setFrameCallback([&rawFrameQueue](FramePtr f) {
         rawFrameQueue->enqueue(std::move(f));
     });
 
@@ -72,7 +72,7 @@ int rgaTest(){
     RgaProcessor processor_(rgacfg) ;
 
     // 出队帧缓存
-    std::unique_ptr<Frame> frame;
+    FramePtr frame;
     cctr->start();
     processor_.start();
 

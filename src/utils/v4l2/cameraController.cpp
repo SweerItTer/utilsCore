@@ -18,6 +18,7 @@
 #include "fdWrapper.h"      // fd RAII处理类
 #include "logger.h"
 #include "dma/dmaBuffer.h"    // 包含 drm 头文件
+#include "objectsPool.h"
 
 #ifndef _XF86DRM_H_
 #include <drm.h>
@@ -35,7 +36,7 @@ public:
     void pause();
     void stop();
     
-    void setFrameCallback(FrameCallback&& callback);
+    void setFrameCallback(FrameCallback&& enqueueCallback_);
     int returnBuffer(int index);
 
     int getDeviceFd() const;
@@ -83,7 +84,6 @@ private:
         ~Buffer() {
             if (state) {
                 state->valid = false; // 主动标记无效
-                state.reset();        // 释放共享对象，触发资源释放
             }
             // planes 自动析构,不需要额外做
         }
@@ -116,14 +116,13 @@ private:
     // 出队 buf
     bool dequeueBuffer(v4l2_buffer& buf, v4l2_plane* planes);
     // 构造 Frame
-    std::unique_ptr<Frame> makeFrame(const v4l2_buffer& buf, uint64_t timestamp);
+    FramePtr makeFrame(const v4l2_buffer& buf, uint64_t timestamp);
 private:
     __u32 currentWidth;
     __u32 currentHeight;
 
     Config config_;
     FdWrapper fd_; // video 设备描述符
-    // int fd_ = -1; 
     
     v4l2_buf_type buf_type_;  // V4L2_BUF_TYPE_VIDEO_CAPTURE || V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
     v4l2_memory memory_type_; // V4L2_MEMORY_DMABUF || V4L2_MEMORY_MMAP
@@ -131,11 +130,13 @@ private:
     std::vector<Buffer> buffers_;
     
     std::mutex _mutex_; // 添加互斥锁
-    FrameCallback frame_callback_; // 回调函数 建议使用队列,直接使用数据处理函数容易出现调用混乱
+    FrameCallback enqueueCallback_; // 回调函数 建议使用队列,直接使用数据处理函数容易出现调用混乱
     
     std::atomic<bool> running_{false};
     std::atomic<bool> paused_{false};
     std::thread capture_thread_;
+
+    std::atomic<bool> is_destroying_{false}; // 添加析构标志
 };
 
 CameraController::Impl::Impl(const Config& config) 
@@ -167,6 +168,7 @@ CameraController::Impl::Impl(const Config& config)
 }
 
 CameraController::Impl::~Impl() {
+    is_destroying_ = true; // 标记正在析构
     stop();
 }
 
@@ -490,8 +492,17 @@ void CameraController::Impl::startStreaming() {
 
 int CameraController::Impl::returnBuffer(int index) {
     std::lock_guard<std::mutex> lock(_mutex_);
+    // 检查是否正在析构
+    if (is_destroying_) {
+        return -1;
+    }
+    // 检查缓冲区数组是否为空
+    if (buffers_.empty()) {
+        return -1;
+    }
+    
     // 检查索引范围
-    if (index < 0 || index > buffers_.size()) {
+    if (index < 0 || index >= buffers_.size()) {
         fprintf(stderr, "returnBuffer: invalid index %d\n", index);
         return -1;
     }
@@ -501,6 +512,7 @@ int CameraController::Impl::returnBuffer(int index) {
         fprintf(stderr, "returnBuffer: buffer %d already queued\n", index);
         return -1;
     }
+    
     return enqueueBuffer(index);
 }
 
@@ -568,8 +580,8 @@ DmaBufferPtr CameraController::Impl::createDmabuf(size_t planes_length, uint32_t
     return buf;
 }
 
-void CameraController::Impl::setFrameCallback(FrameCallback&& callback) {
-    frame_callback_ = std::move(callback);
+void CameraController::Impl::setFrameCallback(FrameCallback&& enqueueCallback) {
+    enqueueCallback_ = std::move(enqueueCallback);
 }
 
 // False:next loop | True:keep on
@@ -637,11 +649,11 @@ bool CameraController::Impl::dequeueBuffer(v4l2_buffer& buf, v4l2_plane* planes)
     return true;
 }
 
-std::unique_ptr<Frame> CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t timestamp) {
+FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t timestamp) {
     static uint64_t frame_id = 0;
     // 这里的 frame 仅仅是指针或者文件描述符的引用,并未持有实际数据,并非深拷贝,并且Frame禁用了拷贝构造,仅保留移动构造
     // 先声明后构造(少一次默认构造)
-    std::unique_ptr<Frame> frame_opt;
+    FramePtr frame_opt;
     size_t total_size = 0;
     switch (buf_type_)
     {
@@ -680,6 +692,9 @@ std::unique_ptr<Frame> CameraController::Impl::makeFrame(const v4l2_buffer& buf,
     if (frame_id == UINT64_MAX) {
         frame_id = 0;
     }
+    frame_opt->setReleaseCallback([this](int index){
+        (void)this->returnBuffer(index); // 忽略返回值
+    });
     return std::move(frame_opt);
 }
 
@@ -714,11 +729,11 @@ void CameraController::Impl::captureLoop() {
 
         // 构造 Frame
         /* 有点抽象,猜测是因为不允许复制uniqueptr,所以使用右值传递? */
-        std::unique_ptr<Frame> frame_opt = makeFrame(buf, t0);
+        FramePtr frame_opt = std::move(makeFrame(buf, t0));
 
         // 回调传递
-        if (frame_callback_ && 0 <= frame_opt->index()) {
-            frame_callback_(std::move(frame_opt)); // 传递指针
+        if (enqueueCallback_ && 0 <= frame_opt->index()) {
+            enqueueCallback_(std::move(frame_opt)); // 传递指针
         } else returnBuffer(buf.index); // 未设置正确的回调时需要手动回收缓冲区
         
         // 帧率计算

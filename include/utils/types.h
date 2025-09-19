@@ -9,6 +9,8 @@
 
 #include "safeQueue.h"
 #include "v4l2/frame.h"
-using FrameQueue = SafeQueue<std::unique_ptr<Frame>>;
+
+using FramePtr = std::shared_ptr<Frame>;
+using FrameQueue = SafeQueue<FramePtr>;
 
 #endif // TYPES_H
