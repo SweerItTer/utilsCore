@@ -96,7 +96,7 @@ private:
     uint32_t createFramebuffer();
     // 销毁 fb 缓存队列
     void destroyFramebuffer();
-    // 回收旧 fb，使得队列中至多保留 keep 个
+    // 回收旧 fb, 使得队列中至多保留 keep 个
     void recycleOldFbs(size_t keep = 1);
 
     LayerProperties props_{};
