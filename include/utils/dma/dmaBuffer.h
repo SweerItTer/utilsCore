@@ -8,6 +8,9 @@
 #define DMA_BUFFER_H
 
 #include <memory>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <stdexcept>
 
 #include "drm/deviceController.h"
 
@@ -39,6 +42,31 @@ public:
     uint32_t pitch()  const noexcept { return data_.pitch;  }
     uint32_t size()   const noexcept { return data_.size;   }
     uint32_t offset() const noexcept { return data_.offset; }
+
+    // map 返回可写的 CPU 指针
+    uint8_t* map() {
+        if (m_fd < 0) {
+            throw std::runtime_error("Invalid DMABUF fd");
+        }
+        if (mappedPtr_) {
+            return mappedPtr_;
+        }
+
+        void* ptr = mmap(nullptr, data_.size, PROT_READ | PROT_WRITE, MAP_SHARED, m_fd, 0);
+        if (ptr == MAP_FAILED) {
+            perror("mmap failed");
+            return nullptr;
+        }
+        mappedPtr_ = reinterpret_cast<uint8_t*>(ptr);
+        return mappedPtr_;
+    }
+
+    void unmap() {
+        if (mappedPtr_) {
+            munmap(mappedPtr_, data_.size);
+            mappedPtr_ = nullptr;
+        }
+    }
     
     // 禁止拷贝
     DmaBuffer(const DmaBuffer&) = delete;
@@ -56,6 +84,7 @@ private:
     
     int m_fd = -1;
     dmaBufferData data_;
+    uint8_t* mappedPtr_ = nullptr;
 };
 
 using DmaBufferPtr = std::shared_ptr<DmaBuffer>;

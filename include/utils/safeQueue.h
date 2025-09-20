@@ -72,34 +72,17 @@ public:
     
     // 允许移动
     SafeQueue(SafeQueue&& other) noexcept {
-        std::lock_guard<std::mutex> lock(other.mutex_);
-        buffer_ = std::move(other.buffer_);
-        head_ = other.head_;
-        tail_ = other.tail_;
-        size_ = other.size_;
-        capacity_ = other.capacity_;
-        policy_ = other.policy_;
-        shutdown_.store(other.shutdown_.load());
-        
-        // 重置源对象状态
-        other.head_ = 0;
-        other.tail_ = 0;
-        other.size_ = 0;
-        other.capacity_ = 0;
-        other.shutdown_.store(true);
+        *this = std::move(other);
     }
     
     SafeQueue& operator=(SafeQueue&& other) noexcept {
         if (this != &other) {
-            /* 关联而不锁死,避免死锁
-            // 直接对称死锁
-            queueA = std::move(queueB);// 线程1
-            queueB = std::move(queueA); // 线程2
-            */
+            /* 关联而不锁死,避免对称死锁
+            queueA = std::move(queueB);
+            queueB = std::move(queueA); // 线程2 */
             std::unique_lock<std::mutex> lock1(mutex_, std::defer_lock);
             std::unique_lock<std::mutex> lock2(other.mutex_, std::defer_lock);
-            // 同时锁住
-            std::lock(lock1, lock2);
+            std::lock(lock1, lock2); // 同时锁住
 
             buffer_ = std::move(other.buffer_);
             head_ = other.head_;
@@ -208,9 +191,9 @@ public:
 
     void clear() {
         std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& item : buffer_) {
-            item.reset();
-        }
+        // for (auto& item : buffer_) {
+        //     item.reset();
+        // }
         head_ = 0;
         tail_ = 0;
         size_ = 0;

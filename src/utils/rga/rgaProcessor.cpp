@@ -83,10 +83,6 @@ void RgaProcessor::stop()
     if (worker_.joinable()) {
         worker_.join();
     }
-
-    rawQueue_->clear();
-
-    outQueue_->clear();
 }
 
 void RgaProcessor::pause(){
@@ -214,7 +210,7 @@ void RgaProcessor::run()
         rgaThreadPool.enqueue([this]() {
             rga_buffer_t src {};// 源图像参数
             rga_buffer_t dst {};// 输出图像参数
-            std::unique_ptr<Frame> rawFrame;
+            FramePtr rawFrame;
             // 等待帧
             if (!rawQueue_->try_dequeue(rawFrame)) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -228,7 +224,8 @@ void RgaProcessor::run()
                 // 无可用 buffer(或格式错误)
                 fprintf(stdout,"RGA: No free buffer, dropping rawFrame.\n");
                 // 丢帧
-                cctr_->returnBuffer(rawFrame->index());
+                rawFrame.reset();
+                // cctr_->returnBuffer(rawFrame->index());
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 return;
             }
@@ -250,7 +247,8 @@ void RgaProcessor::run()
             // std::cout << "[RGAProcessor] rga4kframe Index: " << rgaMeta.index << "\n";
             
             // 不管是否转换成功都归还
-            cctr_->returnBuffer(rawFrame->index());
+            rawFrame.reset();
+            // cctr_->returnBuffer(rawFrame->index());
             
             if (IM_STATUS_SUCCESS != status) {
                 fprintf(stderr, "RGA convert failed: %d\n", status);
@@ -264,6 +262,9 @@ void RgaProcessor::run()
                 bufferPool_[index].s  // 直接使用池中的共享指针
             );
             new_frame->meta = rgaMeta;
+            new_frame->setReleaseCallback([this](int index){
+                releaseBuffer(index);
+            });
             
             // 入队新帧
             outQueue_->enqueue(std::move(new_frame));

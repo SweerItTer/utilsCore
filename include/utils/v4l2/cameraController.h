@@ -17,14 +17,13 @@
 #include <string>
 #include <linux/videodev2.h>
 
-#include "frame.h"
-#include "sharedBufferState.h"
+#include "types.h"
 
 class CameraController {
 public:
     // 定义 FrameCallback 类型(更简洁,简化std::function<void(Frame)>声明)
     // 接受的参数是 Frame,返回类型为 void
-    using FrameCallback = std::function<void(std::unique_ptr<Frame>)>;
+    using FrameCallback = std::function<void(FramePtr)>;
     
     struct Config {
         // 默认配置

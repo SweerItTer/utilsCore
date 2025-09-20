@@ -176,6 +176,7 @@ DmaBuffer::DmaBuffer(int primeFd, dmaBufferData& data)
 
 DmaBuffer::~DmaBuffer()
 {
+    unmap();
     // 回收资源
     cleanup();
 }

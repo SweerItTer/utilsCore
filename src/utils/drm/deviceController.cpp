@@ -8,6 +8,7 @@
 #include <libudev.h>
 #include<sys/epoll.h>
 
+#include "udevMonitor.h"
 #include "drm/deviceController.h"
 
 namespace DrmDev {
@@ -94,15 +95,6 @@ DrmDevicePtr DeviceController::create(const std::string &path)
 
 DeviceController::~DeviceController()
 {
-    hotplugRunning_ = false;
-    if (hotplugThread_.joinable()){
-        try {
-            hotplugThread_.join();
-        } catch (const std::system_error& e) {
-            // 记录日志, 但不要抛出异常
-            fprintf(stderr, "Failed to join hotplug thread: %s\n", e.what());
-        }
-    }
 }
 
 DeviceController::DeviceController(int fd) : fd_(fd) {
@@ -110,101 +102,23 @@ DeviceController::DeviceController(int fd) : fd_(fd) {
     refreshResources();
     refreshAllDevices();
 
-    // 在构造函数中启动 Udev 监听线程
-    hotplugThread_ = std::thread(&DeviceController::handleHotplugEvent, this);
+    // 在 UdevMonitor 中注册 drm 监听
+    UdevMonitor::registerHandler("drm", {"change", "add", "remove"}, 
+        std::bind(&DeviceController::handleHotplugEvent, this)
+    );
 }
 
 void DeviceController::handleHotplugEvent() {
-    struct udev *udev = udev_new();
-    if (!udev) {
-        fprintf(stderr, "Failed to create udev context\n");
-        return;
-    }
-    
-    // 创建监视器, 监听 DRM 子系统的事件
-    struct udev_monitor *monitor = udev_monitor_new_from_netlink(udev, "udev"); // udev: 事件源(可选项还有 kernel)
-    // 过滤drm子系统事件
-    udev_monitor_filter_add_match_subsystem_devtype(monitor, "drm", NULL);
-    // 启动监控过程
-    udev_monitor_enable_receiving(monitor);
-    // 获取监视器的文件描述符
-    int monitorFd = udev_monitor_get_fd(monitor);
+    // 通知释放资源 
+    notifyPreRefresh();
 
-    int epollFd = epoll_create1(0);  // 创建epoll实例,需要释放
-    if (epollFd < 0) {
-        perror("epoll_create1 failed");
-        udev_monitor_unref(monitor);
-        udev_unref(udev);
-        return;
-    }
-
-    epoll_event ev{};
-    ev.events = EPOLLIN;        // 设置监听事件类型
-    ev.data.fd = monitorFd;    // 设置监听的 fd
-
-    // 绑定 fd 和 事件 并添加到epoll红黑树
-    if (epoll_ctl(epollFd, EPOLL_CTL_ADD, monitorFd, &ev) < 0){
-        perror("epoll_ctl failed");
-        close(epollFd);
-        udev_monitor_unref(monitor);
-        udev_unref(udev);
-        return;
-    }
-
-    const int MAX_EVENTS = 4;
-    epoll_event events[MAX_EVENTS];
-
-    while (hotplugRunning_) {
-    
-        // 轮询 monitor 是否有drm类型的可读事件
-        // 并将使用events接收事件
-        int n = epoll_wait(epollFd, events, MAX_EVENTS, 1000); // 1000ms 超时
-        if (n <= 0) continue;
-        for (int i = 0; i < n; ++i) {
-            // 匹配到 monitor 的事件, 并且是可读
-            if (events[i].data.fd != monitorFd || !(events[i].events & EPOLLIN)) {
-                continue;
-            }
-            // 获取产生事件的设备映射
-            struct udev_device *dev = udev_monitor_receive_device(monitor);
-            if (!dev) {
-                continue;
-            }
-            // 获取设备事件
-            const char *action = udev_device_get_action(dev);
-            // 获取设备位置
-            const char *devpath = udev_device_get_devpath(dev);
-            if (!action || !devpath) {
-                udev_device_unref(dev);
-                continue;
-            }
-
-            fprintf(stdout, "DRM device event: %s on %s\n", action, devpath);
-            
-            // 使用异步方式处理热插拔事件, 避免死锁
-            if (strcmp(action, "change") == 0 
-                || strcmp(action, "add") == 0 
-                || strcmp(action, "remove") == 0) {
-                // 通知释放资源 
-                notifyPreRefresh();
-
-                // 等待系统稳定
-                std::this_thread::sleep_for(std::chrono::milliseconds(1500)); 
-                // 更新资源
-                refreshResources();
-                refreshAllDevices();
-                // 重新获取资源
-                notifyPostRefresh();
-            }
-            // 释放资源
-            udev_device_unref(dev);
-        }
-    }
-    close(epollFd);
-
-    // 循环外释放
-    udev_monitor_unref(monitor);
-    udev_unref(udev);
+    // 等待系统稳定(堵塞 UdevMonitor 工作线程)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500)); 
+    // 更新资源
+    refreshResources();
+    refreshAllDevices();
+    // 重新获取资源
+    notifyPostRefresh();
 }
 
 void DeviceController::registerResourceCallback(const ResourceCallback& preRefreshCallback, 

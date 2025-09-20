@@ -97,25 +97,4 @@ private:
 };
 
 using CompositorPtr = std::unique_ptr<PlanesCompositor>;
-
-static void wait_fence(int fence_fd, std::function<void()> callback) {
-    // fprintf(stdout, "Fence fd: %d\n", fence_fd);
-
-    if (fence_fd < 0) return;
-
-    struct pollfd pfd = {
-        .fd = fence_fd,
-        .events = POLLIN,
-    };
-    
-    // 等待 fence 信号，超时时间 1000ms
-    int poll_ret = poll(&pfd, 1, 1000);
-    if (poll_ret < 0) {
-        fprintf(stderr, "Poll on fence failed: %s\n", strerror(errno));
-    } else if (poll_ret == 0) {
-        fprintf(stderr, "Timeout waiting for fence\n");
-    }
-    close(fence_fd);
-    callback();
-}
 #endif // PLANES_COMPOSITOR_H
