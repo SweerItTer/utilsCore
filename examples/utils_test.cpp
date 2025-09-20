@@ -1,8 +1,23 @@
-#include "fbshow.h"
-
 #include <csignal>
+#include <sys/mman.h>
+#include <cstring>
+#include <unistd.h>
+
+#include <QGuiApplication>
+
+#include "fbshow.h"
+#include "rander/core.h"
+#include "rander/draw.h"
 
 using namespace DrmDev;
+
+static std::atomic_bool running{true};
+static void handleSignal(int signal) {
+    if (signal == SIGINT) {
+        std::cout << "Ctrl+C received, stopping..." << std::endl;
+        running = false;
+    }
+}
 
 int virSave(void *data, size_t buffer_size){
     // 保存为图像文件
@@ -207,15 +222,144 @@ int drmDevicesControllerTest(){
     return 0;
 }
 
-static std::atomic_bool running{true};
-static void handleSignal(int signal) {
-    if (signal == SIGINT) {
-        std::cout << "Ctrl+C received, stopping..." << std::endl;
-        running = false;
+auto infoPrinter = [](const std::vector<uint32_t>& Ids){
+    std::cout << "Gain " << Ids.size() <<" usable planes";
+    for(auto& id : Ids){
+        std::cout << " " << id;
     }
+    std::cout << ".\n";
+};
+
+uint32_t fx(uint32_t v){ return v << 16; }
+
+bool fillDmaBuffer(DmaBufferPtr& buf)
+{
+    if(nullptr == buf) return false;
+
+    int fd = buf->fd();
+    size_t size = buf->size();  // DMABUF 的实际大小
+    if(fd < 0 || size == 0) return false;
+
+    // CPU 映射 DMABUF
+    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if(data == MAP_FAILED) return false;
+
+    // 填充测试内容, 比如绿色
+    uint32_t* ptr = reinterpret_cast<uint32_t*>(data);
+    uint32_t width = buf->width();
+    uint32_t height = buf->height();
+    uint32_t pitch = buf->pitch() / 4; // pitch 以像素计
+    for(uint32_t y = 0; y < height; ++y){
+        for(uint32_t x = 0; x < width; ++x){
+            ptr[y * pitch + x] = 0xFF00FF00; // ARGB 绿色
+        }
+    }
+
+    // 解除映射
+    munmap(data, size);
+
+    return true;
 }
 
-int main(int argc, char const *argv[]) {
+int GPUdrawTest(){
+    uint32_t width = 1280;
+    uint32_t height = 720;
+    uint32_t format = DRM_FORMAT_XRGB8888;
+    // plane id 列表
+    std::vector<uint32_t> usableOverlayPlaneIds;
+    // 创建合成器
+    auto compositor = std::move(PlanesCompositor::create());
+    // 创建 layer
+    auto layer = std::make_shared<DrmLayer>(std::vector<DmaBufferPtr>(), 2);
+    // 获取可用设备组合
+    auto devices = &(DrmDev::fd_ptr->getDevices());
+    if (devices->empty()){ std::cout << "Get no devices.\n"; return -1; }
+    // 取出第一个屏幕
+    auto dev = (*devices)[0];
+    if (nullptr == dev) { std::cout << "Failed to get devices.\n"; return -1; }
+    // 获取所有在指定CRTC上的Plane
+    DrmDev::fd_ptr->refreshPlane(dev->crtc_id);
+    // 获取指定类型并且支持目标格式的 Plane
+    DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_OVERLAY, format, usableOverlayPlaneIds);
+    // 输出相关信息
+    infoPrinter(usableOverlayPlaneIds);
+    // 若无可以plane则退出
+    if (usableOverlayPlaneIds.empty())
+    { std::cout << "Some plane do not matched.\n"; return -1; }
+
+    // 配置属性
+    DrmLayer::LayerProperties frameLayerProps{
+        .plane_id_   = usableOverlayPlaneIds[0],  
+        .crtc_id_    = dev->crtc_id,
+
+        // 源图像区域
+        // src_* 使用左移 16
+        .srcX_       = fx(0),
+        .srcY_       = fx(0),
+        .srcwidth_   = fx(width),
+        .srcheight_  = fx(height),
+        // 显示图像区域
+        // crtc_* 不使用左移
+        .crtcX_      = 0,
+        .crtcY_      = 0,
+        // 自动缩放
+        .crtcwidth_  = dev->width,
+        .crtcheight_ = dev->height
+    };
+    // 初始化layer属性
+    layer->setProperty(frameLayerProps);
+    // 注册更新回调
+    layer->setUpdateCallback([&compositor](const std::shared_ptr<DrmLayer>& layer, uint32_t fbId){
+        compositor->updateLayer(layer, fbId);
+    });
+    // 将layer添加到合成器
+    compositor->addLayer(layer);
+    std::cout << "Layer initialized.\n";
+    // 申请管理核心
+    auto& core = Core::instance();
+
+    // 注册 Core
+    core.registerResSlot("test", 2, std::move(DmaBuffer::create(width, height, format, 0)));
+    for (int i = 0; i < 300; ++i) {  // 300 帧,大概 5 秒
+        int OpenGLFence = 0;
+        int DRMFence = 0;
+        // 取出一个可用buffer
+        auto slot = core.acquireFreeSlot("test");
+        if (nullptr == slot) { continue; }
+
+        // 清空并绘制不同的内容
+        QString text = QString("Frame %1").arg(i);
+        Draw::clear(*(slot.get()));
+        Draw::drawText(*(slot.get()), text, QPointF(slot->width()/2, slot->height()/2));
+
+        // 同步内容到 dmabuf
+        if (!slot->syncToDmaBuf(OpenGLFence)) {
+            std::cout << "Failed to sync dmabuf. \n";
+            core.releaseSlot("test", slot);
+            continue;
+        }
+
+        // 等待绘制和显示
+        FenceWatcher::instance().watchFence(OpenGLFence, [slot, layer, &compositor, &DRMFence]() {
+            layer->updateBuffer({slot->dmabufPtr});
+            compositor->commit(DRMFence);
+            FenceWatcher::instance().watchFence(DRMFence, [layer]() {
+                layer->onFenceSignaled();
+            });
+        });
+
+        // 控制帧率,比如 60fps
+        usleep(16666);
+        core.releaseSlot("test", slot);
+        if (!running) break;
+    }
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    QGuiApplication app(argc, argv);
+
+
     DrmDev::fd_ptr = DeviceController::create();
     if (!DrmDev::fd_ptr) {
         std::cout << "Init DrmDev::fd_ptr faild\n";
@@ -232,9 +376,11 @@ int main(int argc, char const *argv[]) {
         {"--dmatest", dmabufTest},
         {"--layertest", layerTest},
         {"--devtest", drmDevicesControllerTest},
+        {"--FBOtest", GPUdrawTest},
         {"--fbshow", [](){ 
             FrameBufferTest test;
             test.start();
+            GPUdrawTest();
             while(running){ sleep(1000); }
             test.stop();
             return 0;

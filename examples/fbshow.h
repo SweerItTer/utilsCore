@@ -9,6 +9,7 @@
 #include "dma/dmaBuffer.h"
 #include "drm/drmLayer.h"
 #include "drm/planesCompositor.h"
+#include "fenceWatcher.h"
 #include "safeQueue.h"
 #include "objectsPool.h"
 
@@ -211,7 +212,7 @@ private:
             // 提交一次
             int fence = -1;
             compositor->commit(fence);
-            wait_fence(fence, [this](){ frameLayer->onFenceSignaled(); });
+            FenceWatcher::instance().watchFence(fence, [this](){ frameLayer->onFenceSignaled(); });
             // 释放drmbuf
             processor->releaseBuffer(frame->meta.index);
         }
