@@ -85,6 +85,10 @@ int PlanesCompositor::commit(int& fence) {
     for (auto const& layer : layers_) {
         auto const& propertyCache = layer.second;
         crtc_id = propertyCache.layerProperty.crtc_id;
+        if (propertyCache.layerProperty.fb_id == 0) {
+            fprintf(stderr, "Layer fb_id is 0, skip this layer\n");
+            continue;
+        }
         // 循环添加到配置
         int addRet = addProperty2Req(propertyCache);
         if (addRet < 0) {
