@@ -329,7 +329,6 @@ int GPUdrawTest(){
 
         // 清空并绘制不同的内容
         QString text = QString("Frame %1").arg(i);
-        Draw::clear(*(slot.get()));
         Draw::drawText(*(slot.get()), text, QPointF(slot->width()/2, slot->height()/2));
 
         // 同步内容到 dmabuf
@@ -353,6 +352,8 @@ int GPUdrawTest(){
         core.releaseSlot("test", slot);
         if (!running) break;
     }
+    Draw::instance().shutdown();
+    Core::instance().shutdown();
     return 0;
 }
 
@@ -367,7 +368,7 @@ int main(int argc, char** argv) {
     }
     int ret = 0;
     std::signal(SIGINT, handleSignal);
-
+    FrameBufferTest test;
     // 定义测试用例映射表
     // key: 命令行参数 (如 "--rgatest")
     // value: 一个无参数且返回 int 的函数对象（可以是函数指针、lambda等）
@@ -377,11 +378,11 @@ int main(int argc, char** argv) {
         {"--layertest", layerTest},
         {"--devtest", drmDevicesControllerTest},
         {"--FBOtest", GPUdrawTest},
-        {"--fbshow", [](){ 
-            FrameBufferTest test;
+        {"--fbshow", [&test](){ 
             test.start();
-            GPUdrawTest();
-            while(running){ sleep(1000); }
+            int aaaa = 10;
+            while(aaaa--){ sleep(1); }
+            // while(running){ sleep(1000); }
             test.stop();
             return 0;
         }} // 也可以用 Lambda 包装

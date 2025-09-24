@@ -54,10 +54,7 @@ Core& Core::instance()
 
 Core::Core()
 {
-    // if (false == initEGLRes()) {
-    //     fprintf(stderr, "[Core] Failed to initialization EGL.\n");
-    // }
-
+    // 初始化qt上下文
     if (false == initQContext()) {
         fprintf(stderr, "[Core] initContext failed.\n");
     }
@@ -67,98 +64,25 @@ Core::Core()
     }
 }
 
-Core::~Core() {
+void Core::shutdown() {
+    std::lock_guard<std::mutex> slotLock(slotMutex);
     // 清理所有资源池
-    {
-        std::lock_guard<std::mutex> slotLock(slotMutex);
-        slots_.clear();
-    }
-    
-    // // 销毁上下文和display
-    // if (eglDisplay_ != EGL_NO_DISPLAY) {
-    //     eglMakeCurrent(eglDisplay_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);        
-    //     if (eglCtx_ != EGL_NO_CONTEXT) {
-    //         eglDestroyContext(eglDisplay_, eglCtx_);
-    //         eglCtx_ = EGL_NO_CONTEXT;
-    //     }
-    //     eglTerminate(eglDisplay_); 
-    //     eglDisplay_ = EGL_NO_DISPLAY;
-    // }
+    slots_.clear();
+
+    // 清理所有依赖 Qt/EGL 的资源
+    glContext_.reset();
+    offscreenSurface_.reset();
+    fprintf(stderr, "[Core] shutdown complete\n");
 }
-/*
 
-bool Core::initEGLRes()
-{
-    // 初始化EGL display
-    eglDisplay_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (eglDisplay_ == EGL_NO_DISPLAY) {
-        fprintf(stderr, "[Core] Failed to get EGL default display\n");
-        return false;
-    }
-    EGLint major, minor;
-    if (!eglInitialize(eglDisplay_, &major, &minor)) {
-        fprintf(stderr, "[Core] Failed to initialize EGL display\n");
-        return false;
-    }
-    fprintf(stdout, "[Core] EGL display initialized (version %d.%d)\n", major, minor);
-    
-    // 创建EGL上下文配置
-    EGLint configAttribs[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT | EGL_WINDOW_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,    // 使用 opengl es
-        EGL_RED_SIZE, 8,
-        EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE, 8,
-        EGL_ALPHA_SIZE, 8,
-        EGL_DEPTH_SIZE, 24,
-        EGL_STENCIL_SIZE, 8,
-        EGL_NONE
-    }; 
-    EGLConfig eglConfig;
-    EGLint numConfigs;
-    // 使用配置
-    if (!eglChooseConfig(eglDisplay_, configAttribs, &eglConfig, 1, &numConfigs)) {
-        fprintf(stderr, "[Core] Failed to choose EGL config\n");
-        return false;
-    }
-    
-    // 创建EGL上下文
-    EGLint contextAttribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, 2,
-        EGL_NONE
-    };
-    eglCtx_ = eglCreateContext(eglDisplay_, eglConfig, EGL_NO_CONTEXT, contextAttribs);
-    if (eglCtx_ == EGL_NO_CONTEXT) {
-        fprintf(stderr, "[Core] Failed to create EGL context\n");
-        printEglError("eglCreateContext");
-        return false;
-    }
-    fprintf(stdout, "[Core] EGL context created successfully\n");
-    
-    // 创建PBuffer离屏渲染表面
-    EGLint pbufferAttribs[] = {
-        EGL_WIDTH, 1,
-        EGL_HEIGHT, 1,
-        EGL_NONE
-    };
-    eglSurface_ = eglCreatePbufferSurface(eglDisplay_, eglConfig, pbufferAttribs);
-    if (eglSurface_ == EGL_NO_SURFACE) {
-        fprintf(stderr, "[Core] Failed to create EGL PBuffer surface\n");
-        printEglError("eglCreatePbufferSurface");
-        return false;
-    }
-    fprintf(stdout, "[Core] EGL PBuffer surface created successfully\n");
-    
-    // 测试上下文
-    if (!makeEGLCurrent()) {
-        fprintf(stderr, "[Core] Failed to make EGL context current\n");
-        printEglError("eglMakeCurrent");
-        return false;
-    }
-    fprintf(stdout, "[Core] EGL context made current successfully\n");
 
-    return eglDisplay_ != EGL_NO_DISPLAY && eglCtx_ != EGL_NO_CONTEXT && eglSurface_ != EGL_NO_SURFACE;
-}*/
+Core::~Core() {
+    // 覆盖上下文和display(qt回收)
+    if (eglDisplay_ != EGL_NO_DISPLAY) {
+        eglCtx_ = EGL_NO_CONTEXT;
+        eglDisplay_ = EGL_NO_DISPLAY;
+    }
+}
 
 bool Core::initQContext() {
     // 创建Qt的OpenGL上下文, 使用原生EGL资源

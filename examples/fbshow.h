@@ -12,6 +12,8 @@
 #include "fenceWatcher.h"
 #include "safeQueue.h"
 #include "objectsPool.h"
+#include "rander/draw.h"
+#include "rander/core.h"
 
 extern int virSave(void *data, size_t buffer_size);
 extern int dmabufTest();
@@ -21,6 +23,32 @@ extern int rgaTest();
 
 
 class FrameBufferTest{
+    // 资源管理
+    std::atomic_bool refreshing{false};
+    SharedDev* devices;
+    DevPtr dev;
+    // 帧队列
+    std::shared_ptr<FrameQueue> rawFrameQueue, frameQueue;
+    // 相机配置
+    uint32_t cctrFormat = V4L2_PIX_FMT_NV12;
+    CameraController::Config cctrCfg{};
+    std::shared_ptr<CameraController> cctr;
+    // rga配置
+    int dstFormat = RK_FORMAT_RGBA_8888;
+    uint32_t width = 1280;
+    uint32_t height = 720;
+    int format = -1;
+    int poolSize = 0;
+    RgaProcessor::Config rgaCfg{};
+    std::shared_ptr<RgaProcessor> processor;
+    // 合成器
+    std::unique_ptr<PlanesCompositor> compositor;
+    // 层
+    std::shared_ptr<DrmLayer> frameLayer; // 在primary的帧显示layer
+    std::shared_ptr<DrmLayer> overLayer;  // 在overlay上显示的layer
+    // 主线程
+    std::atomic_bool running{false};
+    std::thread thread_;
     // 16.16 定位
     uint32_t fx(uint32_t v){ return v << 16; }
 public:
@@ -81,6 +109,7 @@ public:
         { std::cout << "Some plane do not matched.\n"; return; }
 
         frameLayer.reset( new DrmLayer(std::vector<DmaBufferPtr>(), 2) );
+        overLayer.reset( new DrmLayer(std::vector<DmaBufferPtr>(), 2) );
         // 配置属性
         DrmLayer::LayerProperties frameLayerProps{
             .plane_id_   = usablePrimaryPlaneIds[0],  
@@ -100,9 +129,31 @@ public:
             .crtcwidth_  = dev->width,
             .crtcheight_ = dev->height
         };
+        // 配置属性
+        DrmLayer::LayerProperties overLayerProps{
+            .plane_id_   = usableOverlayPlaneIds[0],  
+            .crtc_id_    = dev->crtc_id,
+
+            // 源图像区域
+            // src_* 使用左移 16
+            .srcX_       = fx(0),
+            .srcY_       = fx(0),
+            .srcwidth_   = fx(cctrCfg.width),
+            .srcheight_  = fx(cctrCfg.height),
+            // 显示图像区域
+            // crtc_* 不使用左移
+            .crtcX_      = 0,
+            .crtcY_      = 0,
+            // 自动缩放
+            .crtcwidth_  = dev->width,
+            .crtcheight_ = dev->height
+        };
         initLayer(frameLayer, frameLayerProps);
+        initLayer(overLayer, overLayerProps);
+        
         // 将layer添加到合成器
         compositor->addLayer(frameLayer);
+        compositor->addLayer(overLayer);
         std::cout << "Layer initialized.\n"; 
         // 重新获取资源后重启
         cctr->start();
@@ -124,8 +175,8 @@ public:
             .device = "/dev/video0",
             // .width = 3840,
             // .height = 2160,
-            .width = 1280,
-            .height = 720,
+            .width = width,
+            .height = height,
             .format = cctrFormat
         };
         
@@ -192,8 +243,11 @@ private:
     // 线程实现
     void run(){
         bool usingRknn = false; 
-        // 出队帧缓存
+        auto& core = Core::instance();
+        core.registerResSlot("yolo", 2, width, height, formatRGAtoDRM(dstFormat), width * height * 4, 0);
+        int i = 0;
         FramePtr frame;
+        // 出队帧缓存
         while (running) {
             // 等待刷新完成
             if (true == refreshing) {
@@ -205,42 +259,50 @@ private:
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
+            int OpenGLFence = -1;
+            int DRMFence = -1;
             // 取出该帧的drmbuf
-            auto dmabuf = frame->sharedState()->dmabuf_ptr;
-            // 更新fb,同时回调触发合成器更新fbid
-            frameLayer->updateBuffer({dmabuf});
-            // 提交一次
-            int fence = -1;
-            compositor->commit(fence);
-            FenceWatcher::instance().watchFence(fence, [this](){ frameLayer->onFenceSignaled(); });
-            // 释放drmbuf
-            frame.reset();
-            // processor->releaseBuffer(frame->meta.index);
-        }
-    }
+            auto frameBuf = frame->sharedState()->dmabuf_ptr;
+            if (nullptr == frameBuf) {
+                std::cout << "Failed to get dmabuf from frame.\n";
+                continue;
+            }
+            auto slot = core.acquireFreeSlot("yolo");
+            if (nullptr == slot) {
+                std::cout << "Failed to acquire slot.\n";
+                continue;
+            }
+            // 清空并绘制不同的内容
+            QString text = QString("Frame %1").arg(i);
+            Draw::drawText(*(slot.get()), text, QPointF(slot->width()/2, slot->height()/2));
+            i++;
+            // 同步内容到 dmabuf
+            if (!slot->syncToDmaBuf(OpenGLFence)) {
+                std::cout << "Failed to sync dmabuf. \n";
+                core.releaseSlot("test", slot);
+                continue;
+            };
+            if (slot->dmabufPtr == nullptr) {
+                std::cout << "Slot dmabuf is null.\n";
+                core.releaseSlot("test", slot);
+                continue;
+            }
 
-    // 资源管理
-    std::atomic_bool refreshing{false};
-    SharedDev* devices;
-    DevPtr dev;
-    // 帧队列
-    std::shared_ptr<FrameQueue> rawFrameQueue, frameQueue;
-    // 相机配置
-    uint32_t cctrFormat = V4L2_PIX_FMT_NV12;
-    CameraController::Config cctrCfg{};
-    std::shared_ptr<CameraController> cctr;
-    // rga配置
-    int dstFormat = RK_FORMAT_RGBA_8888;
-    int format = -1;
-    int poolSize = 0;
-    RgaProcessor::Config rgaCfg{};
-    std::shared_ptr<RgaProcessor> processor;
-    // 合成器
-    std::unique_ptr<PlanesCompositor> compositor;
-    // 层
-    std::shared_ptr<DrmLayer> frameLayer; // 在primary的帧显示layer
-    // std::unique_ptr<DrmLayer> overLayer;  // 在overlay上显示的layer
-    // 主线程
-    std::atomic_bool running{false};
-    std::thread thread_;
+            // 等待绘制和显示
+            FenceWatcher::instance().watchFence(OpenGLFence, [frameBuf, this, &DRMFence, slot]() {
+                // 更新fb,同时回调触发合成器更新fbid
+                frameLayer->updateBuffer({frameBuf});
+                overLayer->updateBuffer({slot->dmabufPtr});
+                compositor->commit(DRMFence);
+                FenceWatcher::instance().watchFence(DRMFence, [this]() {
+                    overLayer->onFenceSignaled();
+                    frameLayer->onFenceSignaled();
+                });
+            });
+            frame.reset();
+            core.releaseSlot("yolo", slot);
+        }
+        Draw::instance().shutdown();
+        Core::instance().shutdown();
+    }
 };

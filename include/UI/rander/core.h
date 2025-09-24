@@ -90,7 +90,8 @@ class Core {
 public:
     struct resourceSlot;
     static Core& instance();
-    
+    void shutdown();
+
     bool queryAllFormats(uint32_t targetFmt);
     // 注册具用途的 dmabuf, EGLImage 并 attach 纹理到 FBO (传入临时模板,生命周期非常短)
     bool registerResSlot(const std::string& type, size_t poolSize, DmaBufferPtr &&bufTemplate);
