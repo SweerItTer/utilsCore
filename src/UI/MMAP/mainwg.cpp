@@ -2,7 +2,7 @@
  * @FilePath: /EdgeVision/src/UI/MMAP/mainwg.cpp
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-16 23:33:33
- * @LastEditors: Please set LastEditors
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "MMAP/mainwg.h"
 #include "./ui_mainwg.h"
@@ -17,7 +17,7 @@ MainWg::MainWg(QWidget *parent)
 
 	// 初始化成员
 	initVar();
-    
+          
     // 主动更新可用参数(需要在paramProcessor_实例化后)
     auto allControls = paramProcessor_->param_.queryAllControls();
     paramDialog_ = new ParamDialog(this);
@@ -29,6 +29,7 @@ MainWg::MainWg(QWidget *parent)
 	// 初始化信号
 	initSignal();
 
+    paramDialog_->triger();
     on_pushButton_clicked();
 }
 
@@ -96,7 +97,7 @@ void MainWg::initVar() {
 						nullptr, frameQueue, rgaThread,
                         QSize(cctr_cfg.width, cctr_cfg.height));
 
-    paramProcessor_ = std::make_unique<ParamProcessor>(cctr->getDeviceFd());
+    paramProcessor_ = std::make_unique<ParamProcessor>(cctr_cfg.device);
 }
 
 void MainWg::initSignal(){
@@ -122,7 +123,7 @@ void MainWg::initSignal(){
         auto newSettings = paramDialog_->getUserSettings();
         // 更新参数
         paramProcessor_->setTargetControls(newSettings);
-        paramDialog_->hide();
+        // paramDialog_->hide();
     });
 }
 

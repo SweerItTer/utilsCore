@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "EdgeVision remote debug",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../build/src/UI/OpenGLCamera-rk3566", 
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/atk-dlrk356x-toolchain/usr/bin/aarch64-buildroot-linux-gnu-gdb",
+            "miDebuggerServerAddress": "localhost:5039",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}
+00

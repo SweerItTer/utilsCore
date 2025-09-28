@@ -95,5 +95,4 @@ void ParamProcessor::applyChange(const V4L2ControlInfo& change) {
         auto log = "Failed to set: [" + change.name + "] -> " + std::to_string(change.current) + "\n";
         errorCallback_(log);
     }
-    fprintf(stdout, "Control setting status: %d\n", ok);
 }

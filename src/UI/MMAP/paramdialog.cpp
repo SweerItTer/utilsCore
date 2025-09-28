@@ -8,14 +8,14 @@
 ParamDialog::ParamDialog(QWidget* parent)
     : QDialog(parent)
 {
-    this->setWindowTitle("参数设置");
+    this->setWindowTitle("Parameter Settings");
     this->setMinimumWidth(400);
 
     layout_ = new QVBoxLayout(this);
     this->setLayout(layout_);
 
     // 应用配置按钮
-    QPushButton* applyButton = new QPushButton("应用配置");
+    QPushButton* applyButton = new QPushButton("Apply");
 
     // 居中放置按钮
     QHBoxLayout* buttonLayout = new QHBoxLayout;
@@ -30,13 +30,16 @@ ParamDialog::ParamDialog(QWidget* parent)
     connect(applyButton, &QPushButton::clicked, this, [this]() {
         emit configConfirmed();
     });
+
 }
 
 void ParamDialog::closeEvent(QCloseEvent* event)
 {
+    // 仅隐藏对话框
+    this->hide();
     // close调用不会析构
     // 恢复控件状态为初始状态
-    loadControls(originalControls_);
+    // loadControls(originalControls_);
     QDialog::closeEvent(event);  // 继续执行默认关闭
 }
 
@@ -55,6 +58,7 @@ void ParamDialog::loadControls(const ParamControl::ControlInfos& controls)
     const int labelWidth = 120;
 
     for (const auto& info : controls) {
+        deviceControls_[info.id] = QPair<int32_t, int32_t>(info.min, info.max);
         // 主要调整部分
         QWidget* container = new QWidget;
         QHBoxLayout* hLayout = new QHBoxLayout(container);
@@ -138,8 +142,10 @@ ParamControl::ControlInfos ParamDialog::getUserSettings() const
                 info.name = label->text().toStdString();
             }
         }
-        
-        result.emplace_back(info);
+        // 取出备份的 min/max
+        info.min = deviceControls_[info.id].first;
+        info.max = deviceControls_[info.id].second;
+        result.emplace_back(std::move(info));
     }
 
     return result;

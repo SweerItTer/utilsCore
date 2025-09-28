@@ -528,11 +528,11 @@ void CameraController::Impl::stop() {
 }
 
 void CameraController::Impl::captureLoop() {
-    static int frame_count = 0;
-    double current_fps_ = 0.0;
-    uint64_t time_span = 0;
-    uint64_t frame_times_old = 0;
-    uint64_t frame_times_now = 0;
+    // static int frame_count = 0;
+    // double current_fps_ = 0.0;
+    // uint64_t time_span = 0;
+    // uint64_t frame_times_old = 0;
+    // uint64_t frame_times_now = 0;
     try
     {
     while (running_) {
@@ -651,17 +651,17 @@ void CameraController::Impl::captureLoop() {
             frame_callback_(std::move(*frame_opt));
         } else returnBuffer(buf.index); // 未设置正确的回调时需要手动回收缓冲区
         
-        // 帧率计算
-        frame_times_now = ts;
-        time_span = frame_times_now - frame_times_old;
-        if (time_span > 0) {
-            current_fps_ = 1000000.0 / static_cast<double>(time_span);
-        }
-        if (++frame_count % 30 == 0) {
-            fprintf(stdout, "v4l2 fps:%.1f\n", current_fps_);
-            frame_count = 0;
-        }
-        frame_times_old = frame_times_now;
+        // // 帧率计算
+        // frame_times_now = ts;
+        // time_span = frame_times_now - frame_times_old;
+        // if (time_span > 0) {
+        //     current_fps_ = 1000000.0 / static_cast<double>(time_span);
+        // }
+        // if (++frame_count % 30 == 0) {
+        //     fprintf(stdout, "v4l2 fps:%.1f\n", current_fps_);
+        //     frame_count = 0;
+        // }
+        // frame_times_old = frame_times_now;
     }
     } catch (const std::exception& e) {
         fprintf(stderr, "Capture loop error: %s\n", e.what());

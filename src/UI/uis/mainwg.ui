@@ -37,7 +37,7 @@
      <item>
       <widget class="QPushButton" name="openParamMenu">
        <property name="text">
-        <string>  修改参数  </string>
+        <string>  Modify parameters  </string>
        </property>
       </widget>
      </item>
@@ -63,7 +63,7 @@
         </size>
        </property>
        <property name="text">
-        <string> 设备开启状态: </string>
+        <string> Device Status: </string>
        </property>
       </widget>
      </item>

@@ -169,8 +169,8 @@ ParamControl::ControlInfos ParamControl::diffParamInfo(const ControlInfos& oldIn
         if (newEntry.current < newEntry.min) diffInfo.current = newEntry.min;
         else if (newEntry.current > newEntry.max) diffInfo.current = newEntry.max;
         else diffInfo.current = newEntry.current;
-        
-        result.push_back(diffInfo);
+
+        result.emplace_back(std::move(diffInfo));
     }
 
     return result;

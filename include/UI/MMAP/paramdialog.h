@@ -16,6 +16,7 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QMap>
+#include <QPair>
 #include <QCloseEvent>
 
 #include "v4l2param/paramControl.h"
@@ -29,7 +30,7 @@ public:
     
     // 载入一组控制信息 (创建控件组)
     void loadControls(const ParamControl::ControlInfos& controls);
-
+    void triger(){ emit configConfirmed(); }
     // 提取用户在 UI 中的设置
     ParamControl::ControlInfos getUserSettings() const;
 signals:
@@ -41,6 +42,7 @@ private:
     QVBoxLayout* layout_;  // 主布局
     // 保存旧数据
     ParamControl::ControlInfos originalControls_;
+    QMap<__u32, QPair<int32_t, int32_t>> deviceControls_; // 备份初始化的选项(需要max和min)
     // 用于保存 id 到控件的映射
     QMap<__u32, QWidget*> controlWidgets_;
 };
