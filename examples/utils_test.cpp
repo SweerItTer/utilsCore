@@ -329,7 +329,7 @@ int GPUdrawTest(){
 
         // 清空并绘制不同的内容
         QString text = QString("Frame %1").arg(i);
-        Draw::drawText(*(slot.get()), text, QPointF(slot->width()/2, slot->height()/2));
+        Draw::instance().drawText(*(slot.get()), text, QPointF(slot->width()/2, slot->height()/2));
 
         // 同步内容到 dmabuf
         if (!slot->syncToDmaBuf(OpenGLFence)) {
@@ -380,9 +380,7 @@ int main(int argc, char** argv) {
         {"--FBOtest", GPUdrawTest},
         {"--fbshow", [&test](){ 
             test.start();
-            int aaaa = 10;
-            while(aaaa--){ sleep(1); }
-            // while(running){ sleep(1000); }
+            while(running){ sleep(1000); }
             test.stop();
             return 0;
         }} // 也可以用 Lambda 包装
@@ -425,3 +423,5 @@ int main(int argc, char** argv) {
 
     return ret;
 }
+
+//ps -eo pid,lstart,etime,cmd | grep 'utils_test'

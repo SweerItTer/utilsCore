@@ -4,6 +4,7 @@
 #include <iostream>
 #include <thread>
 
+#include "threadUtils.h"
 #include "rga/rgaProcessor.h"
 #include "v4l2/cameraController.h"
 #include "dma/dmaBuffer.h"
@@ -35,8 +36,8 @@ class FrameBufferTest{
     std::shared_ptr<CameraController> cctr;
     // rga配置
     int dstFormat = RK_FORMAT_RGBA_8888;
-    uint32_t width = 1280;
-    uint32_t height = 720;
+    uint32_t width = 2560;
+    uint32_t height = 1440;
     int format = -1;
     int poolSize = 0;
     RgaProcessor::Config rgaCfg{};
@@ -130,24 +131,8 @@ public:
             .crtcheight_ = dev->height
         };
         // 配置属性
-        DrmLayer::LayerProperties overLayerProps{
-            .plane_id_   = usableOverlayPlaneIds[0],  
-            .crtc_id_    = dev->crtc_id,
-
-            // 源图像区域
-            // src_* 使用左移 16
-            .srcX_       = fx(0),
-            .srcY_       = fx(0),
-            .srcwidth_   = fx(cctrCfg.width),
-            .srcheight_  = fx(cctrCfg.height),
-            // 显示图像区域
-            // crtc_* 不使用左移
-            .crtcX_      = 0,
-            .crtcY_      = 0,
-            // 自动缩放
-            .crtcwidth_  = dev->width,
-            .crtcheight_ = dev->height
-        };
+        DrmLayer::LayerProperties overLayerProps = frameLayerProps;
+        overLayerProps.plane_id_ = usableOverlayPlaneIds[0];
         initLayer(frameLayer, frameLayerProps);
         initLayer(overLayer, overLayerProps);
         
@@ -157,7 +142,9 @@ public:
         std::cout << "Layer initialized.\n"; 
         // 重新获取资源后重启
         cctr->start();
+        cctr->setThreadAffinity(0); // 绑定到核心0
         processor->start();
+        processor->setThreadAffinity(3); // 绑定到核心2
         refreshing = false;
     }
 
@@ -165,7 +152,7 @@ public:
         // 创建队列
 // 准备思路: v4l2捕获后图像直接显示到DRM上, 若开启推理才让RGA实际跑起来
         rawFrameQueue  	= std::make_shared<FrameQueue>(2);
-        frameQueue     	= std::make_shared<FrameQueue>(4);
+        frameQueue     	= std::make_shared<FrameQueue>(2);
         
         // 相机配置
         cctrCfg = CameraController::Config {
@@ -242,6 +229,16 @@ public:
 private:
     // 线程实现
     void run(){
+        ThreadUtils::bindCurrentThreadToCore(0);
+
+        struct timeval time;
+        gettimeofday(&time, nullptr);
+        auto startTime = time.tv_sec * 1000 + time.tv_usec / 1000;
+    
+        int frames = 0;
+        float fps = 0.0;
+        auto beforeTime = startTime;
+
         bool usingRknn = false; 
         auto& core = Core::instance();
         core.registerResSlot("yolo", 2, width, height, formatRGAtoDRM(dstFormat), width * height * 4, 0);
@@ -273,8 +270,8 @@ private:
                 continue;
             }
             // 清空并绘制不同的内容
-            QString text = QString("Frame %1").arg(i);
-            Draw::drawText(*(slot.get()), text, QPointF(slot->width()/2, slot->height()/2));
+            QString text = QString("Fps: %1/s").arg(fps);
+            Draw::instance().drawText(*(slot.get()), text, QPointF(10, 45), Qt::red);
             i++;
             // 同步内容到 dmabuf
             if (!slot->syncToDmaBuf(OpenGLFence)) {
@@ -299,6 +296,17 @@ private:
                     frameLayer->onFenceSignaled();
                 });
             });
+            frames++;
+            
+            if (frames % 10 == 0)
+            {
+                gettimeofday(&time, nullptr);
+                auto currentTime = time.tv_sec * 1000 + time.tv_usec / 1000;
+                fps = 10.0 / float(currentTime - beforeTime) * 1000.0;
+                // printf("10帧内平均帧率:\t %f fps/s\n", fps);
+                beforeTime = currentTime;
+            }
+
             frame.reset();
             core.releaseSlot("yolo", slot);
         }

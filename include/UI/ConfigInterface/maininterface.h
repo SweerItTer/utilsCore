@@ -1,3 +1,9 @@
+/*
+ * @Author: SweerItTer xxxzhou.xian@gmail.com
+ * @Date: 2025-09-30 17:38:49
+ * @FilePath: /EdgeVision/include/UI/ConfigInterface/maininterface.h
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
+ */
 #ifndef MAININTERFACE_H
 #define MAININTERFACE_H
 

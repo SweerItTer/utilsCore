@@ -17,6 +17,7 @@
 #include <QColor>
 #include <QRectF>
 #include <vector>
+#include <QDebug>
 
 #include "rander/core.h"
 
@@ -46,17 +47,22 @@ public:
         static Draw inst;
         return inst;
     }
-
-    static void drawText(const Core::resourceSlot& slot, const QString& text, const QPointF& pos,
+    // 手动清空画布
+    void clear(QOpenGLFramebufferObject* fbo, const QColor& color = QColor(0,0,0,0));
+    // 绘制文本
+    void drawText(const Core::resourceSlot& slot, const QString& text, const QPointF& pos,
                          const QColor& color = Qt::white, int fontSize = 24);
     // 绘制多个框
-    static void drawBoxes(const Core::resourceSlot& slot, const std::vector<DrawBox>& boxes, int penWidth = 3);
-
+    void drawBoxes(const Core::resourceSlot& slot, const std::vector<DrawBox>& boxes, int penWidth = 3);
+    // 保持宽高比的widget渲染
+    void drawWidget(const Core::resourceSlot& slot, QWidget* widget, 
+        const QRect& targetRect = QRect());
 private:
     std::unique_ptr<QOpenGLPaintDevice> device_;
     std::unique_ptr<QPainter> painter_;
+    // 计算保持宽高比的矩形
+    QRect calculateAspectRatioRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize);
     
-    void clear(QOpenGLFramebufferObject* fbo, const QColor& color = QColor(0,0,0,0));
     void bindFboAndPreparePainter(QOpenGLFramebufferObject* fbo);
 };
 

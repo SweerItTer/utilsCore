@@ -1,0 +1,70 @@
+root@ATK-DLRK3568:/# ./OpenGL_test 
+QStandardPaths: runtime directory '/var/run' is not a directory, but a symbolic link to a directory permissions 0755 owned by UID 0 GID 0
+Mode for connector 152 is 3840x2160
+Find CRTC 85 for connector 152
+Bind connector 152 to crtc 85 success
+Mode for connector 163 is 720x1280
+Find CRTC 115 for connector 163
+Bind connector 163 to crtc 115 success
+Init DeviceController success
+rga_api version 1.3.1_[11] (RGA is compiling with meson base: $PRODUCT_BASE)
+RGA_api version       : v1.3.1_[11]
+RGA_built version     : RGA is compiling with meson
+RGA version           : RGA_2_Enhance
+Connector ID: 152, CRTC ID: 85, Resolution: 3840x2160
+Find 6 planes in resources.
+Find matched format: AB24 for plane 57
+Find matched format: AB24 for plane 117
+Gain 1 usable planes 57.
+Gain 1 usable planes 117.
+DrmLayer::DrmLayer: Invalid DmaBuffer count
+DrmLayer::DrmLayer: Invalid DmaBuffer count
+Update layer on plane:57
+[PlanesCompositor] Add Layer.
+Update layer on plane:117
+[PlanesCompositor] Add Layer.
+Layer initialized.
+Successfully bound thread to core 0
+Successfully bound thread to core 2
+Successfully bound current thread to core 0
+Attempting to create QWindow-based QOffscreenSurface outside the gui thread. Expect failures.
+arm_release_ver of this libmali is 'g2p0-01eac0', rk_so_ver is '3'.[Core] Qt offscreen surface created successfully
+[Core] Qt OpenGL context created successfully
+[Core] Qt context made current successfully
+[Core] EGL resources (display: 0x7fa00045b0, context: 0x7fa0015ff0)
+[Core] Context initialization completed.
+[Core] OpenGL ES info:
+        Renderer: Mali-G52
+        Version : OpenGL ES 3.2 v1.g2p0-01eac0.a728b64d6b9d8cadf7f54eb4e167984c
+        Vendor  : ARM
+        GLSL    : OpenGL ES GLSL ES 3.20
+[core] Find matched format: AB24
+[core] Find matched format: AB24
+[Core] Resource slot (RGBA) created successfully
+[Core] Resource slot (RGBA) created successfully
+Had init the rga dev ctx = 0x1b120a70
+rga_api version 1.3.1_[11] (RGA is compiling with meson base: $PRODUCT_BASE)
+RGA: No free buffer, dropping rawFrame.
+RGA: No free buffer, dropping rawFrame.
+Widget rendered to FBO, original: QSize(240, 480) target: QRect(50,50 400x300) actual: QRect(175,50 150x300)
+QPainter::resetMatrix: Painter not active
+QPainter::translate: Painter not active
+QPainter::scale: Painter not active
+QPainter::font: Painter not active
+QPainter::setFont: Painter not active
+QPainter::setPen: Painter not active
+QPainter::resetMatrix: Painter not active
+QPainter::translate: Painter not active
+QPainter::scale: Painter not active
+QPainter::setPen: Painter not active
+QPainter::drawRects: Painter not active
+QPainter::setPen: Painter not active
+QPainter::drawRects: Painter not active
+QPainter::resetMatrix: Painter not active
+QPainter::translate: Painter not active
+QPainter::scale: Painter not active
+QPainter::setRenderHint: Painter must be active to set rendering hints
+QPainter::setRenderHint: Painter must be active to set rendering hints
+QPainter::setRenderHint: Painter must be active to set rendering hints
+QWidget::render: Cannot render with an inactive painter
+QPainter::end: Painter not active, aborted
