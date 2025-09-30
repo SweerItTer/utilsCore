@@ -42,7 +42,7 @@ public:
     void start();
     void pause();
     void stop();
-
+    void setThreadAffinity(int cpu_core);
     void returnBuffer(int index);
     
     // 帧回调

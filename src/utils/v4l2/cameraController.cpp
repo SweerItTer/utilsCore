@@ -19,6 +19,7 @@
 #include "logger.h"
 #include "dma/dmaBuffer.h"    // 包含 drm 头文件
 #include "objectsPool.h"
+#include "threadUtils.h"
 
 #ifndef _XF86DRM_H_
 #include <drm.h>
@@ -36,6 +37,7 @@ public:
     void pause();
     void stop();
     
+    void setThreadAffinity(int cpu_core);
     void setFrameCallback(FrameCallback&& enqueueCallback_);
     int returnBuffer(int index);
 
@@ -580,7 +582,16 @@ DmaBufferPtr CameraController::Impl::createDmabuf(size_t planes_length, uint32_t
     return buf;
 }
 
-void CameraController::Impl::setFrameCallback(FrameCallback&& enqueueCallback) {
+void CameraController::Impl::setThreadAffinity(int cpu_core)
+{
+    // 在内部处理线程中设置亲和性
+    if(capture_thread_.joinable()) {
+        ThreadUtils::safeBindThread(capture_thread_, cpu_core);
+    }
+}
+
+void CameraController::Impl::setFrameCallback(FrameCallback &&enqueueCallback)
+{
     enqueueCallback_ = std::move(enqueueCallback);
 }
 
@@ -783,6 +794,7 @@ void CameraController::start() { impl_->start(); }
 void CameraController::stop() { impl_->stop(); }
 void CameraController::pause(){ impl_->pause(); }
 
+void CameraController::setThreadAffinity(int cpu_core) { impl_->setThreadAffinity(cpu_core); }
 void CameraController::setFrameCallback(FrameCallback &&callback){ impl_->setFrameCallback(std::move(callback)); }
 
 int CameraController::getDeviceFd() const { return impl_->getDeviceFd(); }

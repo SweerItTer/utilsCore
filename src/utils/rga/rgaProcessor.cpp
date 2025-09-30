@@ -12,6 +12,7 @@
 #include <chrono>
 
 #include "asyncThreadPool.h"
+#include "threadUtils.h"
 
 RgaProcessor::RgaProcessor(Config& cfg)
     : cctr_(std::move(cfg.cctr))
@@ -195,16 +196,24 @@ int RgaProcessor::getIndex_auto(rga_buffer_t& src, rga_buffer_t& dst, Frame* fra
     return index;
 }
 
+void RgaProcessor::setThreadAffinity(int cpu_core) {
+    // 在内部处理线程中设置亲和性
+    if(worker_.joinable()) {
+        ThreadUtils::safeBindThread(worker_, cpu_core);
+    }
+}
+
 void RgaProcessor::run()
 {
-    asyncThreadPool rgaThreadPool(poolSize_);
+    asyncThreadPool rgaThreadPool(poolSize_%2 + 1);
     int buffer_size = width_ * height_ * 4;
 
     while (true == running_)
     {
         if ( true == paused ) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            if ( false == running_ ) break;
+            if (false == running_) break;
+            continue;
         }
         // 添加异步任务
         rgaThreadPool.enqueue([this]() {
@@ -252,7 +261,7 @@ void RgaProcessor::run()
             
             if (IM_STATUS_SUCCESS != status) {
                 fprintf(stderr, "RGA convert failed: %d\n", status);
-                // 不释放内存，仅标记缓冲区可用
+                // 不释放内存, 仅标记缓冲区可用
                 bufferPool_[index].in_use = false;
                 return;
             }

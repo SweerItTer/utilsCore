@@ -79,7 +79,7 @@ public:
     ~RgaProcessor();
 
     void setYoloInputSize(int w, int h);
-
+    void setThreadAffinity(int cpu_core);
     void start();
     void stop();
     void pause();
