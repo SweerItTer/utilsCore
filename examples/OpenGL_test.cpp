@@ -7,6 +7,7 @@
 #include "ConfigInterface/offerScreenWidget.h"
 #include <QApplication>
 
+#include <sys/syscall.h>
 #include <csignal>
 #include <sys/mman.h>
 #include <cstring>
@@ -35,19 +36,46 @@ static void handleSignal(int signal) {
         running = false;
     }
 }
+auto chooseClosestResolution(int screenW, int screenH) -> std::pair<int, int>{
+	
+    static const std::vector<std::pair<int, int>> standardRes = {
+        {640, 480}, {720, 480}, {720, 576}, {1280, 720},
+        {1920, 1080}, {2560, 1440}//, {3840, 2160}, {4096, 2160}
+    };
+
+    std::pair<int, int> bestRes;
+    int minDist = std::numeric_limits<int>::max();
+
+    for (const auto& res : standardRes) {
+        // 使用平方距离，越小越接近屏幕大小
+        int dw = res.first - screenW;
+        int dh = res.second - screenH;
+        int dist = dw * dw + dh * dh;
+
+        if (dist < minDist) {
+            minDist = dist;
+            bestRes = res;
+        }
+    }
+
+    // 对齐 NV12
+    int wAligned = (bestRes.first + 3) & ~3;
+    int hAligned = (bestRes.second + 1) & ~1;
+
+    return std::pair<int, int>(wAligned, hAligned);
+}
+
 
 class FrameBufferTest{
 public:
-	// 构造函数
-	explicit FrameBufferTest(){
-		// 初始化UI界面
-		mainInterface = std::make_shared<MainInterface>();
-		// 创建原始NV12帧队列和RGBA帧队列
-		rawFrameQueue  	= std::make_shared<FrameQueue>(2);
-		frameQueue     	= std::make_shared<FrameQueue>(2);
-		
+
+	void cpInit() {		
+		// 获取实际屏幕输出大小
+		auto captureRes = chooseClosestResolution(dev->width, dev->height);
+		width = captureRes.first;
+		height = captureRes.second;
 		// 捕获配置
-		cctrCfg = CameraController::Config {
+		cctrCfg = {
 			.buffer_count = 2,
 			.plane_count = 2,
 			.use_dmabuf = true,
@@ -58,7 +86,7 @@ public:
 		};
 		
 		// 初始化视频捕获类
-		cctr = std::make_shared<CameraController>(cctrCfg);
+		cctr.reset( new CameraController(cctrCfg) );
 		if (!cctr) { std::cout << "Failed to create CameraController object.\n"; return; }
 		// 设置回调入队队列
 		cctr->setFrameCallback([this](FramePtr f) {
@@ -68,12 +96,23 @@ public:
 		auto poolSize = static_cast<int>( frameQueue->getBufferRealSize() ); // 线程池长度
 		auto format = (V4L2_PIX_FMT_NV12 == cctrCfg.format) ?
 			RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;			// 原始数据格式
-		rgaCfg = RgaProcessor::Config {
-			cctr, rawFrameQueue, frameQueue, cctrCfg.width,
-			cctrCfg.height, cctrCfg.use_dmabuf, dstFormat, format, poolSize
+		rgaCfg = {
+			cctr, rawFrameQueue, frameQueue,
+			cctrCfg.width,
+			cctrCfg.height,
+			cctrCfg.use_dmabuf, dstFormat, format, poolSize
 		};
-		processor = std::make_shared<RgaProcessor>(rgaCfg) ;			// 初始化RGA转换类
+		processor.reset( new RgaProcessor(rgaCfg) );			// 初始化RGA转换类
+	}
 
+	// 构造函数
+	explicit FrameBufferTest(){
+		// 初始化UI界面
+		mainInterface = std::make_shared<MainInterface>();
+		// 创建原始NV12帧队列和RGBA帧队列
+		rawFrameQueue  	= std::make_shared<FrameQueue>(2);
+		frameQueue     	= std::make_shared<FrameQueue>(2);
+		
 		// 导出合成器
 		compositor = std::move(PlanesCompositor::create());
 		if (!compositor){ std::cout << "Failed to create PlanesCompositor object.\n"; return; }
@@ -85,15 +124,25 @@ public:
 		);
 		postRefresh(); // 初始刷新
 	}
+
     // 释放资源(devices/planes)
     void preRefresh(){
         refreshing = true; 
-        // 停止所有活动
-        processor->pause();
-        cctr->pause(); 
+		// 停止所有活动
+		processor->pause();
+		cctr->pause();
+		rawFrameQueue->clear(); // 清空队列
+		frameQueue->clear();
+		// 析构线程
+		processor.reset();
+		cctr.reset();
         // 移除所有图层
         compositor->removeAllLayer();
-    }
+		
+		devices->clear(); // 清空设备组合
+		dev.reset(); // 清空当前设备组合
+	}
+
 	// 重新获取资源(devices/planes)
     void postRefresh(){
         // 获取设备组合
@@ -107,6 +156,7 @@ public:
         std::cout << "Connector ID: " << dev->connector_id << ", CRTC ID: " << dev->crtc_id
             << ", Resolution: " << dev->width << "x" << dev->height << "\n";
 
+		cpInit();	// 重新配置主要线程
         // 获取所有在指定CRTC上的Plane
         DrmDev::fd_ptr->refreshPlane(dev->crtc_id);
         // 初始化 id 列表
@@ -134,8 +184,8 @@ public:
             // src_* 使用左移 16
             .srcX_       = fx(0),
             .srcY_       = fx(0),
-            .srcwidth_   = fx(cctrCfg.width),
-            .srcheight_  = fx(cctrCfg.height),
+            .srcwidth_   = fx(width),
+            .srcheight_  = fx(height),
             // 显示图像区域
             // crtc_* 不使用左移
             .crtcX_      = 0,
@@ -190,15 +240,34 @@ public:
 private:
 	void threadUI(){
 		// 绑定UI绘制线程到CPU CORE 3
-        ThreadUtils::bindCurrentThreadToCore(3);
-        auto& core = Core::instance();// 获取渲染 core
+		ThreadUtils::bindCurrentThreadToCore(3);
+		auto& core = Core::instance();// 获取渲染 core
 		auto& draw = Draw::instance();// 获取绘制 draw
+		std::string slotType = "UI&Yolo";	// slot命名
 
-		std::string slotType = "UI&Yolo";
-        core.registerResSlot(slotType, 2, // 注册具体用途的Slot
-							width, height, formatRGAtoDRM(dstFormat), width * height * 4, 0);
-
+		auto updateSlot = [ this, &slotType](){
+			auto dmabufTemplate = DmaBuffer::create(	// 创建 dmabuf 模板
+				width, height, formatRGAtoDRM(dstFormat),
+				width * height * 4, 0);
+			if (!dmabufTemplate){
+				std::cout << "Failed to create dmabuf template.\n";
+				return;
+			}
+			Core::instance().registerResSlot(slotType, 2, std::move(dmabufTemplate)); // 注册 slot
+		};
+		updateSlot();				// 初始化 slot		
+		bool needUpdate = false;	// slot 更新标志
 		while(running){
+			// 等待刷新完成
+            if (true == refreshing) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+				needUpdate = true;
+                continue;
+            }
+			if (needUpdate){ // 重新获取 slot
+				updateSlot();
+				needUpdate = false;
+			}
 			int OpenGLFence = -1;
 			auto slot = core.acquireFreeSlot(slotType);
             if (nullptr == slot) {
@@ -207,25 +276,20 @@ private:
             }
             // 清空并绘制不同的内容
             QString text = QString("Fps: %1/s").arg(fps.load());
-			std::vector<DrawBox> boxes = {
-				{QRectF(50, 50, 400, 300), QColor(255, 0, 0), "test1"},
-				{QRectF(500, 500, 800, 600), QColor(0, 255, 0), "test2"}
-			};
-			QRect targetRect(50, 50, 400, 300);
+			QRect targetRect(10, 50, dev->width/3 , dev->height/2);
 			draw.clear(slot->qfbo.get());												// 清空画布
-			draw.drawText(*(slot.get()), text, QPointF(10, 45), QColor(255, 0, 0));	// 绘制帧率
-            draw.drawBoxes(*(slot.get()), boxes, 5);									// 绘制测试框
-			draw.drawWidget(*(slot.get()), mainInterface.get(), targetRect);
+			draw.drawText(*(slot.get()), text, QPointF(10, 45), QColor(255, 0, 0));		// 绘制帧率
+			draw.drawWidget(*(slot.get()), mainInterface.get(), targetRect, RenderMode::KeepAspectRatio);	// 绘制UI界面
 
 			// 同步内容到 dmabuf
             if (!slot->syncToDmaBuf(OpenGLFence)) {
                 std::cout << "Failed to sync dmabuf. \n";
-                core.releaseSlot("test", slot);
+                core.releaseSlot(slotType, slot);
                 continue;
             };
             if (slot->dmabufPtr == nullptr) {
                 std::cout << "Slot dmabuf is null.\n";
-                core.releaseSlot("test", slot);
+                core.releaseSlot(slotType, slot);
                 continue;
             }
 			// 等待绘制完成
@@ -233,7 +297,7 @@ private:
 				overLayer->updateBuffer({slot->dmabufPtr});
 			});
 			core.releaseSlot(slotType, slot);
-			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 		// 关闭渲染资源
 		Draw::instance().shutdown();
@@ -244,6 +308,7 @@ private:
     void run(){
 		// 绑定主线程到CPU CORE 0
         ThreadUtils::bindCurrentThreadToCore(0);
+		std::cout << "DRM show thread TID: " << syscall(SYS_gettid) << "\n";
 		// 帧率计算用
 		int frames = 0;
         struct timeval time;
@@ -251,15 +316,16 @@ private:
         auto startTime = time.tv_sec * 1000 + time.tv_usec / 1000;
         auto beforeTime = startTime;
 		
-		// 取出的帧
-        FramePtr frame;
-        // 出队帧缓存
+		uint64_t frameId = 0;
         while (running) {
             // 等待刷新完成
             if (true == refreshing) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 continue;
             }
+			// 取出的帧
+			FramePtr frame;
+
             // 取出一帧
             if (!frameQueue->try_dequeue(frame)) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -268,6 +334,13 @@ private:
             
             // 取出该帧的drmbuf
             DmaBufferPtr& frameBuf = frame->sharedState()->dmabuf_ptr;
+			if (frameId < frame->meta.frame_id){
+				frameId = frame->meta.frame_id;
+			} else {
+				// 遇到旧帧则丢弃
+				std::cout << "Drop old frame " << frame->meta.frame_id << ".\n";
+				continue;
+			}
             if (nullptr == frameBuf) {
                 std::cout << "Failed to get dmabuf from frame.\n";
                 continue;
@@ -290,8 +363,6 @@ private:
                 fps.store(10.0 / float(currentTime - beforeTime) * 1000.0);
                 beforeTime = currentTime;
             }
-			// 回收资源
-            frame.reset();
 		}
     }
 
@@ -314,7 +385,6 @@ private:
 		});
 	};
 private:
-	
 	std::atomic<float> fps{0.0};
 	std::thread threadUI_;
 

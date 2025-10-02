@@ -257,7 +257,9 @@ bool Core::registerResSlot(const std::string &type, size_t poolSize, DmaBufferPt
         return false;
     }
     if (!queryAllFormats(bufTemplate->format())) return false;
-
+    if (slots_.find(type) != slots_.end()) {
+        slots_.erase(type);
+    }
     // buf模板并非实际存储内容
     slots_.emplace(std::piecewise_construct,
         std::forward_as_tuple(type),

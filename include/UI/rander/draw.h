@@ -21,11 +21,26 @@
 
 #include "rander/core.h"
 
+// 渲染模式枚举
+enum class RenderMode {
+    KeepAspectRatio,  // 保持宽高比
+    StretchToFill,    // 拉伸填充整个目标矩形
+    CenterNoScale     // 居中显示
+};
+
 struct DrawBox {
     QRectF rect;
     QColor color;
     QString label;
+    
+    // 构造函数
+    DrawBox() = default;
+    DrawBox(const QRectF& r, const QColor& c, const QString& l) 
+        : rect(r), color(c), label(l) {}
+    DrawBox(qreal x, qreal y, qreal w, qreal h, const QColor& c, const QString& l)
+        : rect(x, y, w, h), color(c), label(l) {}
 };
+
 
 class Draw {
     Draw();    
@@ -54,14 +69,19 @@ public:
                          const QColor& color = Qt::white, int fontSize = 24);
     // 绘制多个框
     void drawBoxes(const Core::resourceSlot& slot, const std::vector<DrawBox>& boxes, int penWidth = 3);
-    // 保持宽高比的widget渲染
+    // 支持不同渲染模式
     void drawWidget(const Core::resourceSlot& slot, QWidget* widget, 
-        const QRect& targetRect = QRect());
+        const QRect& targetRect = QRect(),
+        RenderMode mode = RenderMode::KeepAspectRatio);
 private:
     std::unique_ptr<QOpenGLPaintDevice> device_;
     std::unique_ptr<QPainter> painter_;
     // 计算保持宽高比的矩形
-    QRect calculateAspectRatioRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize);
+    QRectF calculateAspectRatioRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize);
+    // 计算拉伸填充的矩形
+    QRectF calculateStretchRect(const QSize&, const QRect& targetRect, const QSize& fboSize);
+    // 计算居中不缩放的矩形
+    QRectF calculateCenterRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize);
     
     void bindFboAndPreparePainter(QOpenGLFramebufferObject* fbo);
 };

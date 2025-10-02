@@ -6,6 +6,7 @@
  */
 
 #include "rander/draw.h"
+#include <QApplication>
 
 Draw::Draw() {
     Core::instance().makeQCurrent();
@@ -17,13 +18,13 @@ Draw::Draw() {
     Core::instance().doneQCurrent();
 }
 
-void Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget, const QRect& targetRect)
+void Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget, 
+                     const QRect& targetRect, RenderMode mode)
 {
-    if (!widget) {
+    if (nullptr == widget) {
         qWarning() << "Draw::drawWidget: null widget";
         return;
     }
-    auto& inst = instance();
     if (!slot.valid() || !slot.qfbo) return;
 
     Core::instance().makeQCurrent();
@@ -32,56 +33,90 @@ void Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget, const QRe
 
     bindFboAndPreparePainter(fbo);
 
-    // 设置抗锯齿等绘制属性
+    // 绘制属性
     painter_->setRenderHint(QPainter::Antialiasing, true);
     painter_->setRenderHint(QPainter::SmoothPixmapTransform, true);
     painter_->setRenderHint(QPainter::TextAntialiasing, true);
 
-    // 计算保持宽高比的目标矩形
-    QRect drawRect = calculateAspectRatioRect(widget->size(), targetRect, fbo->size());
-    
-    if (drawRect.isNull()) {
-        drawRect = QRect(0, 0, fbo->width(), fbo->height());
+    // 计算绘制区域
+    QRectF drawRect;
+    switch (mode) {
+        case RenderMode::KeepAspectRatio:
+            drawRect = calculateAspectRatioRect(widget->size(), targetRect, fbo->size());
+            break;
+        case RenderMode::StretchToFill:
+            drawRect = calculateStretchRect(widget->size(), targetRect, fbo->size());
+            break;
+        case RenderMode::CenterNoScale:
+            drawRect = calculateCenterRect(widget->size(), targetRect, fbo->size());
+            break;
     }
 
-    // 使用 render() 方法渲染整个widget到计算好的矩形中
-    widget->render(painter_.get(), drawRect.topLeft(), QRegion(), QWidget::DrawChildren);
+    if (drawRect.isNull()) {
+        drawRect = QRectF(0, 0, fbo->width(), fbo->height());
+    }
 
-    // 结束绘制
+    // 🔥 使用 QPainter 变换缩放绘制
+    painter_->save();
+    {
+        QSizeF srcSize = widget->size();
+        qreal scaleX = drawRect.width() / srcSize.width();
+        qreal scaleY = drawRect.height() / srcSize.height();
+
+        painter_->translate(drawRect.x(), drawRect.y());
+        painter_->scale(scaleX, scaleY);
+
+        widget->render(painter_.get(), QPoint(0, 0), QRegion(), QWidget::DrawChildren);
+    }
+    painter_->restore();
+
     Core::instance().doneQCurrent();
-
-    // qDebug() << "Widget rendered to FBO, original:" << widget->size() 
-    //          << "target:" << targetRect << "actual:" << drawRect;
 }
 
-QRect Draw::calculateAspectRatioRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize)
+QRectF Draw::calculateAspectRatioRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize)
 {
     if (sourceSize.isEmpty() || targetRect.isEmpty()) {
-        return targetRect;
+        return QRectF(targetRect);
     }
 
-    // 计算源和目标的宽高比
-    float sourceAspect = (float)sourceSize.width() / sourceSize.height();
-    float targetAspect = (float)targetRect.width() / targetRect.height();
-    
-    QRect resultRect = targetRect;
-    
-    if (sourceAspect > targetAspect) {
-        // 源更宽，按宽度适配，高度自动计算
-        int newHeight = targetRect.width() / sourceAspect;
-        int yOffset = (targetRect.height() - newHeight) / 2;
-        resultRect = QRect(targetRect.x(), targetRect.y() + yOffset, 
-                          targetRect.width(), newHeight);
-    } else {
-        // 源更高，按高度适配，宽度自动计算
-        int newWidth = targetRect.height() * sourceAspect;
-        int xOffset = (targetRect.width() - newWidth) / 2;
-        resultRect = QRect(targetRect.x() + xOffset, targetRect.y(), 
-                          newWidth, targetRect.height());
+    qreal srcW = sourceSize.width();
+    qreal srcH = sourceSize.height();
+    qreal dstW = targetRect.width();
+    qreal dstH = targetRect.height();
+
+    qreal scale = qMin(dstW / srcW, dstH / srcH);
+
+    qreal newW = srcW * scale;
+    qreal newH = srcH * scale;
+
+    qreal x = targetRect.x() + (dstW - newW) / 2.0;
+    qreal y = targetRect.y() + (dstH - newH) / 2.0;
+
+    QRectF result(x, y, newW, newH);
+
+    QRectF fboRect(0, 0, fboSize.width(), fboSize.height());
+    return result.intersected(fboRect);
+}
+
+QRectF Draw::calculateStretchRect(const QSize&, const QRect& targetRect, const QSize& fboSize)
+{
+    QRectF fboRect(0, 0, fboSize.width(), fboSize.height());
+    return QRectF(targetRect).intersected(fboRect);
+}
+
+QRectF Draw::calculateCenterRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize)
+{
+    if (sourceSize.isEmpty() || targetRect.isEmpty()) {
+        return QRectF(targetRect);
     }
-    
-    // 确保不超出 FBO 边界
-    return resultRect.intersected(QRect(0, 0, fboSize.width(), fboSize.height()));
+
+    qreal x = targetRect.x() + (targetRect.width() - sourceSize.width()) / 2.0;
+    qreal y = targetRect.y() + (targetRect.height() - sourceSize.height()) / 2.0;
+
+    QRectF result(x, y, sourceSize.width(), sourceSize.height());
+
+    QRectF fboRect(0, 0, fboSize.width(), fboSize.height());
+    return result.intersected(fboRect);
 }
 
 void Draw::drawText(const Core::resourceSlot &slot, const QString &text,
