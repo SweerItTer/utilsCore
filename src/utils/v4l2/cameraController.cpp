@@ -1,3 +1,4 @@
+#include <sys/syscall.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -190,6 +191,8 @@ void CameraController::Impl::pause(){
 }
 
 void CameraController::Impl::stop() {
+    is_destroying_ = true; // 标记正在析构
+
     if (false == running_) {
         return;
     }
@@ -710,6 +713,8 @@ FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t time
 }
 
 void CameraController::Impl::captureLoop() {
+    std::cout << "V4L2 capture thread TID: " << syscall(SYS_gettid) << "\n";
+
     try
     {
     while (running_) {

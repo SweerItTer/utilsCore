@@ -5,7 +5,9 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "asyncThreadPool.h"
-
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <iostream>
 
 asyncThreadPool::asyncThreadPool(std::size_t poolSize)
 : running(true), poolSize_(poolSize)  {
@@ -23,6 +25,7 @@ asyncThreadPool::asyncThreadPool(std::size_t poolSize)
 
 void asyncThreadPool::worker()
 {
+    std::cout << "ThreadPool worker TID: " << syscall(SYS_gettid) << "\n";
     while (true)
     {
         std::function<void()> task;

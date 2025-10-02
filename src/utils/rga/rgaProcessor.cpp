@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <chrono>
+#include <sys/syscall.h>
 
 #include "asyncThreadPool.h"
 #include "threadUtils.h"
@@ -205,6 +206,7 @@ void RgaProcessor::setThreadAffinity(int cpu_core) {
 
 void RgaProcessor::run()
 {
+    std::cout << "RGA main thread TID: " << syscall(SYS_gettid) << "\n";
     asyncThreadPool rgaThreadPool(poolSize_%2 + 1);
     int buffer_size = width_ * height_ * 4;
 
