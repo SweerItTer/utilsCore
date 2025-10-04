@@ -53,7 +53,8 @@ public:
         im_rect &dst_rect;
     };
 
-    explicit RgaConverter ();
+    static RgaConverter& instance();
+
     // 禁用拷贝
     RgaConverter(const RgaConverter&) = delete;
     RgaConverter& operator=(const RgaConverter&) = delete;
@@ -78,7 +79,42 @@ public:
      * 通过dst设置w和h以达到目的
      */
     IM_STATUS ImageResize(RgaParams& params);
+
+    /**
+     * @brief 在目标 buffer 的指定矩形区域内填充指定颜色
+     *
+     * @param dst_buffer 目标 RGA buffer (rga_buffer_t)
+     * @param dst_rect   目标矩形区域 (im_rect), 填充的范围
+     * @param color      填充颜色 (char), 颜色值含义依赖于目标 buffer 的像素格式
+     *
+     * @return IM_STATUS 转换状态 (成功返回IM_STATUS_SUCCESS)
+     * @details
+     * 填充颜色的解释方式取决于 dst_buffer.format:
+     *   - RGBA8888 格式下, color 通常代表一个 32 位值 (0xAARRGGBB)
+     *   - YUV 格式下, color 通常只设置 Y 分量或由内部解释
+     */
+    IM_STATUS ImageFill(rga_buffer_t& dst_buffer, im_rect& dst_rect, char color);
+
+    
+    /**
+     * @brief 将 src 指定矩形区域经过缩放、旋转等处理后写入 dst 指定矩形位置
+     *
+     * @param params  RgaParams 结构体
+     * @param pat     可选的目标填充缓冲区(rga_buffer_t), 用于指定输出占位或背景, 默认空
+     * @param prect   可选的裁剪矩形区域(im_rect), 对 dst 的输出区域进一步裁剪, 默认空
+     * @param usage   可选使用标志, 控制 RGA buffer 的访问方式或缓存策略, 默认 0
+     *
+     * @return IM_STATUS 转换状态 (成功返回IM_STATUS_SUCCESS)
+     * @details
+     * 仅使用 dst 相关缓冲区信息来输出结果, src 缓冲区和矩形仅被读取
+     * pat 与 prect 可用于复杂场景, 例如局部填充或 ROI 处理
+     */
+    IM_STATUS ImageProcess(RgaParams& params, rga_buffer_t pat = {}, im_rect prect = {}, int usage = 0);
+
+
 private:
+    explicit RgaConverter ();
+
     // RGA上下文
     RockchipRga m_rga;
     

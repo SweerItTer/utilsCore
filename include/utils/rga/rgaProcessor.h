@@ -103,7 +103,7 @@ private:
     std::shared_ptr<FrameQueue> rawQueue_;
     std::shared_ptr<FrameQueue> outQueue_;
     std::shared_ptr<CameraController> cctr_;
-    RgaConverter converter_;
+    RgaConverter* converter_;
     
     uint32_t width_;
     uint32_t height_;
