@@ -11,6 +11,7 @@
 #include "drm/planesCompositor.h"
 #include "safeQueue.h"
 #include "objectsPool.h"
+#include "fenceWatcher.h"
 
 extern int virSave(void *data, size_t buffer_size);
 extern int dmabufTest();
@@ -211,7 +212,7 @@ private:
             // 提交一次
             int fence = -1;
             compositor->commit(fence);
-            wait_fence(fence, [this](){ frameLayer->onFenceSignaled(); });
+            FenceWatcher::instance().watchFence(fence, [this](){ frameLayer->onFenceSignaled(); });
             // 释放drmbuf
             frame.reset();
             // processor->releaseBuffer(frame->meta.index);
