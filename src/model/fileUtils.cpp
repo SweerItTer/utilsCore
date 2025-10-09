@@ -36,6 +36,7 @@ int read_data_from_file(const char *path, char **out_data)
     *out_data = data;
     return file_size;
 }
+
 DmaBufferPtr readImage(const std::string &image_path) {
     cv::Mat rawimg = cv::imread(image_path);
     if (rawimg.empty()) {
@@ -76,62 +77,96 @@ DmaBufferPtr readImage(const std::string &image_path) {
     return dma_buf;
 }
 
-int saveImage(const std::string &image_path, const DmaBufferPtr &dma_buf)
-{
-    if (nullptr == dma_buf) {
-        std::cerr << "Invalid DmaBuffer pointer" << std::endl;
+// 辅助裁剪函数
+static inline int clamp_int(int v, int lo, int hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+cv::Mat mapDmaBufferToMat(DmaBufferPtr img) {
+    uint8_t* img_data = img->map();
+    if (nullptr == img_data) {
+        fprintf(stderr, "Failed to map image buffer\n");
+        return {};
+    }
+
+    int img_w = img->width();
+    int img_h = img->height();
+    int img_pitch = img->pitch(); // 每行字节数
+    const int channels = 3;
+
+    // 注意：使用 img_pitch 作为 step，可以处理非连续行
+    cv::Mat mat(img_h, img_w, CV_8UC3, img_data, img_pitch);
+
+    // OpenCV 默认顺序是 BGR
+    cv::cvtColor(mat, mat, cv::COLOR_RGB2BGR);
+
+    // 返回时不要 unmap！否则 mat 指向的内存会失效
+    // img->unmap(); // 不要在这里 unmap，除非确保 mat 不再使用
+    return mat;
+}
+
+// 绘制检测结果并保存
+int saveResultImage(DmaBufferPtr img, const object_detect_result_list& result_, const std::string& savePath) {
+    cv::Mat finalMat = mapDmaBufferToMat(img);
+    if (finalMat.empty()) return -1;
+
+    const int fontFace = cv::FONT_HERSHEY_SIMPLEX;
+    const double fontScale = 0.6;
+    const int thickness = 2;
+
+    int img_w = finalMat.cols;
+    int img_h = finalMat.rows;
+
+    for (const auto& r : result_) {
+        int x = clamp_int(static_cast<int>(std::round(r.box.x)), 0, img_w - 1);
+        int y = clamp_int(static_cast<int>(std::round(r.box.y)), 0, img_h - 1);
+        int w = static_cast<int>(std::round(r.box.w));
+        int h = static_cast<int>(std::round(r.box.h));
+        if (w <= 0 || h <= 0) continue;
+        if (x + w > img_w) w = img_w - x;
+        if (y + h > img_h) h = img_h - y;
+        if (w <= 0 || h <= 0) continue;
+
+        cv::Scalar color(
+            50 + (r.class_id * 37) % 200,
+            50 + (r.class_id * 91) % 200,
+            50 + (r.class_id * 53) % 200
+        );
+
+        cv::Rect rect(x, y, w, h);
+        cv::rectangle(finalMat, rect, color, 2);
+
+        // 文本
+        char text[128];
+        snprintf(text, sizeof(text), "%s %.2f", r.class_name.c_str(), r.prop);
+
+        int baseline = 0;
+        cv::Size textSize = cv::getTextSize(text, fontFace, fontScale, thickness, &baseline);
+        baseline += 2;
+        int tx = x;
+        int ty = y - baseline;
+        if (ty - textSize.height < 0) {
+            ty = y + textSize.height + baseline;
+        }
+
+        // 文本背景
+        cv::rectangle(finalMat, cv::Point(tx, ty - textSize.height - baseline),
+                      cv::Point(tx + textSize.width, ty + baseline/2), color, cv::FILLED);
+        cv::putText(finalMat, text, cv::Point(tx, ty), fontFace, fontScale, cv::Scalar(255,255,255), thickness);
+    }
+
+    if (!cv::imwrite(savePath, finalMat)) {
+        fprintf(stderr, "Failed to save %s\n", savePath.c_str());
         return -1;
     }
-    
-    auto dumpDmabufAsRGB24 = [](int dmabuf_fd, uint32_t width, uint32_t height,
-                                uint32_t size, uint32_t pitch, const char* path)
-    {
-        if (dmabuf_fd < 0 || width == 0 || height == 0 || size == 0 || pitch == 0) {
-            fprintf(stderr, "[dump] Invalid argument\n");
-            return false;
-        }
 
-        void* data = mmap(nullptr, size, PROT_READ, MAP_SHARED, dmabuf_fd, 0);
-        if (MAP_FAILED == data) {
-            perror("mmap failed");
-            return false;
-        }
-
-        FILE* fp = fopen(path, "wb");
-        if (!fp) {
-            perror("fopen failed");
-            munmap(data, size);
-            return false;
-        }
-
-        uint8_t* ptr = static_cast<uint8_t*>(data);
-        
-        // 调试信息
-        printf("[dump] width=%d, height=%d, pitch=%d, size=%d\n", 
-               width, height, pitch, size);
-        
-        // 根据 pitch 和 width 计算实际每行字节数
-        uint32_t bytes_per_pixel = 3; // RGB888
-        uint32_t expected_pitch = width * bytes_per_pixel;
-        
-        if (pitch == expected_pitch) {
-            // 没有 padding，直接写入
-            fwrite(data, 1, height * pitch, fp);
-        } else {
-            // 有 padding，需要逐行处理
-            for (uint32_t y = 0; y < height; ++y) {
-                uint8_t* row_start = ptr + y * pitch;
-                fwrite(row_start, 1, expected_pitch, fp);
-            }
-        }
-
-        fclose(fp);
-        munmap(data, size);
-        fprintf(stderr, "[dump] Saved %dx%d RGB24 raw image to %s\n", width, height, path);
-        return true;
-    };
-    
-    dumpDmabufAsRGB24(dma_buf->fd(), dma_buf->width(), dma_buf->height()
-        , dma_buf->size(), dma_buf->pitch(), image_path.c_str());
+    fprintf(stdout, "Detection results saved to %s\n", savePath.c_str());
     return 0;
+}
+
+void saveImage(const std::string &image_path, DmaBufferPtr dma_buf){
+    cv::Mat mat = mapDmaBufferToMat(dma_buf);
+    cv::imwrite(image_path, mat);
 }

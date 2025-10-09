@@ -1,6 +1,6 @@
 #include "preprocess.h"
 
-int convert_image_rga(const DmaBufferPtr& src, const DmaBufferPtr& dst, rect* src_box, rect* dst_box, char color) {
+int preprocess::convert_image_rga(const DmaBufferPtr& src, const DmaBufferPtr& dst, rect* src_box, rect* dst_box, char color) {
     int src_w = src->width();
     int src_h = src->height();
     int src_pitch = src->pitch();
@@ -86,10 +86,10 @@ int convert_image_rga(const DmaBufferPtr& src, const DmaBufferPtr& dst, rect* sr
 }
 
 int convert_image(const DmaBufferPtr& src, const DmaBufferPtr& dst, rect* src_box, rect* dst_box, char color) {
-    return convert_image_rga(src, dst, src_box, dst_box, color);
+    return preprocess::convert_image_rga(src, dst, src_box, dst_box, color);
 }
 
-int convert_image_with_letterbox(const DmaBufferPtr& src, const DmaBufferPtr& dst, letterbox* letterbox, char color) {
+int preprocess::convert_image_with_letterbox(const DmaBufferPtr& src, const DmaBufferPtr& dst, letterbox* letterbox, char color) {
     if(nullptr == src || nullptr == dst){
         fprintf(stderr, "[Letterbox] Invalid src or dst buffer\n");
         return -1;

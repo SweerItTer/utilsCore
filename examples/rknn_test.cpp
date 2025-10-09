@@ -10,6 +10,7 @@
 #include <iostream>
 #include "yolov5.h"
 #include "preprocess.h"
+#include "postprocess.h"
 #include "rga/rga2drm.h"
 #include "drm/deviceController.h"
 
@@ -22,19 +23,19 @@ int main() {
     DrmDev::fd_ptr = DeviceController::create();
     int ret = 0;
     rknn_app_context app_context{};
-    std::string model_path = "/data/yolov5s_relu.rknn";
-    std::string image0_path = "/data/bus.jpg";
-    // std::string image1_path = "/data/bus.jpg";  // 你注释掉了这行，补上
+    std::string model_path = "./yolov5s_relu.rknn";
+    std::string image0_path = "./bus.jpg";
+    std::string image1_path = "./image.png";
     std::vector<DmaBufferPtr> Images;
 
     auto image0_buf = std::move(readImage(image0_path));
-    // auto image1_buf = std::move(readImage(image1_path));
-    if (nullptr == image0_buf ){//|| nullptr == image1_buf) {
+    auto image1_buf = std::move(readImage(image1_path));
+    if (nullptr == image0_buf || nullptr == image1_buf) {
         std::cerr << "Failed to read image\n";
         return -1;
     }
     Images.emplace_back(std::move(image0_buf));
-    // Images.emplace_back(std::move(image1_buf));
+    Images.emplace_back(std::move(image1_buf));
 
     // 1. 加载模型
     ret = loadModel(model_path.c_str(), app_context);
@@ -57,13 +58,6 @@ int main() {
         return -1;
     }
 
-    // 准备输出缓冲区
-    std::vector<rknn_output> outputs(app_context.io_num.n_output);
-    for (int i = 0; i < app_context.io_num.n_output; i++) {
-        outputs[i].want_float = 1;  // 获取浮点数输出
-        outputs[i].is_prealloc = 0; // 让 RKNN 分配内存
-    }
-
     int img_idx = 0;
     for (auto& img : Images){    
         fprintf(stdout, "\n========== Processing Image %d ==========\n", img_idx++);
@@ -76,14 +70,15 @@ int main() {
             app_context.model_width, app_context.model_height,
             formatRGAtoDRM(RK_FORMAT_RGB_888), mem->input_mems[0]->size);
         
-        ret = convert_image_with_letterbox(img, dstbuf, &letterbox_, bg_color);
+        ret = preprocess::convert_image_with_letterbox(img, dstbuf, &letterbox_, bg_color);
         if (ret < 0){
             std::cerr << "Pre process failed.\n";
             return -1;
         }
         fprintf(stdout, "[Preprocess] Success\n");
         
-        saveImage("/data/output.rgb", dstbuf);  // 调试用
+        std::string prepath = "./preImage_" + std::to_string(img_idx) + ".jpg";
+        saveImage(prepath, dstbuf);
         
         ret = rknn_set_io_mem(app_context.rknn_ctx, mem->input_mems[0], &app_context.input_attrs[0]);
         if (ret < 0){
@@ -111,32 +106,28 @@ int main() {
         }
         fprintf(stdout, "[Inference] Success\n");
         
-        // 7. 读取输出数据
-        fprintf(stdout, "\n[Output Verification]\n");
-        for (int i = 0; i < app_context.io_num.n_output; i++) {
-            fprintf(stdout, "Output[%d]: %s\n", i, app_context.output_attrs[i].name);
-            fprintf(stdout, "  - Shape: [%d,%d,%d,%d]\n", 
-                   app_context.output_attrs[i].dims[0],
-                   app_context.output_attrs[i].dims[1],
-                   app_context.output_attrs[i].dims[2],
-                   app_context.output_attrs[i].dims[3]);
-            fprintf(stdout, "  - Size: %u bytes\n", app_context.output_attrs[i].size);
-            
-            // 打印前几个值
-            if ( mem->output_mems[i]->virt_addr) {
-                int8_t* data = (int8_t*)mem->output_mems[i]->virt_addr;
-                fprintf(stdout, "  - First 10 values: ");
-                for (int j = 0; j < 10; j++) {
-                    fprintf(stdout, "%d ", data[j]);
-                }
-                fprintf(stdout, "\n");
-            }
+        // 7. 后处理
+        object_detect_result_list reslut_{};
+        postprocess::read_class_names("./coco_80_labels_list.txt");
+        postprocess::post_process_rule(app_context, mem->output_mems, letterbox_, reslut_);
+
+        for (size_t i = 0; i < reslut_.size(); ++i) {
+            const auto& r = reslut_[i];
+            const auto& box = r.box;
+            float prop = r.prop;
+            const std::string& name = r.class_name;
+
+            printf("Result %zu: box=[%.2f, %.2f, %.2f, %.2f], prop=%.3f, class=%s\n",
+                i, box.x, box.y, box.w, box.h, prop, name.c_str());
         }
+
+        // 8. 绘制
+        std::string postpath = "./detected_result_" + std::to_string(img_idx) + ".jpg";
+        saveResultImage(img, reslut_, postpath);
         
         fprintf(stdout, "========== Image %d Done ==========\n\n", img_idx - 1);
     }
 
-    // 8. 释放资源    
-    fprintf(stdout, "[Cleanup] Done\n");
+    // 8. 释放资源
     return 0;
 }
