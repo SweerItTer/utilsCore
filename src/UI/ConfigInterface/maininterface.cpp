@@ -1,3 +1,9 @@
+/*
+ * @Author: SweerItTer xxxzhou.xian@gmail.com
+ * @Date: 2025-10-08 15:37:24
+ * @FilePath: /EdgeVision/src/UI/ConfigInterface/maininterface.cpp
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
+ */
 #include "ConfigInterface/maininterface.h"
 #include "./ui_maininterface.h"
 #include <QDebug>

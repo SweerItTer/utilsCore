@@ -10,8 +10,7 @@
 #include <iostream>
 
 asyncThreadPool::asyncThreadPool(std::size_t poolSize, std::size_t maxQueueSize)
-    : running_(true), maxQueueSize_(maxQueueSize)
-{
+    : running_(true), maxQueueSize_(maxQueueSize) {
     // poolSize 检查
     auto maxAllowedSize = static_cast<size_t>(std::thread::hardware_concurrency());
     if (poolSize > maxAllowedSize){
@@ -29,36 +28,29 @@ asyncThreadPool::asyncThreadPool(std::size_t poolSize, std::size_t maxQueueSize)
 asyncThreadPool::~asyncThreadPool()
 {
     running_ = false;
-    queueNotEmpty_.notify_all();
-    queueNotFull_.notify_all();
+    condition_.notify_all();  // 唤醒所有等待的线程
+
     for (auto& t : workers_) if (t.joinable()) t.join();
 }
 
 void asyncThreadPool::worker()
 {
     fprintf(stdout, "ThreadPool worker TID: %d \n", syscall(SYS_gettid));
-    while (running_ || !tasks_.empty()) {
-        std::function<void()> task;
-        std::unique_lock<std::mutex> lock(queueMutex_);
-        // 短暂释放锁, 等待任务入队唤醒 (notify_one/notify_all)
-        auto notEmpty = queueNotEmpty_.wait_for(lock, std::chrono::milliseconds(10), [this]{ 
-            // 队列不空 → 马上醒, 线程池关闭 → 马上醒, 否则继续等（最多 10ms 超时）
-            return !tasks_.empty() || !running_; });
-        
-        if (!notEmpty) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            continue; // 超时回到循环，避免 CPU 长时间堵塞
-        }
-        if (!running_) break;
-        task = std::move(tasks_.front());
-        tasks_.pop();
-        // 运行入队
-        queueNotFull_.notify_one();
+    std::function<void()> task;
 
-        lock.unlock();
-
-        if (task) {
-            task();
+    while (running_) {
+        // 队列为空时等待
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        condition_.wait(lock, [this] {
+            // 被唤醒后检查: 有新任务或线程池关闭
+            return tasks_.size_approx() > 0 || !running_;
+        });
+        if (tasks_.try_dequeue(task)) {
+            if (!running_) break;
+            if (task) task();
         }
     }
+    // 清空剩余任务
+    while (tasks_.size_approx() > 0)
+        tasks_.try_dequeue(task);
 }

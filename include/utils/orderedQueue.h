@@ -103,6 +103,10 @@ public:
         size_t idx = frame_id & (capacity_ - 1);  // 环形索引计算
 
         bool expected = false;
+        if (frame_id < expected_id_.load(std::memory_order_relaxed)){
+            // 过期数据
+            return false;
+        }
         while (!ring_buffer_[idx].filled->compare_exchange_weak(
             expected, true, std::memory_order_acq_rel))
         {

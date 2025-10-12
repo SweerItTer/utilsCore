@@ -93,11 +93,11 @@ public:
 			rawFrameQueue->enqueue(std::move(f));
 		});
 
-		auto poolSize = static_cast<int>( frameQueue->getBufferRealSize() ); // 线程池长度
+		auto poolSize = static_cast<int>( 2 ); // 线程池长度
 		auto format = (V4L2_PIX_FMT_NV12 == cctrCfg.format) ?
 			RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;			// 原始数据格式
 		rgaCfg = {
-			cctr, rawFrameQueue, frameQueue,
+			cctr, rawFrameQueue,
 			cctrCfg.width,
 			cctrCfg.height,
 			cctrCfg.use_dmabuf, dstFormat, format, poolSize
@@ -111,7 +111,6 @@ public:
 		mainInterface = std::make_shared<MainInterface>();
 		// 创建原始NV12帧队列和RGBA帧队列
 		rawFrameQueue  	= std::make_shared<FrameQueue>(2);
-		frameQueue     	= std::make_shared<FrameQueue>(2);
 		
 		// 导出合成器
 		compositor = std::move(PlanesCompositor::create());
@@ -128,11 +127,10 @@ public:
     // 释放资源(devices/planes)
     void preRefresh(){
         refreshing = true; 
-		// 停止所有活动
-		processor->pause();
-		cctr->pause();
+		// // 停止所有活动
+		// processor->pause();
+		// cctr->pause();
 		rawFrameQueue->clear(); // 清空队列
-		frameQueue->clear();
 		// 析构线程
 		processor.reset();
 		cctr.reset();
@@ -149,6 +147,7 @@ public:
         devices = &(DrmDev::fd_ptr->getDevices());
         if (devices->empty()){
             std::cout << "Get no devices." << std::endl;
+			refreshing = true;	// 若无外接屏幕需等待直至有屏幕可用
             return;
         }
         // 取出第一个可用设备组合
@@ -276,10 +275,10 @@ private:
             }
             // 清空并绘制不同的内容
             QString text = QString("Fps: %1/s").arg(fps.load());
-			QRect targetRect(10, 50, dev->width/3 , dev->height/2);
+			// QRect targetRect(10, 50, dev->width/3 , dev->height/2);
 			draw.clear(slot->qfbo.get());												// 清空画布
 			draw.drawText(*(slot.get()), text, QPointF(10, 45), QColor(255, 0, 0));		// 绘制帧率
-			draw.drawWidget(*(slot.get()), mainInterface.get(), targetRect, RenderMode::KeepAspectRatio);	// 绘制UI界面
+			// draw.drawWidget(*(slot.get()), mainInterface.get(), targetRect, RenderMode::KeepAspectRatio);	// 绘制UI界面
 
 			// 同步内容到 dmabuf
             if (!slot->syncToDmaBuf(OpenGLFence)) {
@@ -317,6 +316,7 @@ private:
         auto beforeTime = startTime;
 		
 		uint64_t frameId = 0;
+		
         while (running) {
             // 等待刷新完成
             if (true == refreshing) {
@@ -325,22 +325,15 @@ private:
             }
 			// 取出的帧
 			FramePtr frame;
-
-            // 取出一帧
-            if (!frameQueue->try_dequeue(frame)) {
+            // 取出一帧(顺序取出)
+            if (processor->dump(frame) < 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
             
             // 取出该帧的drmbuf
             DmaBufferPtr& frameBuf = frame->sharedState()->dmabuf_ptr;
-			if (frameId < frame->meta.frame_id){
-				frameId = frame->meta.frame_id;
-			} else {
-				// 遇到旧帧则丢弃
-				std::cout << "Drop old frame " << frame->meta.frame_id << ".\n";
-				continue;
-			}
+			
             if (nullptr == frameBuf) {
                 std::cout << "Failed to get dmabuf from frame.\n";
                 continue;
@@ -395,7 +388,7 @@ private:
 	// UI 界面
 	std::shared_ptr<MainInterface> mainInterface = nullptr; 
 	// 帧队列
-	std::shared_ptr<FrameQueue> rawFrameQueue, frameQueue;
+	std::shared_ptr<FrameQueue> rawFrameQueue;
 	// 相机配置
 	uint32_t width = 2560;
 	uint32_t height = 1440;
@@ -423,18 +416,19 @@ int main(int argc, char *argv[])
 	// qt 相关初始化
 	QApplication app(argc, argv);
 	std::signal(SIGINT, handleSignal);
+	// MainInterface mainInterface;
+
 	DrmDev::fd_ptr = DeviceController::create(); // 初始化全局唯一fd_ptr
 	FrameBufferTest test;
 	test.start();
-	// int a = 5;
-	// while (a--)
-	// {
-	// 	sleep(1);
-	// }
-	while (running)
-	{
-		sleep(1000);
-	}
+	// mainInterface.show();
+	// std::thread aaa([&app]{
+	// 	while (running) sleep(1000); 
+	// 	app.closeAllWindows();
+	// });
+	while (running) sleep(1000); 
+	// app.exec();
+	// aaa.join();
 	test.stop();
 	return 0;
 }

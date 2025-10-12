@@ -183,7 +183,7 @@ public:
         format = (V4L2_PIX_FMT_NV12 == cctrFormat) ?
             RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;
         rgaCfg = RgaProcessor::Config {
-            cctr, rawFrameQueue, frameQueue, cctrCfg.width,
+            cctr, rawFrameQueue, cctrCfg.width,
             cctrCfg.height, cctrCfg.use_dmabuf, dstFormat, format, poolSize
         };
         processor = std::make_shared<RgaProcessor>(rgaCfg) ;
@@ -252,7 +252,7 @@ private:
                 continue;
             }
             // 取出一帧
-            if (!frameQueue->try_dequeue(frame)) {
+            if (processor->dump(frame) < 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
