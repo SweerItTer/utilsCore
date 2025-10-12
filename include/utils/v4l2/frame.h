@@ -10,50 +10,52 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <functional>
 #include "v4l2/v4l2Exception.h"
+#include "sharedBufferState.h"
+
+struct FrameMeta {
+    uint64_t    frame_id = -1;      // 单调递增
+    uint64_t    timestamp_ns = -1;  // CLOCK_MONOTONIC
+    int         index = -1;         // buffer index
+    // 原始尺寸(便于放大 box)
+    uint32_t    w = 0;
+    uint32_t    h = 0;
+};
 
 // 统一帧接口(MMAP&DMABUF)
 class Frame {
 public:
-    Frame() = default;
+    using SharedBufferPtr = std::shared_ptr<SharedBufferState>;
+    FrameMeta meta;
     // 强类型枚举
-    enum class MemoryType { MMAP, DMABUF };
+    enum class MemoryType { Unknown, MMAP, DMABUF };
+
+    Frame() noexcept;
+    ~Frame();
+    Frame(SharedBufferPtr s);
     
-    // 只引用不新分配内存
-    Frame(void* data, size_t size, uint64_t timestamp, int index)
-        : type_(MemoryType::MMAP), data_(data), size_(size), 
-          timestamp_(timestamp), index_(index) {}
+    MemoryType type() const noexcept { return type_; }
     
-    Frame(int dmabuf_fd, size_t size, uint64_t timestamp, int index)
-        : type_(MemoryType::DMABUF), dmabuf_fd_(dmabuf_fd), size_(size),
-          timestamp_(timestamp), index_(index) {}
-    
-    MemoryType type() const { return type_; }
-    // 二次检查(优于结构体)
-    void* data() const { 
-        if (type_ != MemoryType::MMAP) 
-            throw V4L2Exception("Frame is not MMAP type");
-        return data_; 
+    // 二次检查
+    void* data() const;
+    int dmabuf_fd() const;
+
+    size_t size() const { return state_->length; }
+    uint64_t timestamp() const { return meta.timestamp_ns; }
+    SharedBufferPtr sharedState() const noexcept { return state_; }
+    int index() const { return meta.index; }
+
+    void setTimestamp(uint64_t ts) { meta.timestamp_ns = ts; }
+
+    void setReleaseCallback(std::function<void(int)> bufReleasCallback) {
+        bufReleasCallback_ = bufReleasCallback;
     }
-    int dmabuf_fd() const { 
-        if (type_ != MemoryType::DMABUF) 
-            throw V4L2Exception("Frame is not DMABUF type");
-        return dmabuf_fd_; 
-    }
-    size_t size() const { return size_; }
-    uint64_t timestamp() const { return timestamp_; }
-    int index() const { return index_; }
 private:
-    // 私有成员不允许外部修改(优于结构体)
+    std::function<void(int)> bufReleasCallback_;
+    
     MemoryType type_;
-    // 联合体充分利用内存资源
-    union {
-        void* data_ = nullptr;
-        int dmabuf_fd_;
-    };
-    size_t size_;
-    uint64_t timestamp_;
-    int index_;
+    SharedBufferPtr state_;
 };
 
 #endif // !FRAME_H

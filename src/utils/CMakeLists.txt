@@ -1,22 +1,20 @@
-file(GLOB_RECURSE SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
-file(GLOB_RECURSE HEADERS "${CMAKE_SOURCE_DIR}/include/utils/*.h")
+set(utilsIncludeDir "${CMAKE_SOURCE_DIR}/include/utils/")
 
-find_package(OpenCV REQUIRED)
+file(GLOB_RECURSE SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+file(GLOB_RECURSE HEADERS "${utilsIncludeDir}/*.h")
 
 add_library(utils STATIC
     ${SOURCES}
-    ${HEADERS}
+    ${HEADERS}  # 会在IDE里显示头文件
 )
 
-target_include_directories(utils PUBLIC
-    # ${OpenCV_INCLUDE_DIRS}
-    ${CMAKE_SYSROOT}/usr/include/rga
-    ${CMAKE_SYSROOT}/usr/include/drm
-    ${CMAKE_SOURCE_DIR}/include/utils
+target_include_directories(utils 
+    PUBLIC
+        ${utilsIncludeDir}
+        ${CMAKE_SYSROOT}/usr/include/rga
+        ${CMAKE_SYSROOT}/usr/include/drm
 )
 
-target_link_libraries(utils PUBLIC
-    # ${OpenCV_LIBS}
-    drm
-    rga
+target_link_libraries(utils 
+    PUBLIC drm rga udev
 )

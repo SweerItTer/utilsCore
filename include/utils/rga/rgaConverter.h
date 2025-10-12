@@ -53,47 +53,73 @@ public:
         im_rect &dst_rect;
     };
 
-    explicit RgaConverter ();
+    static RgaConverter& instance();
+
+    // 禁用拷贝
+    RgaConverter(const RgaConverter&) = delete;
+    RgaConverter& operator=(const RgaConverter&) = delete;
     ~RgaConverter ();
 
     /**
-     * @brief 将NV16格式转换为RGBA8888
+     * @brief 将源格式转换为目标格式
      * @param params 转换参数结构体
      * @return IM_STATUS 转换状态 (成功返回IM_STATUS_SUCCESS)
+     * @details
+     * src_fmt 源格式 (RK_FORMAT_YCbCr_422_SP , RK_FORMAT_YCbCr_420_SP 等)
+     * 使用 DMABUF 时 RGA 输出的是 DRM_FORMAT_RGBA8888 即从低位到高位是 [R][G][B][A] 排列
+     * 实际 OpenGL 使用的是 [A][B][G][R] 的顺序,所以应该使用 DRM_FORMAT_ABGR8888
      */
-    IM_STATUS NV16toRGBA(RgaParams& params);
+    IM_STATUS FormatTransform(RgaParams& params);
+
+    /**
+     * @brief 将源图缩放为目标大小
+     * @param params 转换参数结构体
+     * @return IM_STATUS 转换状态 (成功返回IM_STATUS_SUCCESS)
+     * @details
+     * 通过dst设置w和h以达到目的
+     */
+    IM_STATUS ImageResize(RgaParams& params);
+
+    /**
+     * @brief 在目标 buffer 的指定矩形区域内填充指定颜色
+     *
+     * @param dst_buffer 目标 RGA buffer (rga_buffer_t)
+     * @param dst_rect   目标矩形区域 (im_rect), 填充的范围
+     * @param color      填充颜色 (char), 颜色值含义依赖于目标 buffer 的像素格式
+     *
+     * @return IM_STATUS 转换状态 (成功返回IM_STATUS_SUCCESS)
+     * @details
+     * 填充颜色的解释方式取决于 dst_buffer.format:
+     *   - RGBA8888 格式下, color 通常代表一个 32 位值 (0xAARRGGBB)
+     *   - YUV 格式下, color 通常只设置 Y 分量或由内部解释
+     */
+    IM_STATUS ImageFill(rga_buffer_t& dst_buffer, im_rect& dst_rect, char color);
+
     
     /**
-     * @brief 将NV12格式转换为RGBA8888
-     * @param params 转换参数结构体
+     * @brief 将 src 指定矩形区域经过缩放、旋转等处理后写入 dst 指定矩形位置
+     *
+     * @param params  RgaParams 结构体
+     * @param pat     可选的目标填充缓冲区(rga_buffer_t), 用于指定输出占位或背景, 默认空
+     * @param prect   可选的裁剪矩形区域(im_rect), 对 dst 的输出区域进一步裁剪, 默认空
+     * @param usage   可选使用标志, 控制 RGA buffer 的访问方式或缓存策略, 默认 0
+     *
      * @return IM_STATUS 转换状态 (成功返回IM_STATUS_SUCCESS)
+     * @details
+     * 仅使用 dst 相关缓冲区信息来输出结果, src 缓冲区和矩形仅被读取
+     * pat 与 prect 可用于复杂场景, 例如局部填充或 ROI 处理
      */
-    IM_STATUS NV12toRGBA(RgaParams& params);
+    IM_STATUS ImageProcess(RgaParams& params, rga_buffer_t pat = {}, im_rect prect = {}, int usage = 0);
 
-    IM_STATUS NV16toXRGB(RgaParams& params);
 
-    IM_STATUS NV12toXRGB(RgaParams& params);
-
-    
-    // 禁用拷贝和赋值
-    RgaConverter(const RgaConverter&) = delete;
-    RgaConverter& operator=(const RgaConverter&) = delete;
 private:
+    explicit RgaConverter ();
+
     // RGA上下文
     RockchipRga m_rga;
     
     // 初始化标志
     bool m_initialized = false;
-    
-    /**
-     * @brief 执行实际RGA转换操作
-     * @param src_fmt 源格式 (RK_FORMAT_YCbCr_422_SP 或 RK_FORMAT_YCbCr_420_SP)
-     * @param params 转换参数
-     * @return IM_STATUS 转换状态
-     * 使用 DMABUF 时 RGA 输出的是 DRM_FORMAT_RGBA8888 即从低位到高位是 [R][G][B][A] 排列
-     * 实际 OpenGL 使用的是 [A][B][G][R] 的顺序,所以应该使用 DRM_FORMAT_ABGR8888
-     */
-    IM_STATUS convertImage(RgaSURF_FORMAT src_fmt, RgaSURF_FORMAT dst_fmt, RgaParams &params);
 };
 
 #endif // !RGA_CONVERTER_H

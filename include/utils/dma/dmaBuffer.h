@@ -8,53 +8,79 @@
 #define DMA_BUFFER_H
 
 #include <memory>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <stdexcept>
 
-#include "drm/drmBpp.h"
-#include "fdWrapper.h"
+#include "drm/deviceController.h"
 
 class DmaBuffer {
+struct dmaBufferData {
+    uint32_t handle;
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;
+    uint32_t pitch;
+    uint64_t size;
+    uint32_t offset;
+};
+
 public:
-    static void initialize_drm_fd();
-    static void close_drm_fd();
-    
-    // 根据实际 size 尝试通过修改分辨率实现逼近
-    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size);
+    // ---------- 工厂方法 ----------
+    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size, uint32_t offset);
+    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t offset);
+    static std::shared_ptr<DmaBuffer> importFromFD(int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size);
 
-    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format);
+    // ---------- 基本信息 ----------
+    int fd() const noexcept;
+    uint32_t handle() const noexcept;
+    uint32_t width()  const noexcept;
+    uint32_t height() const noexcept;
+    uint32_t format() const noexcept;
+    uint32_t pitch()  const noexcept;
+    uint32_t size()   const noexcept;
+    uint32_t offset() const noexcept;
 
-    uint32_t handle() const noexcept { return m_handle; }
-    uint32_t width()  const noexcept { return m_width;  }
-    uint32_t height() const noexcept { return m_height; }
-    uint32_t format() const noexcept { return m_format; }
-    uint32_t pitch()  const noexcept { return m_pitch;  }
-    uint32_t size()   const noexcept { return m_size;   }
+    // ---------- 映射控制 ----------
+    uint8_t* map();
+    void unmap();
 
-    int fd() const noexcept { return m_fd; }
+    // ---------- RAII 封装 ----------
+    class MappedView {
+    public:
+        MappedView(DmaBuffer& owner, uint8_t* ptr);
+        ~MappedView();
+        MappedView(const MappedView&) = delete;
+        MappedView& operator=(const MappedView&) = delete;
+        MappedView(MappedView&& other) noexcept;
+        MappedView& operator=(MappedView&& other) noexcept;
 
+        uint8_t* get();
+        operator uint8_t*();
+
+    private:
+        DmaBuffer& owner_;
+        uint8_t* ptr_;
+    };
+
+    // 获取一个作用域内自动 unmap 的视图
+    MappedView scopedMap();
+
+    // ---------- 构造/析构 ----------
     DmaBuffer(const DmaBuffer&) = delete;
     DmaBuffer& operator=(const DmaBuffer&) = delete;
-
     DmaBuffer(DmaBuffer&& other) noexcept;
     DmaBuffer& operator=(DmaBuffer&& other) noexcept;
     ~DmaBuffer();
-    
-    // 内部全局唯一 drm_fd
-    static FdWrapper drm_fd;
+
 private:
     static int exportFD(drm_mode_create_dumb& create_arg);
-
-    DmaBuffer(int prime_fd, uint32_t handle, uint32_t width,
-        uint32_t height, uint32_t format, uint32_t pitch, uint32_t size);
-
+    DmaBuffer(int primeFd, dmaBufferData& data);
     void cleanup() noexcept;
-    
+
     int m_fd = -1;
-    uint32_t m_handle  = 0;
-    uint32_t m_width  = 0;
-    uint32_t m_height = 0;
-    uint32_t m_format = 0;
-    uint32_t m_pitch  = 0;
-    uint32_t m_size   = 0;
+    dmaBufferData data_;
+    uint8_t* mappedPtr_ = nullptr;
 };
 
 using DmaBufferPtr = std::shared_ptr<DmaBuffer>;

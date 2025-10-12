@@ -10,7 +10,7 @@ set(CMAKE_SYSTEM_PROCESSOR aarch64)
 set(CMAKE_SYSTEM_VERSION 1)
 
 # 工具链路径 
-set(TOOLCHAIN_DIR /opt/atk-dlrk356x-toolchain)
+set(TOOLCHAIN_DIR /home/mouj/rk3568/buildroot/output/rockchip_rk3568/host)
 
 # 编译器路径
 set(CMAKE_C_COMPILER ${TOOLCHAIN_DIR}/usr/bin/aarch64-buildroot-linux-gnu-gcc)

@@ -17,13 +17,13 @@
 #include <string>
 #include <linux/videodev2.h>
 
-#include "frame.h"
+#include "types.h"
 
 class CameraController {
 public:
     // 定义 FrameCallback 类型(更简洁,简化std::function<void(Frame)>声明)
     // 接受的参数是 Frame,返回类型为 void
-    using FrameCallback = std::function<void(Frame)>;
+    using FrameCallback = std::function<void(FramePtr)>;
     
     struct Config {
         // 默认配置
@@ -42,7 +42,7 @@ public:
     void start();
     void pause();
     void stop();
-
+    void setThreadAffinity(int cpu_core);
     void returnBuffer(int index);
     
     // 帧回调
