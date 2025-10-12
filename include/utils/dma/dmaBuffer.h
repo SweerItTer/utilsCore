@@ -25,63 +25,59 @@ struct dmaBufferData {
     uint32_t offset;
 };
 
-public:    
-    // 根据实际 size 尝试通过修改分辨率实现逼近
+public:
+    // ---------- 工厂方法 ----------
     static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size, uint32_t offset);
-
     static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t offset);
+    static std::shared_ptr<DmaBuffer> importFromFD(int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size);
 
-    static std::shared_ptr<DmaBuffer> importFromFD(int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t offset);
+    // ---------- 基本信息 ----------
+    int fd() const noexcept;
+    uint32_t handle() const noexcept;
+    uint32_t width()  const noexcept;
+    uint32_t height() const noexcept;
+    uint32_t format() const noexcept;
+    uint32_t pitch()  const noexcept;
+    uint32_t size()   const noexcept;
+    uint32_t offset() const noexcept;
 
-    int fd() const noexcept { return m_fd; }
+    // ---------- 映射控制 ----------
+    uint8_t* map();
+    void unmap();
 
-    uint32_t handle() const noexcept { return data_.handle; }
-    uint32_t width()  const noexcept { return data_.width;  }
-    uint32_t height() const noexcept { return data_.height; }
-    uint32_t format() const noexcept { return data_.format; }
-    uint32_t pitch()  const noexcept { return data_.pitch;  }
-    uint32_t size()   const noexcept { return data_.size;   }
-    uint32_t offset() const noexcept { return data_.offset; }
+    // ---------- RAII 封装 ----------
+    class MappedView {
+    public:
+        MappedView(DmaBuffer& owner, uint8_t* ptr);
+        ~MappedView();
+        MappedView(const MappedView&) = delete;
+        MappedView& operator=(const MappedView&) = delete;
+        MappedView(MappedView&& other) noexcept;
+        MappedView& operator=(MappedView&& other) noexcept;
 
-    // map 返回可写的 CPU 指针
-    uint8_t* map() {
-        if (m_fd < 0) {
-            throw std::runtime_error("Invalid DMABUF fd");
-        }
-        if (mappedPtr_) {
-            return mappedPtr_;
-        }
+        uint8_t* get();
+        operator uint8_t*();
 
-        void* ptr = mmap(nullptr, data_.size, PROT_READ | PROT_WRITE, MAP_SHARED, m_fd, 0);
-        if (ptr == MAP_FAILED) {
-            perror("mmap failed");
-            return nullptr;
-        }
-        mappedPtr_ = reinterpret_cast<uint8_t*>(ptr);
-        return mappedPtr_;
-    }
+    private:
+        DmaBuffer& owner_;
+        uint8_t* ptr_;
+    };
 
-    void unmap() {
-        if (mappedPtr_) {
-            munmap(mappedPtr_, data_.size);
-            mappedPtr_ = nullptr;
-        }
-    }
-    
-    // 禁止拷贝
+    // 获取一个作用域内自动 unmap 的视图
+    MappedView scopedMap();
+
+    // ---------- 构造/析构 ----------
     DmaBuffer(const DmaBuffer&) = delete;
     DmaBuffer& operator=(const DmaBuffer&) = delete;
-
     DmaBuffer(DmaBuffer&& other) noexcept;
     DmaBuffer& operator=(DmaBuffer&& other) noexcept;
     ~DmaBuffer();
+
 private:
     static int exportFD(drm_mode_create_dumb& create_arg);
-    
     DmaBuffer(int primeFd, dmaBufferData& data);
-
     void cleanup() noexcept;
-    
+
     int m_fd = -1;
     dmaBufferData data_;
     uint8_t* mappedPtr_ = nullptr;

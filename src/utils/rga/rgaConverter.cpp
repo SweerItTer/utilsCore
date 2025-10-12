@@ -6,6 +6,12 @@
  */
 #include "rga/rgaConverter.h"
 
+RgaConverter &RgaConverter::instance()
+{
+    static RgaConverter converter;
+    return converter;
+}
+
 RgaConverter::RgaConverter() {
     // 初始化RGA上下文
     m_rga.RkRgaInit();
@@ -16,7 +22,7 @@ RgaConverter::RgaConverter() {
 RgaConverter::~RgaConverter() {
     if (m_initialized) {
         // 清理RGA资源
-        // m_rga.RkRgaDeInit();
+        m_rga.RkRgaDeInit();
     }
 }
 
@@ -60,6 +66,30 @@ IM_STATUS RgaConverter::ImageResize(RgaParams& params){
     ret = imresize(params.src, params.dst);
     if (ret != IM_STATUS_SUCCESS) {
         fprintf(stderr, "%s", imStrError(ret));
+    }
+    return ret;
+}
+
+IM_STATUS RgaConverter::ImageFill(rga_buffer_t& dst_buffer, im_rect& dst_rect, char color){
+    int imcolor = 0;
+    for (int i = 0; i < 4; i++) {
+        imcolor |= ((unsigned char)color << (i * 8));
+    }
+    
+    fprintf(stdout, "fill dst image (x y w h)=(%d %d %d %d) with color=0x%x\n",
+        dst_rect.x, dst_rect.y, dst_rect.width, dst_rect.height, imcolor);
+    IM_STATUS ret = imfill(dst_buffer, dst_rect, imcolor); // 填充指定区域为目标颜色
+
+    if (ret != IM_STATUS_SUCCESS) {
+        fprintf(stderr, "%s\n", imStrError(ret));
+    }
+    return ret;
+}
+
+IM_STATUS RgaConverter::ImageProcess(RgaParams& params, rga_buffer_t pat, im_rect prect, int usage) {
+    IM_STATUS ret = improcess(params.src, params.dst, pat, params.src_rect, params.dst_rect, prect, usage);
+    if (ret <= 0) {
+        fprintf(stderr, "%s\n", imStrError(ret));
     }
     return ret;
 }

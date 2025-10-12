@@ -1,5 +1,3 @@
-#include "dma/dmaBuffer.h"
-
 #include <cstdint>
 #include <fcntl.h>
 #include <unistd.h>
@@ -7,6 +5,7 @@
 #include <sys/ioctl.h>
 #include <system_error>
 
+#include "dma/dmaBuffer.h"
 #include "logger.h"
 
 using namespace DrmDev;
@@ -19,33 +18,34 @@ using namespace DrmDev;
  * 这样哪怕内核二次对齐, 也不会小于所需空间
  */
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
-                                             uint32_t format, uint32_t required_size, uint32_t offset)
-{
+                                             uint32_t format, uint32_t required_size,
+                                             uint32_t offset) {
     std::lock_guard<std::mutex> lock(fd_mutex);
     if (-1 == fd_ptr->get()) {
-        Logger::log(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
+        fprintf(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
         return nullptr;
     }
 
     uint32_t bpp = calculate_bpp(format);
     if ((uint32_t)-1 == bpp) {
-        Logger::log(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
+        fprintf(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
         return nullptr;
     }
 
+    // 按不同对齐方式尝试分配
     constexpr uint32_t align_options[] = {16, 32, 64, 128};
     for (uint32_t align : align_options) {
         // 按字节对齐计算新的 pitch 和 width
-        uint32_t pitch_bytes = ((width * bpp / 8 + align - 1) / align) * align;
+        uint32_t pitch_bytes   = ((width * bpp / 8 + align - 1) / align) * align;
         uint32_t aligned_width = pitch_bytes * 8 / bpp;
 
         drm_mode_create_dumb create_arg = {};
-        create_arg.width  = aligned_width; // 直接将对齐后的宽度传入(避免内核二次对齐)
+        create_arg.width  = aligned_width; // 直接用对齐后的宽度,避免内核二次对齐
         create_arg.height = height;
         create_arg.bpp    = bpp;
 
         if (drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg) < 0) {
-            Logger::log(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed with align %u: %d\n",
+            fprintf(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed with align %u: %d\n",
                         align, errno);
             continue;
         }
@@ -60,106 +60,109 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
 
         int primefd = exportFD(create_arg);
         if (primefd < 0) {
-            Logger::log(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
+            fprintf(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
             return nullptr;
         }
-        dmaBufferData data = {create_arg.handle, width, height,
-            format, create_arg.pitch, create_arg.size, offset};
-        return std::shared_ptr<DmaBuffer>(
-            new DmaBuffer(primefd, data)
-        );
+
+        dmaBufferData data = {
+            create_arg.handle, width, height,
+            format, create_arg.pitch, create_arg.size, offset
+        };
+        return std::shared_ptr<DmaBuffer>(new DmaBuffer(primefd, data));
     }
 
-    Logger::log(stderr, "Failed to create dumb buffer with required size %u\n", required_size);
+    fprintf(stderr, "Failed to create dumb buffer with required size %u\n", required_size);
     return nullptr;
 }
 
-// 无需内存对齐直接分配
-std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height, uint32_t format, uint32_t offset)
-{
+
+// 无需对齐的 dumb buffer 创建
+std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
+                                             uint32_t format, uint32_t offset) {
     std::lock_guard<std::mutex> lock(fd_mutex);
     if (-1 == fd_ptr->get()) {
-        Logger::log(stderr, "DRM fd not initialized, please call initialize_drm_fd() first");
+        fprintf(stderr, "DRM fd not initialized, please call initialize_drm_fd() first");
+        return nullptr;
+    }
+
+    uint32_t bpp = calculate_bpp(format);
+    if ((uint32_t)-1 == bpp) {
+        fprintf(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
         return nullptr;
     }
 
     drm_mode_create_dumb create_arg = {};
     create_arg.width  = width;
     create_arg.height = height;
+    create_arg.bpp    = bpp;
 
-    uint32_t bpp = calculate_bpp(format);
-    if (-1 == bpp) {
-        Logger::log(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
-        return nullptr;
-    }
-
-    create_arg.bpp = bpp;
     if (0 > drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg)) {
-        Logger::log(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed: %d\n", errno);
+        fprintf(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed: %d\n", errno);
+        return nullptr;
     }
 
     int primefd = exportFD(create_arg);
     if (0 > primefd) {
-        Logger::log(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
+        fprintf(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
         return nullptr;
     }
-    dmaBufferData data = {create_arg.handle, width, height,
-        format, create_arg.pitch, create_arg.size, offset};
-    return std::shared_ptr<DmaBuffer>(
-        new DmaBuffer(primefd, data)
-    );
+
+    dmaBufferData data = {
+        create_arg.handle, width, height,
+        format, create_arg.pitch, create_arg.size, offset
+    };
+    return std::shared_ptr<DmaBuffer>(new DmaBuffer(primefd, data));
 }
+
 // 从外部导入
 std::shared_ptr<DmaBuffer> DmaBuffer::importFromFD(
-    int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t offset)
+    int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size)
 {
     if (importFd < 0) {
-        Logger::log(stderr, "Invalid import fd: %d\n", importFd);
+        fprintf(stderr, "Invalid import fd: %d\n", importFd);
         return nullptr;
     }
-    if (width == 0 || height == 0) {
-        Logger::log(stderr, "Invalid dimensions: %ux%u\n", width, height);
+    if (0 == width || 0 == height) {
+        fprintf(stderr, "Invalid dimensions: %ux%u\n", width, height);
         return nullptr;
     }
 
     std::lock_guard<std::mutex> lock(fd_mutex);
     if (-1 == fd_ptr->get()) {
-        Logger::log(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
+        fprintf(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
         return nullptr;
     }
 
-    uint32_t bpp = calculate_bpp(format);
-    if ((uint32_t)-1 == bpp) {
-        Logger::log(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
-        return nullptr;
-    }
-
-    uint32_t raw_pitch = (width * bpp + 7) / 8;
-    uint32_t align = 64;
-    uint32_t pitch = (raw_pitch + align - 1) / align * align;
-    uint32_t size = pitch * height;
-
+    // Step 1: 把 fd 转成 DRM handle
     uint32_t handle = 0;
     if (drmPrimeFDToHandle(fd_ptr->get(), importFd, &handle) < 0) {
-        Logger::log(stderr, "Failed to import DMA-BUF fd: %d\n", importFd);
+        fprintf(stderr, "Failed to import DMA-BUF fd: %d\n", importFd);
         return nullptr;
     }
-    dmaBufferData data = {handle, width, height, format, pitch, size, offset};
-    return std::shared_ptr<DmaBuffer>(
-        new DmaBuffer(importFd, data)
-    );
+
+    // 查询实际 pitch
+    uint32_t pitch = size / height;
+
+    drm_mode_map_dumb map_arg = {};
+    map_arg.handle = handle;
+    if (drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_MAP_DUMB, &map_arg) < 0) {
+        fprintf(stderr, "DRM_IOCTL_MODE_MAP_DUMB failed for handle %u\n", handle);
+        return nullptr;
+    }
+
+    dmaBufferData data = {handle, width, height, format, pitch, size, static_cast<uint32_t>(map_arg.offset)};
+    return std::shared_ptr<DmaBuffer>(new DmaBuffer(importFd, data));
 }
 
 
-int DmaBuffer::exportFD(drm_mode_create_dumb &create_arg)
-{
-    // 将handle导出为fd(drmPrimeHandle -> drmPrimeFD)
+/* 将handle导出为fd(drmPrimeHandle -> drmPrimeFD) */
+int DmaBuffer::exportFD(drm_mode_create_dumb &create_arg) {
     int prime_fd = -1;
     if (0 > drmPrimeHandleToFD(fd_ptr->get(), create_arg.handle, DRM_CLOEXEC | DRM_RDWR, &prime_fd)) {
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = create_arg.handle;
         drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
-        Logger::log(stderr, "drmPrimeHandleToFD failed");
+        fprintf(stderr, "drmPrimeHandleToFD failed");
     }
 
     /* 如果完全依赖 prime fd，可立即销毁 handle。
@@ -169,21 +172,22 @@ int DmaBuffer::exportFD(drm_mode_create_dumb &create_arg)
     return prime_fd;
 }
 
-// 赋值储存数据
+
+// ---------------------- 构造/析构/cleanup ----------------------
+
 DmaBuffer::DmaBuffer(int primeFd, dmaBufferData& data)
     : m_fd(primeFd)
-    , data_(data){}
+    , data_(data) {}
 
-DmaBuffer::~DmaBuffer()
-{
+DmaBuffer::~DmaBuffer() {
     unmap();
     // 回收资源
     cleanup();
 }
 
-void DmaBuffer::cleanup() noexcept
-{
-    fprintf(stdout,"DmaBuffer:closed: fd=%d, handle=%d\n", m_fd, data_.handle);
+void DmaBuffer::cleanup() noexcept {
+    fprintf(stdout, "DmaBuffer: closed: fd=%d, handle=%d\n", m_fd, data_.handle);
+
     if (-1 != m_fd) {
         // 关闭 dambuf fd
         ::close(m_fd);
@@ -199,22 +203,91 @@ void DmaBuffer::cleanup() noexcept
     }
 }
 
-// 移动构造
-DmaBuffer::DmaBuffer(DmaBuffer &&other) noexcept
-{
+
+// ---------------------- 移动语义 ----------------------
+
+DmaBuffer::DmaBuffer(DmaBuffer&& other) noexcept {
     *this = std::move(other);
 }
-// 移动操作符
-DmaBuffer& DmaBuffer::operator=(DmaBuffer&& other) noexcept
-{
+
+DmaBuffer& DmaBuffer::operator=(DmaBuffer&& other) noexcept {
     if (this != &other) {
         cleanup();
-
-        m_fd     = other.m_fd;
-        data_    = other.data_;
-
-        other.m_fd     = -1;
-        other.data_    = {};
+        m_fd  = other.m_fd;
+        data_ = other.data_;
+        other.m_fd  = -1;
+        other.data_ = {};
     }
     return *this;
+}
+
+
+// ---------- 基本信息 ----------
+int DmaBuffer::fd() const noexcept { return m_fd; }
+uint32_t DmaBuffer::handle() const noexcept { return data_.handle; }
+uint32_t DmaBuffer::width()  const noexcept { return data_.width;  }
+uint32_t DmaBuffer::height() const noexcept { return data_.height; }
+uint32_t DmaBuffer::format() const noexcept { return data_.format; }
+uint32_t DmaBuffer::pitch()  const noexcept { return data_.pitch;  }
+uint32_t DmaBuffer::size()   const noexcept { return data_.size;   }
+uint32_t DmaBuffer::offset() const noexcept { return data_.offset; }
+
+// ---------- map/unmap ----------
+uint8_t* DmaBuffer::map() {
+    if (m_fd < 0) {
+        throw std::runtime_error("Invalid DMABUF fd");
+    }
+    if (nullptr != mappedPtr_) {
+        return mappedPtr_;
+    }
+    void* ptr = mmap(nullptr, data_.size, PROT_READ | PROT_WRITE, MAP_SHARED, m_fd, 0);
+    if (MAP_FAILED == ptr) {
+        perror("mmap failed");
+        return nullptr;
+    }
+    mappedPtr_ = reinterpret_cast<uint8_t*>(ptr);
+    return mappedPtr_;
+}
+
+void DmaBuffer::unmap() {
+    if (nullptr != mappedPtr_) {
+        munmap(mappedPtr_, data_.size);
+        mappedPtr_ = nullptr;
+    }
+}
+
+// ---------- MappedView ----------
+DmaBuffer::MappedView::MappedView(DmaBuffer& owner, uint8_t* ptr)
+    : owner_(owner), ptr_(ptr) {}
+
+DmaBuffer::MappedView::~MappedView() {
+    if (nullptr != ptr_) {
+        owner_.unmap();
+    }
+}
+
+DmaBuffer::MappedView::MappedView(MappedView&& other) noexcept
+    : owner_(other.owner_), ptr_(other.ptr_) {
+    other.ptr_ = nullptr;
+}
+
+DmaBuffer::MappedView& DmaBuffer::MappedView::operator=(MappedView&& other) noexcept {
+    if (this != &other) {
+        if (nullptr != ptr_) {
+            owner_.unmap();
+        }
+        ptr_ = other.ptr_;
+        other.ptr_ = nullptr;
+        // owner_ 保持引用不变，不赋值
+    }
+    return *this;
+}
+
+
+uint8_t* DmaBuffer::MappedView::get() { return ptr_; }
+DmaBuffer::MappedView::operator uint8_t*() { return ptr_; }
+
+// ---------- scopedMap ----------
+DmaBuffer::MappedView DmaBuffer::scopedMap() {
+    return MappedView(*this, map());
 }

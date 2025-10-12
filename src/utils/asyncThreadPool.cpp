@@ -9,71 +9,56 @@
 #include <unistd.h>
 #include <iostream>
 
-asyncThreadPool::asyncThreadPool(std::size_t poolSize)
-: running(true), poolSize_(poolSize)  {
-    // 直接去最大可用线程数
-    std::size_t worksSize = std::thread::hardware_concurrency();
-    
-    for (size_t i = 0; i < worksSize; i++)
-    {
-        workers.emplace_back([this](){
-            worker();
-        });
-    }
-    
-}
-
-void asyncThreadPool::worker()
+asyncThreadPool::asyncThreadPool(std::size_t poolSize, std::size_t maxQueueSize)
+    : running_(true), maxQueueSize_(maxQueueSize)
 {
-    std::cout << "ThreadPool worker TID: " << syscall(SYS_gettid) << "\n";
-    while (true)
-    {
-        std::function<void()> task;
-        {
-        std::unique_lock<std::mutex> lock(queue_mutex_);
-        // 短暂释放锁,等待唤醒 (notify_one/notify_all)
-        condition_.wait(lock, [this] {
-            // 被唤醒后检查 队列不为空或线程池正在关闭
-            // 若为false继续等待
-            return false == tasks.empty() || false == running;
-        });
-        // 提前结束
-        if (true == tasks.empty() && false == running) return;
-        task = std::move(tasks.front());
-        tasks.pop();
-        }
-
-        try {
-            task();
-        } catch (const std::exception& e) {
-            // 记录异常, 避免线程退出
-            fprintf(stderr, "Worker task exception: %s\n", e.what());
-        } catch (...) {
-            fprintf(stderr, "Worker task unknown exception\n");
-        }
+    // poolSize 检查
+    auto maxAllowedSize = static_cast<size_t>(std::thread::hardware_concurrency());
+    if (poolSize > maxAllowedSize){
+        poolSize = maxAllowedSize;
+    } else if ( poolSize <= 0 ) {
+        poolSize = 1;
+    }
+    fprintf(stdout, "Real pool size:%d\n", poolSize);
+    // 创建线程池
+    for (std::size_t i = 0; i < poolSize; ++i) {
+        workers_.emplace_back([this]{ worker(); });
     }
 }
 
 asyncThreadPool::~asyncThreadPool()
 {
-    clear();
-    {
-    std::unique_lock<std::mutex> lock(queue_mutex_);
-    running = false;
-    }
-    condition_.notify_all();
-    for(auto& worker : workers){
-        if (worker.joinable()) worker.join();
-    }
+    running_ = false;
+    queueNotEmpty_.notify_all();
+    queueNotFull_.notify_all();
+    for (auto& t : workers_) if (t.joinable()) t.join();
 }
 
-void asyncThreadPool::clear()
+void asyncThreadPool::worker()
 {
-    {
-    std::unique_lock<std::mutex> lock(queue_mutex_);
-    while(!tasks.empty()) {
-        tasks.pop();
+    fprintf(stdout, "ThreadPool worker TID: %d \n", syscall(SYS_gettid));
+    while (running_ || !tasks_.empty()) {
+        std::function<void()> task;
+        std::unique_lock<std::mutex> lock(queueMutex_);
+        // 短暂释放锁, 等待任务入队唤醒 (notify_one/notify_all)
+        auto notEmpty = queueNotEmpty_.wait_for(lock, std::chrono::milliseconds(10), [this]{ 
+            // 队列不空 → 马上醒, 线程池关闭 → 马上醒, 否则继续等（最多 10ms 超时）
+            return !tasks_.empty() || !running_; });
+        
+        if (!notEmpty) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue; // 超时回到循环，避免 CPU 长时间堵塞
+        }
+        if (!running_) break;
+        task = std::move(tasks_.front());
+        tasks_.pop();
+        // 运行入队
+        queueNotFull_.notify_one();
+
+        lock.unlock();
+
+        if (task) {
+            task();
+        }
     }
-    }
-    condition_.notify_all();
 }

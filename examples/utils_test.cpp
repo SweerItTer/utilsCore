@@ -6,8 +6,19 @@
 #include <QGuiApplication>
 
 #include "fbshow.h"
-#include "rander/core.h"
-#include "rander/draw.h"
+
+#include <csignal>
+#include <thread>
+#include <vector>
+#include <atomic>
+#include <chrono>
+#include <numeric>
+#include <algorithm>
+#include <unistd.h>
+
+#include "concurrentqueue.h"
+#include "orderedQueue.h"
+#include "asyncThreadPool.h"
 
 using namespace DrmDev;
 
@@ -15,8 +26,256 @@ static std::atomic_bool running{true};
 static void handleSignal(int signal) {
     if (signal == SIGINT) {
         std::cout << "Ctrl+C received, stopping..." << std::endl;
-        running = false;
+        running.store(false);
     }
+}
+
+struct TimedBuffer { 
+    DmaBufferPtr buffer = nullptr;
+    std::chrono::steady_clock::time_point enqueue_time;
+};
+
+// -------------------- MPMC 极限测试 --------------------
+int mpmcTestMaxPerf() {
+    const size_t maxQueueSize = 64; // 最大队列长度
+    moodycamel::ConcurrentQueue<TimedBuffer> testQueue;
+    std::vector<std::thread> producers;
+    std::vector<std::thread> consumers;
+    std::atomic<int> total_produced{0};
+    std::atomic<int> total_consumed{0};
+
+    const int producerCount = 10;
+    const int consumerCount = 10;
+    auto start = std::chrono::steady_clock::now();
+
+    running = true;
+
+    // 生产者
+    for (int i = 0; i < producerCount; i++) {
+        producers.emplace_back([&testQueue, &total_produced] {
+            while (running) {
+                if (testQueue.size_approx() > maxQueueSize) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(1));
+                    continue;
+                }
+                TimedBuffer item;
+                item.buffer = DmaBuffer::create(640, 640, DRM_FORMAT_RGB888, 0);
+                item.enqueue_time = std::chrono::steady_clock::now();
+                testQueue.enqueue(std::move(item));
+                total_produced++;
+            }
+        });
+    }
+
+    // 消费者
+    for (int i = 0; i < consumerCount; i++) {
+        consumers.emplace_back([&testQueue, &total_consumed] {
+            TimedBuffer item;
+            while (running) {
+                if (testQueue.try_dequeue(item)) {
+                    // 极限性能下的简单处理：获取 buffer 大小
+                    volatile auto sz = item.buffer->width() * item.buffer->height();
+                    (void)sz;
+                    total_consumed++;
+                }
+            }
+        });
+    }
+
+    // 监控线程可选，避免影响性能
+    std::thread monitor([&testQueue] {
+        while (running) {
+            std::cout << "[MPMC] Approx queue size: " << testQueue.size_approx() << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    });
+
+    // 测试持续 10 秒
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    running = false;
+
+    for (auto& t : producers) t.join();
+    for (auto& t : consumers) t.join();
+    monitor.join();
+
+    auto end = std::chrono::steady_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    std::cout << "\n===== MPMC MaxPerf Report =====\n";
+    std::cout << "Elapsed: " << elapsed_ms << " ms\n";
+    std::cout << "Total produced: " << total_produced << "\n";
+    std::cout << "Total consumed: " << total_consumed << "\n";
+    std::cout << "Throughput: " << (total_consumed * 1000.0 / elapsed_ms) << " items/sec\n";
+    std::cout << "Final queue size: " << testQueue.size_approx() << std::endl;
+
+    return 0;
+}
+
+// -------------------- SPSC 极限测试 --------------------
+int spscTestMaxPerf() {
+    SafeQueue<std::unique_ptr<TimedBuffer>> testQueue(1024); // 适当增大容量避免阻塞
+    std::thread producer;
+    std::thread consumer;
+    std::atomic<int> total_produced{0};
+    std::atomic<int> total_consumed{0};
+
+    running = true;
+    auto start = std::chrono::steady_clock::now();
+
+    // 生产者
+    producer = std::thread([&testQueue, &total_produced] {
+        while (running) {
+            auto item = std::make_unique<TimedBuffer>();
+            item->buffer = DmaBuffer::create(640, 640, DRM_FORMAT_RGB888, 0);
+            item->enqueue_time = std::chrono::steady_clock::now();
+            testQueue.enqueue(std::move(item));
+            total_produced++;
+        }
+    });
+
+    // 消费者
+    consumer = std::thread([&testQueue, &total_consumed] {
+        std::unique_ptr<TimedBuffer> item;
+        while (running) {
+            if (testQueue.try_dequeue(item)) {
+                volatile auto sz = item->buffer->width() * item->buffer->height();
+                (void)sz;
+                total_consumed++;
+            }
+        }
+    });
+
+    std::thread monitor([&testQueue] {
+        while (running) {
+            std::cout << "[SPSC] Queue size: " << testQueue.size() << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    });
+
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    running = false;
+
+    if (producer.joinable()) producer.join();
+    if (consumer.joinable()) consumer.join();
+    monitor.join();
+
+    auto end = std::chrono::steady_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    std::cout << "\n===== SPSC MaxPerf Report =====\n";
+    std::cout << "Elapsed: " << elapsed_ms << " ms\n";
+    std::cout << "Total produced: " << total_produced << "\n";
+    std::cout << "Total consumed: " << total_consumed << "\n";
+    std::cout << "Throughput: " << (total_consumed * 1000.0 / elapsed_ms) << " items/sec\n";
+    std::cout << "Final queue size: " << testQueue.size() << std::endl;
+
+    return 0;
+}
+
+int orderedQueueTest() {
+    constexpr int poolSize = 4;
+    OrderedQueue<FramePtr> orderedQueue(9999);
+    constexpr size_t maxQueueSize = 20;        // ConcurrentQueue 临时缓冲大小
+    moodycamel::ConcurrentQueue<FramePtr> testQueue;
+
+    std::atomic<int> total_produced{0};         // 总捕获帧数
+    std::atomic<int> total_consumed{0};         // 总RGA处理帧
+    std::atomic<int> total_dequeued{0};         // 总排序出队数量
+    std::atomic<bool> order_violation{false};   // 有序判别标志
+
+    // ----------------- 生产者线程 -----------------
+    std::thread v4l2CapturerThread([&](){
+        std::atomic<uint64_t> frame_id{0};      // 单调递增 frame_id
+        while (running.load()) {
+            // 控制队列最大长度
+            if (testQueue.size_approx() >= maxQueueSize) {
+                std::this_thread::sleep_for(std::chrono::microseconds(5));
+                continue;
+            }
+            // 模拟构造一帧
+            auto sptr = std::make_shared<SharedBufferState>(
+                DmaBuffer::create(640, 640, DRM_FORMAT_RGB888, 0));
+            FramePtr frame(new Frame(sptr));
+            frame->meta.frame_id = frame_id.fetch_add(1, std::memory_order_relaxed);
+
+            testQueue.enqueue(frame);
+            total_produced.fetch_add(1, std::memory_order_relaxed);
+            // 模拟捕获耗时
+            std::this_thread::sleep_for(std::chrono::microseconds(20));
+        }
+    });
+
+    // ----------------- 消费者线程 -----------------
+    asyncThreadPool RGAThreadPool(poolSize);
+    for (int i = 0; i < poolSize; ++i) {
+        RGAThreadPool.enqueue([&]{
+            while (running.load() || testQueue.size_approx() > 0) {
+                FramePtr frame;
+                if (!testQueue.try_dequeue(frame)) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(10));
+                    continue;
+                }
+                std::this_thread::sleep_for(std::chrono::microseconds(130));
+                // 入队到 OrderedQueue
+                orderedQueue.enqueue(frame->meta.frame_id, std::move(frame));
+                total_consumed.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    }
+
+    // ----------------- 顺序验证线程 -----------------
+    uint64_t last_id = 0;
+    bool first = true;
+
+    while (running.load()) {
+        FramePtr frame;
+        // 使用小超时时间轮询
+        if (!orderedQueue.try_dequeue(frame, 10)) {
+            std::this_thread::sleep_for(std::chrono::microseconds(5));
+            continue;
+        }
+
+        total_dequeued.fetch_add(1, std::memory_order_relaxed);
+
+        if (!frame) continue;  // 可能因 timeout 跳帧
+
+        uint64_t fid = frame->meta.frame_id;
+        uint64_t expected_id = orderedQueue.get_expected_id();
+
+        // 实时打印，同一行覆盖
+        printf("\033[2K\rlast id: %lu | now id: %lu | expected id: %lu",
+                last_id, fid, expected_id);
+        fflush(stdout);
+     
+
+        if (first) {
+            last_id = fid;
+            first = false;
+            continue;
+        } 
+
+        if (fid <= last_id) {
+            std::cerr << "\n[ERROR] Non-increasing frame_id: "
+                    << fid << " after " << last_id << std::endl;
+            order_violation.store(true);
+        } else if (fid != last_id + 1) {
+            int64_t gap = fid - last_id - 1;
+            std::cerr << "\n[WARN] Missing " << gap 
+                    << " frame(s): got " << fid 
+                    << " expected " << last_id + 1 << std::endl;
+        }
+        last_id = fid;
+    }
+
+    if (v4l2CapturerThread.joinable()) v4l2CapturerThread.join();
+    // ----------------- 测试结果 -----------------
+
+    orderedQueue.print_stats();
+    std::cout << "Total produced: " << total_produced.load() << "\n"
+              << "Total consumed: " << total_consumed.load() << "\n"
+              << "Total dequeued: " << total_dequeued.load() << "\n"
+              << "Is ordered: "     << order_violation.load() << std::endl;
+    return 0;
 }
 
 int virSave(void *data, size_t buffer_size){
@@ -373,6 +632,9 @@ int main(int argc, char** argv) {
     // key: 命令行参数 (如 "--rgatest")
     // value: 一个无参数且返回 int 的函数对象（可以是函数指针、lambda等）
     std::unordered_map<std::string, std::function<int()>> testMap = {
+        {"--mpmctest", mpmcTestMaxPerf},
+        {"--spsctest", spscTestMaxPerf},
+        {"--orderedtest", orderedQueueTest},
         {"--rgatest", rgaTest},    // 直接使用函数指针
         {"--dmatest", dmabufTest},
         {"--layertest", layerTest},

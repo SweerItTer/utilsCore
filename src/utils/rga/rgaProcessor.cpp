@@ -30,6 +30,7 @@ RgaProcessor::RgaProcessor(Config& cfg)
             ? Frame::MemoryType::DMABUF
             : Frame::MemoryType::MMAP;
     initpool();
+    converter_ = &RgaConverter::instance();
 }
 
 void RgaProcessor::initpool() {
@@ -65,6 +66,7 @@ RgaProcessor::~RgaProcessor()
     stop();
     std::vector<RgbaBuffer> temp = {};
     bufferPool_.swap(temp);
+    converter_ = nullptr;
 }
 
 void RgaProcessor::start()
@@ -249,7 +251,7 @@ void RgaProcessor::run()
             im_rect rect = {0, 0, static_cast<int>(width_), static_cast<int>(height_)};
             RgaConverter::RgaParams params {src, rect, dst, rect};
             // 格式转换
-            IM_STATUS status = converter_.FormatTransform(params);
+            IM_STATUS status = converter_->FormatTransform(params);
 
             // 同步回调时间点mk::timeDiffMs(t1, "[RGA_process]");
             auto rgaMeta = rawFrame->meta;
