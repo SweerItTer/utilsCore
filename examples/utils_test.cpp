@@ -332,7 +332,7 @@ int rgaTest(){
     RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;
     // 配置RGA参数
     RgaProcessor::Config rgacfg{
-        cctr, rawFrameQueue, frameQueue, cfg.width,
+        cctr, rawFrameQueue, cfg.width,
         cfg.height, cfg.use_dmabuf, RK_FORMAT_RGBA_8888, format, 10
     };
     // 初始化转换线程
@@ -344,7 +344,8 @@ int rgaTest(){
     processor_.start();
 
     while (1){
-        if (!frameQueue->try_dequeue(frame)){
+        
+        if (processor_.dump(frame) < 0){
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }

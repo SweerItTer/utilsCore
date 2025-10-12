@@ -10,10 +10,13 @@
 #include <atomic>
 #include <thread>
 #include <memory>
+#include <queue>
+#include <future>
 
 #include "types.h"
 #include "v4l2/cameraController.h"
 #include "rga/rgaConverter.h"
+#include "asyncThreadPool.h"
 #include "dma/dmaBuffer.h"
 #include "rga/rga2drm.h"
 
@@ -65,7 +68,6 @@ public:
     {
         std::shared_ptr<CameraController> cctr = nullptr;
         std::shared_ptr<FrameQueue> rawQueue = nullptr;
-        std::shared_ptr<FrameQueue> outQueue = nullptr;
         uint32_t width = 0;
         uint32_t height = 0;
         bool usingDMABUF = false;
@@ -78,12 +80,11 @@ public:
 
     ~RgaProcessor();
 
-    void setYoloInputSize(int w, int h);
     void setThreadAffinity(int cpu_core);
     void start();
     void stop();
     void pause();
-
+    int dump(FramePtr& frame, int64_t timeout=5);
     void releaseBuffer(int index);
 
     static bool dumpDmabufAsXXXX8888(int dmabuf_fd, uint32_t width, uint32_t height, uint32_t size, uint32_t pitch, const char* path);
@@ -94,6 +95,7 @@ private:
     int mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void* data);
     int getIndex_auto(rga_buffer_t& src, rga_buffer_t& dst, Frame* frame);
 private:
+    FramePtr infer();
     void run();
 
     std::atomic_bool running_;
@@ -101,9 +103,10 @@ private:
     std::thread worker_;
 
     std::shared_ptr<FrameQueue> rawQueue_;
-    std::shared_ptr<FrameQueue> outQueue_;
     std::shared_ptr<CameraController> cctr_;
-    RgaConverter* converter_;
+
+    std::unique_ptr<asyncThreadPool> rgaThreadPool;
+    std::deque<std::future<FramePtr>> futs;
     
     uint32_t width_;
     uint32_t height_;
