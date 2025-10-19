@@ -10,7 +10,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+set(CMAKE_CXX_FLAGS_DEBUG  "${CMAKE_CXX_FLAGS_DEBUG} -g")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2 -ffunction-sections -fdata-sections")
 
 # 是否使用交叉编译工具链的开关
 option(USE_CROSS_COMPILE "Enable cross-compilation for RK3568" OFF)
@@ -26,31 +27,24 @@ if(USE_CROSS_COMPILE)
 
 endif()
 
-# 启用 ccache 加速编译
+# 启用 ccache
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
     set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
 endif()
-# 优化编译选项
-if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        if(USE_CROSS_COMPILE)
-            set(march armv8.2-a)
-        else()
-            set(march native)
-        endif()
-        add_compile_options(
-            -O2                    # 最高优化级别
-            -march=${march}        # 本机编译时使用 native
-            -ffunction-sections    # 优化未使用的函数
-            -fdata-sections        # 优化未使用的数据
-        )
-        
-        add_link_options(
-            -Wl,--gc-sections     # 移除未使用的段
-        )
+
+# Release 下额外优化
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    # 仅 Release 构建使用 -march=armv8.2-a（交叉编译或者 native）
+    if(USE_CROSS_COMPILE)
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=armv8.2-a")
+    else()
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
     endif()
+
+    # 链接时移除未使用段
+    add_link_options(-Wl,--gc-sections)
 endif()
 
 find_package(Qt5 COMPONENTS Core Quick Widgets Gui OpenGL REQUIRED)

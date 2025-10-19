@@ -9,71 +9,52 @@
 #include <unistd.h>
 #include <iostream>
 
-asyncThreadPool::asyncThreadPool(std::size_t poolSize)
-: running(true), poolSize_(poolSize)  {
-    // 直接去最大可用线程数
-    std::size_t worksSize = std::thread::hardware_concurrency();
-    
-    for (size_t i = 0; i < worksSize; i++)
-    {
-        workers.emplace_back([this](){
-            worker();
-        });
+asyncThreadPool::asyncThreadPool(std::size_t poolSize, std::size_t maxQueueSize)
+    : running_(true), maxQueueSize_(maxQueueSize) {
+    // poolSize 检查
+    auto maxAllowedSize = static_cast<size_t>(std::thread::hardware_concurrency());
+    if (poolSize > maxAllowedSize){
+        poolSize = maxAllowedSize;
+    } else if ( poolSize <= 0 ) {
+        poolSize = 1;
     }
-    
-}
-
-void asyncThreadPool::worker()
-{
-    std::cout << "ThreadPool worker TID: " << syscall(SYS_gettid) << "\n";
-    while (true)
-    {
-        std::function<void()> task;
-        {
-        std::unique_lock<std::mutex> lock(queue_mutex_);
-        // 短暂释放锁,等待唤醒 (notify_one/notify_all)
-        condition_.wait(lock, [this] {
-            // 被唤醒后检查 队列不为空或线程池正在关闭
-            // 若为false继续等待
-            return false == tasks.empty() || false == running;
-        });
-        // 提前结束
-        if (true == tasks.empty() && false == running) return;
-        task = std::move(tasks.front());
-        tasks.pop();
-        }
-
-        try {
-            task();
-        } catch (const std::exception& e) {
-            // 记录异常, 避免线程退出
-            fprintf(stderr, "Worker task exception: %s\n", e.what());
-        } catch (...) {
-            fprintf(stderr, "Worker task unknown exception\n");
-        }
+    fprintf(stdout, "Real pool size:%d\n", poolSize);
+    // 创建线程池
+    for (std::size_t i = 0; i < poolSize; ++i) {
+        workers_.emplace_back([this]{ worker(); });
     }
 }
 
 asyncThreadPool::~asyncThreadPool()
 {
-    clear();
-    {
-    std::unique_lock<std::mutex> lock(queue_mutex_);
-    running = false;
-    }
-    condition_.notify_all();
-    for(auto& worker : workers){
-        if (worker.joinable()) worker.join();
-    }
+    stop();
 }
 
-void asyncThreadPool::clear()
+void asyncThreadPool::stop() {
+    running_ = false;
+    condition_.notify_all();  // 唤醒所有等待的线程
+
+    for (auto& t : workers_) if (t.joinable()) t.join();
+}
+
+void asyncThreadPool::worker()
 {
-    {
-    std::unique_lock<std::mutex> lock(queue_mutex_);
-    while(!tasks.empty()) {
-        tasks.pop();
+    fprintf(stdout, "ThreadPool worker TID: %d \n", syscall(SYS_gettid));
+    std::function<void()> task;
+
+    while (running_) {
+        // 队列为空时等待
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        condition_.wait(lock, [this] {
+            // 被唤醒后检查: 有新任务或线程池关闭
+            return tasks_.size_approx() > 0 || !running_;
+        });
+        if (tasks_.try_dequeue(task)) {
+            if (!running_) break;
+            if (task) task();
+        }
     }
-    }
-    condition_.notify_all();
+    // 清空剩余任务
+    while (tasks_.size_approx() > 0)
+        tasks_.try_dequeue(task);
 }

@@ -76,8 +76,8 @@ IM_STATUS RgaConverter::ImageFill(rga_buffer_t& dst_buffer, im_rect& dst_rect, c
         imcolor |= ((unsigned char)color << (i * 8));
     }
     
-    fprintf(stdout, "fill dst image (x y w h)=(%d %d %d %d) with color=0x%x\n",
-        dst_rect.x, dst_rect.y, dst_rect.width, dst_rect.height, imcolor);
+    // fprintf(stdout, "fill dst image (x y w h)=(%d %d %d %d) with color=0x%x\n",
+    //     dst_rect.x, dst_rect.y, dst_rect.width, dst_rect.height, imcolor);
     IM_STATUS ret = imfill(dst_buffer, dst_rect, imcolor); // 填充指定区域为目标颜色
 
     if (ret != IM_STATUS_SUCCESS) {

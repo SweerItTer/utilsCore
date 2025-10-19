@@ -13,7 +13,6 @@ struct rknn_io_tensor_mem{
     DmaBufferPtr input_buf = nullptr;
     rknn_tensor_mem* input_mems[1]  = {};     // 输入tensor内存
     rknn_tensor_mem* output_mems[3] = {};     // 输出tensor内存
-    std::unique_ptr<std::atomic<bool>> isusing;
 };
 
 struct rknn_app_context {
@@ -28,7 +27,7 @@ struct rknn_app_context {
     std::vector<rknn_tensor_attr> input_attrs;   // 输入tensor属性
     std::vector<rknn_tensor_attr> output_attrs;  // 输出tensor属性
 
-    std::vector<rknn_io_tensor_mem> mem_pool;
+    rknn_io_tensor_mem io_mem;
     
     rknn_app_context() = default;
     ~rknn_app_context();
@@ -49,7 +48,10 @@ int loadModel(const char* model_path, rknn_app_context& app_ctx);
 int loadIOnum(rknn_app_context& app_ctx);
 
 // 初始化 IO mems
-int initializeMems(rknn_app_context& app_context, size_t poolsize = 2);
+int initializeMems(rknn_app_context& app_context);
 
-// 获取可用mem
-rknn_io_tensor_mem* get_usable_mem(std::vector<rknn_io_tensor_mem> &pool);
+// // 获取可用mem
+// rknn_io_tensor_mem* get_usable_mem(std::vector<rknn_io_tensor_mem> &pool);
+
+// // 释放使用的mem
+// void release_mem(rknn_io_tensor_mem* mem_slot);

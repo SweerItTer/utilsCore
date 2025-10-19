@@ -11,6 +11,7 @@
 #include "drm/planesCompositor.h"
 #include "safeQueue.h"
 #include "objectsPool.h"
+#include "fenceWatcher.h"
 
 extern int virSave(void *data, size_t buffer_size);
 extern int dmabufTest();
@@ -144,7 +145,7 @@ public:
         format = (V4L2_PIX_FMT_NV12 == cctrFormat) ?
             RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;
         rgaCfg = RgaProcessor::Config {
-            cctr, rawFrameQueue, frameQueue, cctrCfg.width,
+            cctr, rawFrameQueue, cctrCfg.width,
             cctrCfg.height, cctrCfg.use_dmabuf, dstFormat, format, poolSize
         };
         processor = std::make_shared<RgaProcessor>(rgaCfg) ;
@@ -200,7 +201,7 @@ private:
                 continue;
             }
             // 取出一帧
-            if (!frameQueue->try_dequeue(frame)) {
+            if (processor->dump(frame) < 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
@@ -211,7 +212,7 @@ private:
             // 提交一次
             int fence = -1;
             compositor->commit(fence);
-            wait_fence(fence, [this](){ frameLayer->onFenceSignaled(); });
+            FenceWatcher::instance().watchFence(fence, [this](){ frameLayer->onFenceSignaled(); });
             // 释放drmbuf
             frame.reset();
             // processor->releaseBuffer(frame->meta.index);

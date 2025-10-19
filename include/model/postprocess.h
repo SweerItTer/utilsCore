@@ -12,7 +12,7 @@
 #include "m_types.h"
 
 namespace postprocess {    
-    static std::vector<std::string> class_names;   
+    // static std::vector<std::string> class_names;   
     static const AnchorSet anchors = {
         {{10, 13},  {16, 30},   {33, 23}},
         {{30, 61},  {62, 45},   {59, 119}},
@@ -26,11 +26,13 @@ namespace postprocess {
         anchor 3 (w,h) {33, 23} // 实际大小 (264, 184)
     } */
     
-    bool read_class_names(const std::string& path);
+    bool read_class_names(const std::string& path,
+        std::vector<std::string>& class_names);
     int post_process_rule(
         rknn_app_context& app_ctx,              // rknn上下文
-        rknn_tensor_mem* out_mem[],               // 输出mem
+        rknn_tensor_mem* out_mem[],             // 输出mem
         letterbox& lb,                          // 填充box
+        std::vector<std::string>& class_names,  // label信息
         object_detect_result_list& results,     // 返回结果
         float conf_thresh = 0.25,               // 置信度阈值 
         float iou_thresh = 0.45,                // NMS阈值

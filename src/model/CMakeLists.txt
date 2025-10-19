@@ -20,4 +20,5 @@ target_link_libraries(model PUBLIC
     ${CMAKE_SYSROOT}/usr/lib/libopencv_core.so
     ${CMAKE_SYSROOT}/usr/lib/libopencv_imgproc.so
     ${CMAKE_SYSROOT}/usr/lib/libopencv_imgcodecs.so
+    ${CMAKE_SYSROOT}/usr/lib/libopencv_videoio.so
 )

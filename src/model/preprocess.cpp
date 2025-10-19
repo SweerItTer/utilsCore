@@ -9,8 +9,8 @@ int preprocess::convert_image_rga(const DmaBufferPtr& src, const DmaBufferPtr& d
     int dst_h = dst->height();
     int dst_pitch = dst->pitch();
     // 输出信息
-    fprintf(stdout, "[RGA] Source: %dx%d, pitch=%d\n", src_w, src_h, src_pitch);
-    fprintf(stdout, "[RGA] Dest: %dx%d, pitch=%d\n", dst_w, dst_h, dst_pitch);
+    // fprintf(stdout, "[RGA] Source: %dx%d, pitch=%d\n", src_w, src_h, src_pitch);
+    // fprintf(stdout, "[RGA] Dest: %dx%d, pitch=%d\n", dst_w, dst_h, dst_pitch);
     
     if (dst_box->right >= dst_w || dst_box->bottom >= dst_h) {
         fprintf(stderr, "[RGA ERROR] Destination box out of bounds!\n");
@@ -33,8 +33,8 @@ int preprocess::convert_image_rga(const DmaBufferPtr& src, const DmaBufferPtr& d
     int src_hstride = src_h;
     int dst_hstride = dst_h;
     
-    fprintf(stdout, "[RGA] Stride (pixels): src=%dx%d, dst=%dx%d\n", 
-            src_wstride, src_hstride, dst_wstride, dst_hstride);
+    // fprintf(stdout, "[RGA] Stride (pixels): src=%dx%d, dst=%dx%d\n", 
+    //         src_wstride, src_hstride, dst_wstride, dst_hstride);
     
     // 包装 buffer
     rga_buffer_t src_rgabuf = wrapbuffer_fd(
@@ -81,7 +81,7 @@ int preprocess::convert_image_rga(const DmaBufferPtr& src, const DmaBufferPtr& d
         return -1;
     }
     
-    fprintf(stdout, "[RGA] Success\n");
+    // fprintf(stdout, "[RGA] Success\n");
     return static_cast<int>(ret);
 }
 
@@ -100,7 +100,7 @@ int preprocess::convert_image_with_letterbox(const DmaBufferPtr& src, const DmaB
     int dst_w = dst->width();
     int dst_h = dst->height();
 
-    fprintf(stdout, "[Letterbox] Source: %dx%d, Target: %dx%d\n", src_w, src_h, dst_w, dst_h);
+    // fprintf(stdout, "[Letterbox] Source: %dx%d, Target: %dx%d\n", src_w, src_h, dst_w, dst_h);
 
     // 1. 计算缩放比例
     float scale_w = static_cast<float>(dst_w) / src_w;
@@ -132,10 +132,10 @@ int preprocess::convert_image_with_letterbox(const DmaBufferPtr& src, const DmaB
     int top_pad = total_pad_h / 2;
     int bottom_pad = total_pad_h - top_pad;
 
-    fprintf(stdout, "[Letterbox] Resized: %dx%d -> Aligned: %dx%d\n", 
-            resize_w, resize_h, aligned_w, aligned_h);
-    fprintf(stdout, "[Letterbox] Padding - Left: %d, Right: %d, Top: %d, Bottom: %d\n",
-            left_pad, right_pad, top_pad, bottom_pad);
+    // fprintf(stdout, "[Letterbox] Resized: %dx%d -> Aligned: %dx%d\n", 
+    //         resize_w, resize_h, aligned_w, aligned_h);
+    // fprintf(stdout, "[Letterbox] Padding - Left: %d, Right: %d, Top: %d, Bottom: %d\n",
+    //         left_pad, right_pad, top_pad, bottom_pad);
 
     // 5. 保存 letterbox 信息
     if(letterbox){
@@ -153,10 +153,10 @@ int preprocess::convert_image_with_letterbox(const DmaBufferPtr& src, const DmaB
         top_pad + aligned_h - 1
     };
 
-    fprintf(stdout, "[Letterbox] src_box: left=%d, top=%d, right=%d, bottom=%d\n",
-            src_box.left, src_box.top, src_box.right, src_box.bottom);
-    fprintf(stdout, "[Letterbox] dst_box: left=%d, top=%d, right=%d, bottom=%d\n",
-            dst_box.left, dst_box.top, dst_box.right, dst_box.bottom);
+    // fprintf(stdout, "[Letterbox] src_box: left=%d, top=%d, right=%d, bottom=%d\n",
+    //         src_box.left, src_box.top, src_box.right, src_box.bottom);
+    // fprintf(stdout, "[Letterbox] dst_box: left=%d, top=%d, right=%d, bottom=%d\n",
+    //         dst_box.left, dst_box.top, dst_box.right, dst_box.bottom);
 
     // 7. 执行转换
     int ret = convert_image(src, dst, &src_box, &dst_box, color);
@@ -165,8 +165,8 @@ int preprocess::convert_image_with_letterbox(const DmaBufferPtr& src, const DmaB
         return -1;
     }
 
-    fprintf(stdout, "[Letterbox] Success - Image centered at (%d,%d) with size %dx%d\n",
-            left_pad, top_pad, aligned_w, aligned_h);
+    // fprintf(stdout, "[Letterbox] Success - Image centered at (%d,%d) with size %dx%d\n",
+    //         left_pad, top_pad, aligned_w, aligned_h);
 
     return 0;
 }

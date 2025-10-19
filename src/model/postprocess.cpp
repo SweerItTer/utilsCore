@@ -7,7 +7,7 @@
 
 namespace postprocess {
 
-bool read_class_names(const std::string& path) {
+bool read_class_names(const std::string& path, std::vector<std::string>& class_names) {
     class_names.clear();
     std::ifstream infile(path);
     if (!infile.is_open()) {
@@ -187,8 +187,9 @@ static void process_layer_rule(
 // ------------------------------------------------------------
 int post_process_rule(
     rknn_app_context& app_ctx,              // rknn上下文
-    rknn_tensor_mem* out_mem[],               // 输出mem
+    rknn_tensor_mem* out_mem[],             // 输出mem
     letterbox& lb,                          // 填充box
+    std::vector<std::string>& class_names,  // label信息
     object_detect_result_list& results,     // 返回结果
     float conf_thresh,                      // 置信度阈值 
     float iou_thresh,                       // NMS阈值
@@ -209,27 +210,7 @@ int post_process_rule(
     // 遍历所有输出 (yolov5: 3 或 1)
     for (int i = 0; i < app_ctx.io_num.n_output; ++i) {
         rknn_tensor_attr& attr = app_ctx.output_attrs[i];   // 取出输出信息
-    
 
-        // 打印完整的维度信息
-        printf("=== Output Layer %d ===\n", i);
-        printf("dims: [%d, %d, %d, %d]\n", 
-               attr.dims[0], attr.dims[1], attr.dims[2], attr.dims[3]);
-        printf("n_dims: %d\n", attr.n_dims);
-        printf("size: %d bytes\n", attr.size);
-        printf("fmt: %d\n", attr.fmt);  // 数据格式
-        printf("type: %d\n", attr.type); // 数据类型
-        
-        // 计算实际元素数量
-        int total_elements = 1;
-        for (int d = 0; d < attr.n_dims; d++) {
-            total_elements *= attr.dims[d];
-        }
-        printf("total_elements: %d\n", total_elements);
-        printf("out_mem[%d] actual size: %d\n", i, out_mem[i]->size);
-        printf("======================\n");
-
-        
         int grid_h = attr.dims[2];  // 当前anchor层的网格高
         int grid_w = attr.dims[3];  // 宽
         // 下采样倍数(输入分辨率 / 特征图分辨率)
@@ -277,7 +258,7 @@ int post_process_rule(
         results.push_back(r);
     }
 
-    fprintf(stdout, "[postprocess] final %zu boxes\n", results.size());
+    // fprintf(stdout, "[postprocess] final %zu boxes\n", results.size());
     return 0;
 }
 
