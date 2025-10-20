@@ -27,6 +27,10 @@ asyncThreadPool::asyncThreadPool(std::size_t poolSize, std::size_t maxQueueSize)
 
 asyncThreadPool::~asyncThreadPool()
 {
+    stop();
+}
+
+void asyncThreadPool::stop() {
     running_ = false;
     condition_.notify_all();  // 唤醒所有等待的线程
 

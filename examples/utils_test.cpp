@@ -1,3 +1,9 @@
+/*
+ * @Author: SweerItTer xxxzhou.xian@gmail.com
+ * @Date: 2025-09-25 13:09:10
+ * @FilePath: /EdgeVision/examples/utils_test.cpp
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
+ */
 #include "fbshow.h"
 
 #include <csignal>

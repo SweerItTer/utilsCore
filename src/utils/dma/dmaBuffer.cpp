@@ -151,7 +151,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::importFromFD(
     }
 
     dmaBufferData data = {handle, width, height, format, pitch, size, static_cast<uint32_t>(map_arg.offset)};
-    return std::shared_ptr<DmaBuffer>(new DmaBuffer(importFd, data));
+    return std::shared_ptr<DmaBuffer>(new DmaBuffer(importFd, data, true));
 }
 
 
@@ -179,6 +179,10 @@ DmaBuffer::DmaBuffer(int primeFd, dmaBufferData& data)
     : m_fd(primeFd)
     , data_(data) {}
 
+DmaBuffer::DmaBuffer(int primeFd, dmaBufferData& data, bool isimport)
+    : m_fd(primeFd)
+    , data_(data), isimport_(isimport){}
+
 DmaBuffer::~DmaBuffer() {
     unmap();
     // 回收资源
@@ -186,7 +190,8 @@ DmaBuffer::~DmaBuffer() {
 }
 
 void DmaBuffer::cleanup() noexcept {
-    fprintf(stdout, "DmaBuffer: closed: fd=%d, handle=%d\n", m_fd, data_.handle);
+    if (isimport_) return;
+    // fprintf(stdout, "DmaBuffer: closed: fd=%d, handle=%d\n", m_fd, data_.handle);
 
     if (-1 != m_fd) {
         // 关闭 dambuf fd

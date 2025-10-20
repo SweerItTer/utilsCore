@@ -76,11 +76,13 @@ public:
 private:
     static int exportFD(drm_mode_create_dumb& create_arg);
     DmaBuffer(int primeFd, dmaBufferData& data);
+    DmaBuffer(int primeFd, dmaBufferData& data, bool isimport);
     void cleanup() noexcept;
 
     int m_fd = -1;
     dmaBufferData data_;
     uint8_t* mappedPtr_ = nullptr;
+    std::atomic<bool> isimport_{false};
 };
 
 using DmaBufferPtr = std::shared_ptr<DmaBuffer>;
