@@ -18,6 +18,7 @@
 #include "concurrentqueue.h"
 #include "orderedQueue.h"
 #include "asyncThreadPool.h"
+#include "mouse/watcher.h"
 
 using namespace DrmDev;
 
@@ -481,6 +482,30 @@ int drmDevicesControllerTest(){
     return 0;
 }
 
+int mouseTest(){
+    MouseWatcher mouse;
+    mouse.setScreenSize(1280, 720);
+    mouse.start();
+
+    std::cout << "Mouse Test started. Move the mouse or click buttons to see events.\n";
+    std::cout << "Press Ctrl+C to stop.\n";
+    int x = 0;
+    int y = 0;
+    mouse.registerHandler({BTN_LEFT}, [](){
+        std::cout << "\nLeft button clicked!\n";
+    });
+    mouse.registerHandler({BTN_RIGHT}, [](){
+        std::cout << "\nRight button clicked!\n";
+    });
+    while (running) {
+        mouse.getPosition(x, y);
+        std::cout << "\rMouse Position: (" << x << ", " << y << ")   \n" << std::flush;
+    }
+    mouse.stop();
+    std::cout << "Mouse Test stopped.\n" << std::endl;
+    return 0;
+}
+
 int main(int argc, char const *argv[]) {
     DrmDev::fd_ptr = DeviceController::create();
     if (!DrmDev::fd_ptr) {
@@ -500,6 +525,7 @@ int main(int argc, char const *argv[]) {
         {"--rgatest", rgaTest},    // 直接使用函数指针
         {"--dmatest", dmabufTest},
         {"--layertest", layerTest},
+        {"--mousetest", mouseTest},
         {"--devtest", drmDevicesControllerTest},
         {"--fbshow", [](){ 
             FrameBufferTest test;

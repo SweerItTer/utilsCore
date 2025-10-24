@@ -88,7 +88,7 @@ public:
 
     
     // 更新缓冲区
-    void updateBuffer(std::vector<DmaBufferPtr> buffers);
+    void updateBuffer(std::vector<DmaBufferPtr>&& buffers);
     // 等待fence更新fb(采用多级缓冲避免直接销毁fb)
     void onFenceSignaled();
 private:

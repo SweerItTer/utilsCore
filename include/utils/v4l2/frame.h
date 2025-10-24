@@ -34,16 +34,25 @@ public:
     Frame() noexcept;
     ~Frame();
     Frame(SharedBufferPtr s);
+    Frame(std::vector<SharedBufferPtr> states);
     
     MemoryType type() const noexcept { return type_; }
     
     // 二次检查
-    void* data() const;
-    int dmabuf_fd() const;
+    void* data(int planeIndex = -1) const;
+    int dmabuf_fd(int planeIndex = -1) const;
 
-    size_t size() const { return state_->length; }
+    size_t size() const;
     uint64_t timestamp() const { return meta.timestamp_ns; }
-    SharedBufferPtr sharedState() const noexcept { return state_; }
+    SharedBufferPtr sharedState(int planeIndex = -1) const noexcept {
+        if (!mutiPlane_) {
+            return state_;
+        }
+        if (planeIndex < 0 || planeIndex >= states_.size()) {
+            return nullptr;
+        }
+        return states_[planeIndex];
+    }
     int index() const { return meta.index; }
 
     void setTimestamp(uint64_t ts) { meta.timestamp_ns = ts; }
@@ -53,9 +62,10 @@ public:
     }
 private:
     std::function<void(int)> bufReleasCallback_;
-    
+    std::atomic_bool mutiPlane_;
     MemoryType type_;
     SharedBufferPtr state_;
+    std::vector<SharedBufferPtr> states_;
 };
 
 #endif // !FRAME_H

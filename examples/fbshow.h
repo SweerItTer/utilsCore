@@ -13,6 +13,8 @@
 #include "objectsPool.h"
 #include "fenceWatcher.h"
 
+#define USE_RGA_PROCESSOR 0
+
 extern int virSave(void *data, size_t buffer_size);
 extern int dmabufTest();
 extern int layerTest();
@@ -29,7 +31,9 @@ public:
         refreshing = true;
         
         // 停止所有活动
+        #if USE_RGA_PROCESSOR
         processor->pause();
+        #endif
         cctr->pause();
         
         // 移除所有图层
@@ -70,8 +74,8 @@ public:
         // 初始化 id 列表
         std::vector<uint32_t> usablePrimaryPlaneIds;
         std::vector<uint32_t> usableOverlayPlaneIds;
-        // 获取指定类型并且支持目标格式的 Plane
-        DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_PRIMARY, formatRGAtoDRM(dstFormat), usablePrimaryPlaneIds);
+        // 获取指定类型并且支持目标格式的 Plane DRM_FORMAT_NV12
+        DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_PRIMARY, DRM_FORMAT_ABGR8888, usablePrimaryPlaneIds);
         DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_OVERLAY, formatRGAtoDRM(dstFormat), usableOverlayPlaneIds);
         infoPrinter(usablePrimaryPlaneIds);
         infoPrinter(usableOverlayPlaneIds);
@@ -83,7 +87,7 @@ public:
         frameLayer.reset( new DrmLayer(std::vector<DmaBufferPtr>(), 2) );
         // 配置属性
         DrmLayer::LayerProperties frameLayerProps{
-            .plane_id_   = usablePrimaryPlaneIds[0],  
+            .plane_id_   = usableOverlayPlaneIds[0],  // 取支持NV12的第一个overlay plane
             .crtc_id_    = dev->crtc_id,
 
             // 源图像区域
@@ -98,7 +102,8 @@ public:
             .crtcY_      = 0,
             // 自动缩放
             .crtcwidth_  = dev->width,
-            .crtcheight_ = dev->height
+            .crtcheight_ = dev->height,
+            .zOrder_     = 0 // 置于底层
         };
         initLayer(frameLayer, frameLayerProps);
         // 将layer添加到合成器
@@ -106,7 +111,9 @@ public:
         std::cout << "Layer initialized.\n"; 
         // 重新获取资源后重启
         cctr->start();
+        #if USE_RGA_PROCESSOR
         processor->start();
+        #endif
         refreshing = false;
     }
 
@@ -114,7 +121,6 @@ public:
         // 创建队列
 // 准备思路: v4l2捕获后图像直接显示到DRM上, 若开启推理才让RGA实际跑起来
         rawFrameQueue  	= std::make_shared<FrameQueue>(2);
-        frameQueue     	= std::make_shared<FrameQueue>(4);
         
         // 相机配置
         cctrCfg = CameraController::Config {
@@ -141,15 +147,15 @@ public:
         });
 
         // 初始化转换线程
-        poolSize = static_cast<int>( frameQueue->getBufferRealSize() );
         format = (V4L2_PIX_FMT_NV12 == cctrFormat) ?
             RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;
         rgaCfg = RgaProcessor::Config {
             cctr, rawFrameQueue, cctrCfg.width,
             cctrCfg.height, cctrCfg.use_dmabuf, dstFormat, format, poolSize
         };
+        #if USE_RGA_PROCESSOR
         processor = std::make_shared<RgaProcessor>(rgaCfg) ;
-
+        #endif
         // 导出合成器
         compositor = std::move(PlanesCompositor::create());
         if (!compositor){
@@ -183,7 +189,9 @@ public:
         if (thread_.joinable()){
             thread_.join();
         }
+        #if USE_RGA_PROCESSOR
         processor->stop();
+        #endif
         cctr->stop();
         devices = nullptr;
     }
@@ -192,30 +200,49 @@ private:
     // 线程实现
     void run(){
         bool usingRknn = false; 
-        // 出队帧缓存
-        FramePtr frame;
+        
         while (running) {
             // 等待刷新完成
             if (true == refreshing) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             }
+            
+            FramePtr frame; // 自动释放drmbuf
+            std::vector<DmaBufferPtr> buffers;
+            #if USE_RGA_PROCESSOR
             // 取出一帧
             if (processor->dump(frame) < 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
+            #else
+            if (!rawFrameQueue->try_dequeue(frame)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            #endif
             // 取出该帧的drmbuf
-            auto dmabuf = frame->sharedState()->dmabuf_ptr;
+            auto dmabuf = frame->sharedState(0)->dmabuf_ptr;
+            auto dmabuf2 = DmaBuffer::importFromFD(
+                dmabuf->fd(),
+                dmabuf->width(),
+                dmabuf->height(),
+                dmabuf->format(),
+                dmabuf->size(),
+                dmabuf->width() * dmabuf->height()
+            );
+            buffers.emplace_back(std::move(dmabuf));
+            buffers.emplace_back(std::move(dmabuf2));
             // 更新fb,同时回调触发合成器更新fbid
-            frameLayer->updateBuffer({dmabuf});
+            frameLayer->updateBuffer(std::move(buffers));
             // 提交一次
             int fence = -1;
             compositor->commit(fence);
-            FenceWatcher::instance().watchFence(fence, [this](){ frameLayer->onFenceSignaled(); });
-            // 释放drmbuf
-            frame.reset();
-            // processor->releaseBuffer(frame->meta.index);
+            // 监听fence
+            FenceWatcher::instance().watchFence(fence, [this](){
+                frameLayer->onFenceSignaled();
+            });
         }
     }
 
@@ -230,11 +257,15 @@ private:
     CameraController::Config cctrCfg{};
     std::shared_ptr<CameraController> cctr;
     // rga配置
-    int dstFormat = RK_FORMAT_RGBA_8888;
-    int format = -1;
-    int poolSize = 0;
-    RgaProcessor::Config rgaCfg{};
+    #if USE_RGA_PROCESSOR
     std::shared_ptr<RgaProcessor> processor;
+    int dstFormat = RK_FORMAT_RGBA_8888;
+    #else
+    int dstFormat = RK_FORMAT_YCbCr_420_SP;
+    #endif
+    int format = -1;
+    int poolSize = 4;
+    RgaProcessor::Config rgaCfg{};
     // 合成器
     std::unique_ptr<PlanesCompositor> compositor;
     // 层

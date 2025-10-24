@@ -9,8 +9,7 @@
 
 using namespace DrmDev;
 
-PlanesCompositor::~PlanesCompositor()
-{
+PlanesCompositor::~PlanesCompositor() {
     removeAllLayer();
     if(requires_)
     {
@@ -19,40 +18,40 @@ PlanesCompositor::~PlanesCompositor()
     }
 }
 
-PlanesCompositor::PlanesCompositor()
-{
+PlanesCompositor::PlanesCompositor() {
     requires_ = drmModeAtomicAlloc();
 }
 
-bool PlanesCompositor::addLayer(const DrmLayerPtr& layer)
-{
+bool PlanesCompositor::addLayer(const DrmLayerPtr& layer) {
     std::lock_guard<std::mutex> lock(layersMutex_);
-    if (layers_.find(layer) != layers_.end())
+    if (layers_.find(layer) != layers_.end()){
+        fprintf(stderr, "[PlanesCompositor] Already to add layer, try use 'PlanesCompositor::updateLayer'.\n");
         return false;
+    }
     // 更新图层状态缓存
-    updateLayerCache(true, layer);
+    updateLayerCache(layer);
     // 更新 plane id / DRM 属性缓存
-    updatePlaneProperty(true, layer);
+    updatePlaneProperty(layer);
     fprintf(stdout, "[PlanesCompositor] Add Layer.\n");
     return true;
 }
 
 
-bool PlanesCompositor::updateLayer(const DrmLayerPtr& layer)
-{
+bool PlanesCompositor::updateLayer(const DrmLayerPtr& layer) {
     std::lock_guard<std::mutex> lock(layersMutex_);
-    if (layers_.find(layer) == layers_.end())
+    if (layers_.find(layer) == layers_.end()){
+        fprintf(stderr, "[PlanesCompositor] No layer can be update, cheak 'PlanesCompositor::addLayer'.\n");
         return false;
+    }
     // 更新图层状态缓存
-    updateLayerCache(false, layer);
+    updateLayerCache(layer);
     // 更新 plane id / DRM 属性缓存
-    updatePlaneProperty(false, layer);
+    updatePlaneProperty(layer);
     fprintf(stdout, "[PlanesCompositor] Update Layer.\n");
     return true;
 }
 
-void PlanesCompositor::updateLayer(const DrmLayerPtr& layer, const uint32_t fb_id)
-{
+void PlanesCompositor::updateLayer(const DrmLayerPtr& layer, const uint32_t fb_id) {
     std::lock_guard<std::mutex> lock(layersMutex_);
     if (layers_.find(layer) == layers_.end())
         return;
@@ -71,7 +70,8 @@ void PlanesCompositor::removeAllLayer(){
 
 int PlanesCompositor::commit(int& fence) {
     if (requires_) {
-        drmModeAtomicFree(requires_);
+        drmModeAtomicFree(requires_); // 释放上次的请求
+        requires_ = nullptr;
     }
     requires_ = drmModeAtomicAlloc();
     if (!requires_) {
@@ -79,8 +79,8 @@ int PlanesCompositor::commit(int& fence) {
         return -ENOMEM;
     }
     int ret = 0;
-    uint32_t fbId = 0;
     uint32_t crtc_id = 0;
+    {
     std::lock_guard<std::mutex> layersLock(layersMutex_);
     for (auto const& layer : layers_) {
         auto const& propertyCache = layer.second;
@@ -89,13 +89,14 @@ int PlanesCompositor::commit(int& fence) {
             fprintf(stderr, "Layer fb_id is 0, skip this layer\n");
             continue;
         }
-        // 循环添加到配置
+        // 添加有效layer到预配置
         int addRet = addProperty2Req(propertyCache);
         if (addRet < 0) {
             fprintf(stderr, "Failed to add properties for layer: %d\n", addRet);
             ret = addRet;
             break;
         }
+    } // 解锁
     }
     std::lock_guard<std::mutex> fdLock(DrmDev::fd_mutex);
 
@@ -113,17 +114,15 @@ int PlanesCompositor::commit(int& fence) {
     ret = drmModeAtomicCommit(fd_ptr->get(), requires_, flags, &fence);
     if (ret < 0)
     {
-        fprintf(stderr, "Atomic commit return non zero: %s\n", strerror(-ret));
-        return ret;
+        // fprintf(stderr, "Atomic commit return non zero: %s\n", strerror(-ret));
     }
-
     return ret;
 }
 
-void PlanesCompositor::updateLayerCache(bool firstFlag, const DrmLayerPtr& layer)
-{
-    PropertyCache& cache = firstFlag ? layers_[layer] : layers_.at(layer); // 引用, 直接修改 map
+void PlanesCompositor::updateLayerCache(const DrmLayerPtr& layer) {
+    PropertyCache& cache = layers_[layer]; // 引用, 直接修改 map
 
+    // 复制所有属性值
     cache.layerProperty.plane_id = layer->getProperty("planeId").get<uint32_t>();
     cache.layerProperty.crtc_id  = layer->getProperty("crtcId").get<uint32_t>();
     cache.layerProperty.fb_id    = layer->getProperty("fbId").get<uint32_t>();
@@ -137,15 +136,17 @@ void PlanesCompositor::updateLayerCache(bool firstFlag, const DrmLayerPtr& layer
     cache.layerProperty.src_h    = layer->getProperty("h").get<uint32_t>();
     cache.layerProperty.alpha    = layer->getProperty("alpha").get<float>();
     cache.layerProperty.type     = layer->getProperty("type").get<int>();
+    cache.layerProperty.zpos     = layer->getProperty("zOrder").get<uint32_t>();
+
     fprintf(stdout, "Update layer on plane:%u\n", cache.layerProperty.plane_id);
 }
 
-int PlanesCompositor::updatePlaneProperty(bool firstFlag, const DrmLayerPtr& layer)
-{
-    PropertyCache& cache = firstFlag ? layers_[layer] : layers_.at(layer); // 引用, 直接修改 map
+int PlanesCompositor::updatePlaneProperty(const DrmLayerPtr& layer) {
+    PropertyCache& cache = layers_[layer]; // 引用, 直接修改 map
     
-    auto planeId = layer->getProperty("planeId").get<uint32_t>();
-    auto crtcId = layer->getProperty("crtcId").get<uint32_t>();
+    // 读取缓存
+    auto planeId = cache.layerProperty.plane_id;
+    auto crtcId = cache.layerProperty.crtc_id;
 
     std::lock_guard<std::mutex> fdLock(DrmDev::fd_mutex);
     int fd = DrmDev::fd_ptr->get();
@@ -155,7 +156,7 @@ int PlanesCompositor::updatePlaneProperty(bool firstFlag, const DrmLayerPtr& lay
         fprintf(stderr, "Failed to get crtc %u properties.\n", crtcId);
         return -1;
     }
-    // 获取crtc使用buffer的fence
+    // 获取crtc使用buffer的fence属性ID(备份到成员变量)
     out_fence_prop_id = fd_ptr->getPropertyId(fd, props, "OUT_FENCE_PTR");
     drmModeFreeObjectProperties(props);
 
@@ -164,7 +165,7 @@ int PlanesCompositor::updatePlaneProperty(bool firstFlag, const DrmLayerPtr& lay
         fprintf(stderr, "Failed to get plane %u properties.\n", planeId);
         return -1;
     }
-
+    // 获取并缓存关键属性ID
     cache.planeProperty.property_crtc_id = fd_ptr->getPropertyId(fd, props, "CRTC_ID");
     cache.planeProperty.property_fb_id   = fd_ptr->getPropertyId(fd, props, "FB_ID");
     cache.planeProperty.property_crtc_x  = fd_ptr->getPropertyId(fd, props, "CRTC_X");
@@ -175,12 +176,20 @@ int PlanesCompositor::updatePlaneProperty(bool firstFlag, const DrmLayerPtr& lay
     cache.planeProperty.property_src_y   = fd_ptr->getPropertyId(fd, props, "SRC_Y");
     cache.planeProperty.property_src_w   = fd_ptr->getPropertyId(fd, props, "SRC_W");
     cache.planeProperty.property_src_h   = fd_ptr->getPropertyId(fd, props, "SRC_H");
+    cache.planeProperty.property_zpos    = fd_ptr->getPropertyId(fd, props, "zpos");
+    if (cache.planeProperty.property_zpos == 0) {
+        // 如果 "zpos" 没找到, 尝试 "zposition"
+        cache.planeProperty.property_zpos = fd_ptr->getPropertyId(fd, props, "zposition");
+        fprintf(stdout, "[PlanesCompositor] Plane %u use 'zposition' as zpos property id: %u\n", planeId, cache.planeProperty.property_zpos);
+    } else {
+        fprintf(stdout, "[PlanesCompositor] Plane %u use 'zpos' as zpos property id: %u\n", planeId, cache.planeProperty.property_zpos);
+    }
 
     drmModeFreeObjectProperties(props);
     return 0;
 }
 
-int PlanesCompositor::addProperty2Req(const PropertyCache& propertyCache){
+int PlanesCompositor::addProperty2Req(const PropertyCache& propertyCache) {
     int ret                   = 0;
     auto const& planeProperty = propertyCache.planeProperty;
     auto const& layerProperty = propertyCache.layerProperty;
@@ -196,6 +205,7 @@ int PlanesCompositor::addProperty2Req(const PropertyCache& propertyCache){
         return -EINVAL;
     }
     
+    // 添加属性到请求
     ret |= drmModeAtomicAddProperty(requires_, planeId, planeProperty.property_crtc_id, layerProperty.crtc_id);
     ret |= drmModeAtomicAddProperty(requires_, planeId, planeProperty.property_fb_id,   layerProperty.fb_id);
     ret |= drmModeAtomicAddProperty(requires_, planeId, planeProperty.property_crtc_x,  layerProperty.crtc_x);
@@ -206,7 +216,7 @@ int PlanesCompositor::addProperty2Req(const PropertyCache& propertyCache){
     ret |= drmModeAtomicAddProperty(requires_, planeId, planeProperty.property_src_y,   layerProperty.src_y);
     ret |= drmModeAtomicAddProperty(requires_, planeId, planeProperty.property_src_w,   layerProperty.src_w);
     ret |= drmModeAtomicAddProperty(requires_, planeId, planeProperty.property_src_h,   layerProperty.src_h);
-    // ret |= drmModeAtomicAddProperty(requires_, planeId, planeProperty.
+    ret |= drmModeAtomicAddProperty(requires_, planeId, planeProperty.property_zpos,    layerProperty.zpos);
     if (ret < 0){
         fprintf(stderr, "Something error on add plane %u property: %s \n", planeId, strerror(-ret));
     }
