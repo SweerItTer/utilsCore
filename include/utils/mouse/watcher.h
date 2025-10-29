@@ -21,13 +21,12 @@
 #include "fdWrapper.h"      // fd RAII处理类
 #include "udevMonitor.h"    // udev 监听类
 
-inline int clamp_int(int v, int lo, int hi) {
-    if (v < lo) return lo;
-    if (v > hi) return hi;
-    return v;
-}
-
 class MouseWatcher {
+    int clamp_int(int v, int lo, int hi) {
+        if (v < lo) return lo;
+        if (v > hi) return hi;
+        return v;
+    }
 private:
     std::mutex fdMtx, handlersMutex;
     
@@ -112,6 +111,7 @@ public:
     
     // 停止监听
     void stop() {
+        paused.store(false);
         running.store(false);
     }
     // 暂停监听

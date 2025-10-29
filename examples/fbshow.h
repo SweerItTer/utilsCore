@@ -13,6 +13,9 @@
 #include "objectsPool.h"
 #include "fenceWatcher.h"
 
+#include "mouse/watcher.h"
+#include "fileUtils.h"
+
 #define USE_RGA_PROCESSOR 0
 
 extern int virSave(void *data, size_t buffer_size);
@@ -72,19 +75,20 @@ public:
         // 获取所有在指定CRTC上的Plane
         DrmDev::fd_ptr->refreshPlane(dev->crtc_id);
         // 初始化 id 列表
-        std::vector<uint32_t> usablePrimaryPlaneIds;
+        std::vector<uint32_t> usableCursorPlaneIds;
         std::vector<uint32_t> usableOverlayPlaneIds;
         // 获取指定类型并且支持目标格式的 Plane DRM_FORMAT_NV12
-        DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_PRIMARY, DRM_FORMAT_ABGR8888, usablePrimaryPlaneIds);
+        DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_PRIMARY, DRM_FORMAT_ABGR8888, usableCursorPlaneIds);
         DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_OVERLAY, formatRGAtoDRM(dstFormat), usableOverlayPlaneIds);
-        infoPrinter(usablePrimaryPlaneIds);
+        infoPrinter(usableCursorPlaneIds);
         infoPrinter(usableOverlayPlaneIds);
         // return -1; // 查询所有格式时用
 
-        if (usablePrimaryPlaneIds.empty() || usableOverlayPlaneIds.empty())// 若无可以plane则退出
+        if (usableCursorPlaneIds.empty() || usableOverlayPlaneIds.empty())// 若无可以plane则退出
         { std::cout << "Some plane do not matched.\n"; return; }
-
+        mouseMonitor.setScreenSize(dev->width, dev->height);
         frameLayer.reset( new DrmLayer(std::vector<DmaBufferPtr>(), 2) );
+        cursorLayer.reset( new DrmLayer(std::vector<DmaBufferPtr>(), 1) );
         // 配置属性
         DrmLayer::LayerProperties frameLayerProps{
             .plane_id_   = usableOverlayPlaneIds[0],  // 取支持NV12的第一个overlay plane
@@ -105,15 +109,32 @@ public:
             .crtcheight_ = dev->height,
             .zOrder_     = 0 // 置于底层
         };
+
+        DrmLayer::LayerProperties cursorLayerProps{
+            .plane_id_   = usableCursorPlaneIds[0],
+            .crtc_id_    = dev->crtc_id,
+            // 源区域: 64x64 的光标图标
+            .srcX_       = fx(0),
+            .srcY_       = fx(0),
+            .srcwidth_   = fx(CURSOR_SIZE),
+            .srcheight_  = fx(CURSOR_SIZE),
+            // 显示区域: 64x64, 初始位置在 (0,0)
+            .crtcX_      = 0,
+            .crtcY_      = 0,
+            .crtcwidth_  = CURSOR_SIZE,
+            .crtcheight_ = CURSOR_SIZE,
+            .zOrder_     = 2
+        };
+        // 初始化layer
         initLayer(frameLayer, frameLayerProps);
+        initLayer(cursorLayer, cursorLayerProps);
         // 将layer添加到合成器
         compositor->addLayer(frameLayer);
+        compositor->addLayer(cursorLayer);
         std::cout << "Layer initialized.\n"; 
         // 重新获取资源后重启
         cctr->start();
-        #if USE_RGA_PROCESSOR
-        processor->start();
-        #endif
+        loadCursorIcon("./cursor-64.png");
         refreshing = false;
     }
 
@@ -146,25 +167,12 @@ public:
             rawFrameQueue->enqueue(std::move(f));
         });
 
-        // 初始化转换线程
-        format = (V4L2_PIX_FMT_NV12 == cctrFormat) ?
-            RK_FORMAT_YCbCr_420_SP : RK_FORMAT_YCrCb_422_SP;
-        rgaCfg = RgaProcessor::Config {
-            cctr, rawFrameQueue, cctrCfg.width,
-            cctrCfg.height, cctrCfg.use_dmabuf, dstFormat, format, poolSize
-        };
-        #if USE_RGA_PROCESSOR
-        processor = std::make_shared<RgaProcessor>(rgaCfg) ;
-        #endif
         // 导出合成器
         compositor = std::move(PlanesCompositor::create());
         if (!compositor){
             std::cout << "Failed to create PlanesCompositor object.\n";
             return;
         }
-
-        // 初始化layer
-        frameLayer = std::make_shared<DrmLayer>(std::vector<DmaBufferPtr>(), 2);
 
         // 转移顺序,先释放资源再重新获取
         DrmDev::fd_ptr->registerResourceCallback(
@@ -181,26 +189,31 @@ public:
     void start(){
         if (running) return;
         running.store(true);
+        mouseMonitor.start();
+
+        mthread_ = std::thread(&FrameBufferTest::cursorLoop, this);
         thread_ = std::thread(&FrameBufferTest::run, this);
     }
 
     void stop(){
+        // 手动停止后析构依旧会调用导致隐藏的二次析构问题, 因此添加判断
+        if (!running) return; 
         running.store(false);
-        if (thread_.joinable()){
-            thread_.join();
-        }
-        #if USE_RGA_PROCESSOR
-        processor->stop();
-        #endif
+        
+        mouseMonitor.stop();
+        fprintf(stdout, "Mouse monitor stopped.\n");
+        if (mthread_.joinable()) mthread_.join();
+        fprintf(stdout, "Mouse thread stopped.\n");
+        if (thread_.joinable()) thread_.join();
+        fprintf(stdout, "Frame processing thread stopped.\n");
+
         cctr->stop();
         devices = nullptr;
     }
 
 private:
     // 线程实现
-    void run(){
-        bool usingRknn = false; 
-        
+    void run(){        
         while (running) {
             // 等待刷新完成
             if (true == refreshing) {
@@ -210,18 +223,10 @@ private:
             
             FramePtr frame; // 自动释放drmbuf
             std::vector<DmaBufferPtr> buffers;
-            #if USE_RGA_PROCESSOR
-            // 取出一帧
-            if (processor->dump(frame) < 0) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                continue;
-            }
-            #else
             if (!rawFrameQueue->try_dequeue(frame)) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
-            #endif
             // 取出该帧的drmbuf
             auto dmabuf = frame->sharedState(0)->dmabuf_ptr;
             auto dmabuf2 = DmaBuffer::importFromFD(
@@ -246,6 +251,90 @@ private:
         }
     }
 
+    void cursorLoop(){
+        int x = 0, y = 0;           
+        while (running) {
+            // 等待刷新完成
+            if (refreshing) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+            if (!mouseMonitor.getPosition(x, y)) {
+                fprintf(stderr, "1");
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+            
+            // 计算边界裁剪
+            uint32_t crtc_x = static_cast<uint32_t>(std::max(0, x));
+            uint32_t crtc_y = static_cast<uint32_t>(std::max(0, y));
+            
+            // 计算实际可显示的宽高
+            uint32_t visible_width = CURSOR_SIZE;
+            uint32_t visible_height = CURSOR_SIZE;
+            uint32_t src_x = 0;
+            uint32_t src_y = 0;
+            
+            // 右边界检测
+            if (x + CURSOR_SIZE > static_cast<int>(dev->width)) {
+                visible_width = dev->width - x;
+            }
+            
+            // 底边界检测
+            if (y + CURSOR_SIZE > static_cast<int>(dev->height)) {
+                visible_height = dev->height - y;
+            }
+            
+            // 左边界检测（如果x为负）
+            if (x < 0) {
+                src_x = -x;
+                visible_width = CURSOR_SIZE + x;
+                crtc_x = 0;
+            }
+            
+            // 上边界检测（如果y为负）
+            if (y < 0) {
+                src_y = -y;
+                visible_height = CURSOR_SIZE + y;
+                crtc_y = 0;
+            }
+            
+            // 更新光标图层属性
+            cursorLayer->setProperty("x", fx(src_x));
+            cursorLayer->setProperty("y", fx(src_y));
+            cursorLayer->setProperty("w", fx(visible_width));
+            cursorLayer->setProperty("h", fx(visible_height));
+            cursorLayer->setProperty("crtcX", crtc_x);
+            cursorLayer->setProperty("crtcY", crtc_y);
+            cursorLayer->setProperty("crtcW", visible_width);
+            cursorLayer->setProperty("crtcH", visible_height);
+            
+            // 提交更新
+            compositor->updateLayer(cursorLayer);
+        }
+    }
+
+    void loadCursorIcon(const std::string& iconPath) {
+        // 加载光标图像
+        auto cursorIcon = std::move(readImage(iconPath, DRM_FORMAT_ABGR8888));
+        if (!cursorIcon) {
+            std::cout << "Failed to create cursor DmaBuffer.\n";
+            return;
+        }
+        cursorLayer->updateBuffer({ cursorIcon });
+        
+        // 验证 FB ID
+        auto fb_id = cursorLayer->getProperty("fbId").get<uint32_t>();
+        if (fb_id == 0) {
+            fprintf(stderr, "ERROR: Cursor fb_id is 0! updateBuffer failed.\n");
+            return;
+        }
+        fprintf(stdout, "Cursor layer created: %dx%d, format=ARGB8888, fb_id=%u\n",
+            CURSOR_SIZE, CURSOR_SIZE, fb_id);
+    }
+
+    // 光标尺寸
+    const uint32_t CURSOR_SIZE = 64;
     // 资源管理
     std::atomic_bool refreshing{false};
     SharedDev* devices;
@@ -254,24 +343,17 @@ private:
     std::shared_ptr<FrameQueue> rawFrameQueue, frameQueue;
     // 相机配置
     uint32_t cctrFormat = V4L2_PIX_FMT_NV12;
+    int dstFormat = RK_FORMAT_YCbCr_420_SP;
     CameraController::Config cctrCfg{};
     std::shared_ptr<CameraController> cctr;
-    // rga配置
-    #if USE_RGA_PROCESSOR
-    std::shared_ptr<RgaProcessor> processor;
-    int dstFormat = RK_FORMAT_RGBA_8888;
-    #else
-    int dstFormat = RK_FORMAT_YCbCr_420_SP;
-    #endif
-    int format = -1;
-    int poolSize = 4;
-    RgaProcessor::Config rgaCfg{};
     // 合成器
     std::unique_ptr<PlanesCompositor> compositor;
     // 层
-    std::shared_ptr<DrmLayer> frameLayer; // 在primary的帧显示layer
-    // std::unique_ptr<DrmLayer> overLayer;  // 在overlay上显示的layer
+    std::shared_ptr<DrmLayer> frameLayer;   // 在 overlay 的帧显示layer
+    std::shared_ptr<DrmLayer> cursorLayer;  // 在 cursor 上显示的layer
+    // 鼠标监控
+    MouseWatcher mouseMonitor;
     // 主线程
     std::atomic_bool running{false};
-    std::thread thread_;
+    std::thread thread_, mthread_;
 };

@@ -61,6 +61,7 @@ public:
     void removeAllLayer();
     // 更新图层
     bool updateLayer(const DrmLayerPtr& layer);
+    bool updatePropertyForLayer(const DrmLayerPtr& layer);
     void updateLayer(const DrmLayerPtr& layer, const uint32_t fb_id);
     // 提交合成
     int commit(int& fence);

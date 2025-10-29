@@ -36,6 +36,14 @@ bool PlanesCompositor::addLayer(const DrmLayerPtr& layer) {
     return true;
 }
 
+bool PlanesCompositor::updatePropertyForLayer(const DrmLayerPtr& layer){
+    if (layers_.find(layer) == layers_.end()){
+        fprintf(stderr, "[PlanesCompositor] No layer can be update, cheak 'PlanesCompositor::addLayer'.\n");
+        return false;
+    }
+    // 更新 plane id / DRM 属性缓存
+    return !(updatePlaneProperty(layer) < 0);
+}
 
 bool PlanesCompositor::updateLayer(const DrmLayerPtr& layer) {
     std::lock_guard<std::mutex> lock(layersMutex_);
@@ -45,9 +53,7 @@ bool PlanesCompositor::updateLayer(const DrmLayerPtr& layer) {
     }
     // 更新图层状态缓存
     updateLayerCache(layer);
-    // 更新 plane id / DRM 属性缓存
-    updatePlaneProperty(layer);
-    fprintf(stdout, "[PlanesCompositor] Update Layer.\n");
+    // fprintf(stdout, "[PlanesCompositor] Update Layer.\n");
     return true;
 }
 
@@ -114,7 +120,7 @@ int PlanesCompositor::commit(int& fence) {
     ret = drmModeAtomicCommit(fd_ptr->get(), requires_, flags, &fence);
     if (ret < 0)
     {
-        // fprintf(stderr, "Atomic commit return non zero: %s\n", strerror(-ret));
+        fprintf(stderr, "Atomic commit return non zero: %s\n", strerror(-ret));
     }
     return ret;
 }
@@ -138,12 +144,16 @@ void PlanesCompositor::updateLayerCache(const DrmLayerPtr& layer) {
     cache.layerProperty.type     = layer->getProperty("type").get<int>();
     cache.layerProperty.zpos     = layer->getProperty("zOrder").get<uint32_t>();
 
-    fprintf(stdout, "Update layer on plane:%u\n", cache.layerProperty.plane_id);
+    // fprintf(stdout, "Update layer on plane:%u\n", cache.layerProperty.plane_id);
 }
 
 int PlanesCompositor::updatePlaneProperty(const DrmLayerPtr& layer) {
     PropertyCache& cache = layers_[layer]; // 引用, 直接修改 map
-    
+    // 不同驱动可能属性名称不同, zpos 可能是 "zpos" 或 "zposition"
+    static std::vector<std::string> posName = {"zpos", "zposition"};
+    static int posNameIndex = 0;
+    // 用一个静态标记记录是否已经打印过
+    static bool printedZPos = false;
     // 读取缓存
     auto planeId = cache.layerProperty.plane_id;
     auto crtcId = cache.layerProperty.crtc_id;
@@ -165,24 +175,34 @@ int PlanesCompositor::updatePlaneProperty(const DrmLayerPtr& layer) {
         fprintf(stderr, "Failed to get plane %u properties.\n", planeId);
         return -1;
     }
+    
+    auto getProp = [&](const char* name) {
+        return fd_ptr->getPropertyId(fd, props, name);
+    };
+
     // 获取并缓存关键属性ID
-    cache.planeProperty.property_crtc_id = fd_ptr->getPropertyId(fd, props, "CRTC_ID");
-    cache.planeProperty.property_fb_id   = fd_ptr->getPropertyId(fd, props, "FB_ID");
-    cache.planeProperty.property_crtc_x  = fd_ptr->getPropertyId(fd, props, "CRTC_X");
-    cache.planeProperty.property_crtc_y  = fd_ptr->getPropertyId(fd, props, "CRTC_Y");
-    cache.planeProperty.property_crtc_w  = fd_ptr->getPropertyId(fd, props, "CRTC_W");
-    cache.planeProperty.property_crtc_h  = fd_ptr->getPropertyId(fd, props, "CRTC_H");
-    cache.planeProperty.property_src_x   = fd_ptr->getPropertyId(fd, props, "SRC_X");
-    cache.planeProperty.property_src_y   = fd_ptr->getPropertyId(fd, props, "SRC_Y");
-    cache.planeProperty.property_src_w   = fd_ptr->getPropertyId(fd, props, "SRC_W");
-    cache.planeProperty.property_src_h   = fd_ptr->getPropertyId(fd, props, "SRC_H");
-    cache.planeProperty.property_zpos    = fd_ptr->getPropertyId(fd, props, "zpos");
-    if (cache.planeProperty.property_zpos == 0) {
-        // 如果 "zpos" 没找到, 尝试 "zposition"
-        cache.planeProperty.property_zpos = fd_ptr->getPropertyId(fd, props, "zposition");
-        fprintf(stdout, "[PlanesCompositor] Plane %u use 'zposition' as zpos property id: %u\n", planeId, cache.planeProperty.property_zpos);
-    } else {
-        fprintf(stdout, "[PlanesCompositor] Plane %u use 'zpos' as zpos property id: %u\n", planeId, cache.planeProperty.property_zpos);
+    cache.planeProperty.property_crtc_id = getProp("CRTC_ID");
+    cache.planeProperty.property_fb_id   = getProp("FB_ID");
+    cache.planeProperty.property_crtc_x  = getProp("CRTC_X");
+    cache.planeProperty.property_crtc_y  = getProp("CRTC_Y");
+    cache.planeProperty.property_crtc_w  = getProp("CRTC_W");
+    cache.planeProperty.property_crtc_h  = getProp("CRTC_H");
+    cache.planeProperty.property_src_x   = getProp("SRC_X");
+    cache.planeProperty.property_src_y   = getProp("SRC_Y");
+    cache.planeProperty.property_src_w   = getProp("SRC_W");
+    cache.planeProperty.property_src_h   = getProp("SRC_H");
+
+    // 不同驱动可能属性名称不同, 先尝试 "zpos"
+    for (int i = 0; i < posName.size(); i++, posNameIndex++) {
+        int propertyId = getProp(posName[posNameIndex].c_str());
+        if (propertyId == 0) continue; 
+        cache.planeProperty.property_zpos = propertyId;
+        break;
+    }
+    if (!printedZPos) {
+        fprintf(stdout, "[PlanesCompositor] Plane %u use '%s' as zpos property id: %u\n",
+                planeId, posName[posNameIndex].c_str(), cache.planeProperty.property_zpos);
+        printedZPos = true;
     }
 
     drmModeFreeObjectProperties(props);

@@ -26,7 +26,7 @@ inline int clamp_int(int v, int lo, int hi) {
 int read_data_from_file(const char *path, char **out_data);
 
 // 读取图像数据到 DMABUF
-DmaBufferPtr readImage(const std::string& image_path);
+DmaBufferPtr readImage(const std::string& image_path, uint32_t format=DRM_FORMAT_RGB888);
 // 将DMABUF零拷贝到Mat
 cv::Mat mapDmaBufferToMat(DmaBufferPtr img, bool copy = false);
 // 保存 DMABUF

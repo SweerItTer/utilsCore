@@ -77,6 +77,7 @@ uint32_t DrmLayer::createFramebuffer()
     uint32_t handles[4] = {0};
     uint32_t pitches[4] = {0};  // bytes per line
     uint32_t offsets[4] = {0};
+    uint32_t format = buffers_[0]->format();
     for (size_t i = 0; i < buffers_.size(); ++i) {
         auto buf = buffers_[i];
         if (nullptr == buf) {
@@ -84,11 +85,15 @@ uint32_t DrmLayer::createFramebuffer()
             return -1 ;
         }
         handles[i] = buf->handle();
-        pitches[i] = buf->width();
+        if (format == DRM_FORMAT_NV12 || format == DRM_FORMAT_NV21) {
+            // NV12/NV21 格式的 pitch 是宽度 (历史遗留问题)
+            pitches[i] = buf->width();
+        } else {
+            pitches[i] = buf->pitch();
+        }        
         offsets[i] = buf->offset();
     }
 
-    uint32_t format = buffers_[0]->format();
     uint32_t fbId = -1;
     std::lock_guard<std::mutex> lock(DrmDev::fd_mutex);
     // 创建 framebuffer

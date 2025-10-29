@@ -37,17 +37,45 @@ int read_data_from_file(const char *path, char **out_data)
     return file_size;
 }
 
-DmaBufferPtr readImage(const std::string &image_path) {
-    cv::Mat rawimg = cv::imread(image_path);
+DmaBufferPtr readImage(const std::string &image_path, uint32_t format) {
+    cv::Mat rawimg = cv::imread(image_path, cv::IMREAD_UNCHANGED);
     if (rawimg.empty()) {
         std::cerr << "Failed to read image: " << image_path << std::endl;
         exit(-1);
     }
-    cv::Mat rgbimg;
-    cv::cvtColor(rawimg, rgbimg, cv::COLOR_BGR2RGB);
-    
+    int channels = rawimg.channels();
+    cv::Mat converted;
+
+    switch (format) {
+        case DRM_FORMAT_RGB888:
+            if (channels == 4)
+                cv::cvtColor(rawimg, converted, cv::COLOR_BGRA2RGB);
+            else if (channels == 3)
+                cv::cvtColor(rawimg, converted, cv::COLOR_BGR2RGB);
+            else {
+                std::cerr << "Unsupported channel count for RGB888: " << channels << std::endl;
+                exit(-1);
+            }
+            break;
+
+        case DRM_FORMAT_ABGR8888:
+            if (channels == 4)
+                cv::cvtColor(rawimg, converted, cv::COLOR_BGRA2RGBA);
+            else if (channels == 3)
+                cv::cvtColor(rawimg, converted, cv::COLOR_BGR2RGBA); // 自动补Alpha=255
+            else {
+                std::cerr << "Unsupported channel count for ABGR8888: " << channels << std::endl;
+                exit(-1);
+            }
+            break;
+
+        default:
+            std::cerr << "Unsupported DRM format: 0x" << std::hex << format << std::endl;
+            exit(-1);
+    }
+
     // 创建 DMABUF
-    auto dma_buf = DmaBuffer::create(rgbimg.cols, rgbimg.rows, DRM_FORMAT_RGB888, 0);
+    auto dma_buf = DmaBuffer::create(converted.cols, converted.rows, format, 0);
     if (!dma_buf) {
         std::cerr << "Failed to create DmaBuffer" << std::endl;
         exit(-1);
@@ -55,26 +83,20 @@ DmaBufferPtr readImage(const std::string &image_path) {
     
     // ==================== 关键修复：按行拷贝 ====================
     uint8_t* dst = (uint8_t*)dma_buf->map();
-    uint8_t* src = rgbimg.data;
+    uint8_t* src = converted.data;
     
-    int width = rgbimg.cols;
-    int height = rgbimg.rows;
-    int src_row_bytes = width * 3;  // OpenCV 行字节数（紧密）
+    int width = converted.cols;
+    int height = converted.rows;
+    int bytes_per_pixel = converted.channels();
+    int src_row_bytes = width * bytes_per_pixel; // OpenCV 行字节数（紧密）
     int dst_stride = dma_buf->pitch();  // DmaBuffer 行字节数（对齐）
-    
-    // fprintf(stdout, "[readImage] Size: %dx%d\n", width, height);
-    // fprintf(stdout, "[readImage] OpenCV row: %d bytes, DmaBuffer stride: %d bytes\n", 
-    //         src_row_bytes, dst_stride);
-    
+        
     // 逐行拷贝
     for (int y = 0; y < height; y++) {
         memcpy(dst + y * dst_stride, src + y * src_row_bytes, src_row_bytes);
     }
-    
+
     dma_buf->unmap();
-    rawimg.release();
-    rgbimg.release();
-    // fprintf(stdout, "[readImage] Successfully loaded image with stride alignment\n");
     return dma_buf;
 }
 
