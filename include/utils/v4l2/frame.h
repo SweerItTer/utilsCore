@@ -11,8 +11,10 @@
 #include <cstdint>
 #include <cstddef>
 #include <functional>
+#include <new>
 #include "v4l2/v4l2Exception.h"
 #include "sharedBufferState.h"
+#include "fixedSizePool.h"
 
 struct FrameMeta {
     uint64_t    frame_id = -1;      // 单调递增
@@ -25,6 +27,7 @@ struct FrameMeta {
 
 // 统一帧接口(MMAP&DMABUF)
 class Frame {
+    static FixedSizePool s_pool_;
 public:
     using SharedBufferPtr = std::shared_ptr<SharedBufferState>;
     FrameMeta meta;
@@ -35,6 +38,10 @@ public:
     ~Frame();
     Frame(SharedBufferPtr s);
     Frame(std::vector<SharedBufferPtr> states);
+
+    static void* operator new(std::size_t size);
+
+    static void operator delete(void* p) noexcept;
     
     MemoryType type() const noexcept { return type_; }
     

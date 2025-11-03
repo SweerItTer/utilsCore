@@ -6,6 +6,8 @@
  */
 #include "v4l2/frame.h"
 
+FixedSizePool Frame::s_pool_(sizeof(Frame), 1024);
+
 Frame::Frame() noexcept 
     : type_(MemoryType::Unknown), state_(nullptr) {
 }    
@@ -55,6 +57,21 @@ Frame::Frame(std::vector<SharedBufferPtr> states)
     } else {
         type_ = MemoryType::Unknown;
     }
+}
+
+
+void * Frame::operator new(std::size_t size) {
+    // 通常size == sizeof(Frame)
+    if (size != sizeof(Frame)) {
+        // 防止派生类使用错误大小
+        return ::operator new(size);
+    }
+    return s_pool_.allocate();
+}
+
+void Frame::operator delete(void *p) noexcept {
+    if (nullptr == p) return;
+    s_pool_.deallocate(p);
 }
 
 // 二次检查(优于结构体)
