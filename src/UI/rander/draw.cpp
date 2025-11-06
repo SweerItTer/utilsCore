@@ -18,18 +18,20 @@ Draw::Draw() {
     Core::instance().doneQCurrent();
 }
 
-void Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget, 
+DrawRect Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget, 
                      const QRect& targetRect, RenderMode mode)
 {
+    DrawRect uiDrawRect;
     if (nullptr == widget) {
         qWarning() << "Draw::drawWidget: null widget";
-        return;
+        return uiDrawRect;
     }
-    if (!slot.valid() || !slot.qfbo) return;
+    if (!widget->isVisible()) return uiDrawRect;
+    if (!slot.valid() || !slot.qfbo) return uiDrawRect;
 
     Core::instance().makeQCurrent();
     QOpenGLFramebufferObject* fbo = slot.qfbo.get();
-    if (!fbo->bind()) { Core::instance().doneQCurrent(); return; }
+    if (!fbo->bind()) { Core::instance().doneQCurrent(); return uiDrawRect; }
 
     bindFboAndPreparePainter(fbo);
 
@@ -56,21 +58,33 @@ void Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget,
         drawRect = QRectF(0, 0, fbo->width(), fbo->height());
     }
 
-    // 🔥 使用 QPainter 变换缩放绘制
+    if (drawRect.isNull()) {
+        drawRect = QRectF(0, 0, fbo->width(), fbo->height());
+    }
+
+    // 计算缩放比例
+    qreal scaleX = drawRect.width() / widget->width();
+    qreal scaleY = drawRect.height() / widget->height();
+    qreal scale = std::min(scaleX, scaleY);  // 保持等比例
+
+    // 如果当前 widget 尺寸和目标尺寸不一致，才 resize
+    QSize expectedSize(
+        static_cast<int>(drawRect.width() / scale),
+        static_cast<int>(drawRect.height() / scale)
+    );
+
+    // 绘制
     painter_->save();
     {
-        QSizeF srcSize = widget->size();
-        qreal scaleX = drawRect.width() / srcSize.width();
-        qreal scaleY = drawRect.height() / srcSize.height();
-
         painter_->translate(drawRect.x(), drawRect.y());
-        painter_->scale(scaleX, scaleY);
-
+        painter_->scale(scale, scale);
         widget->render(painter_.get(), QPoint(0, 0), QRegion(), QWidget::DrawChildren);
     }
     painter_->restore();
-
+    uiDrawRect.rect = drawRect;
+    uiDrawRect.scale = scale;
     Core::instance().doneQCurrent();
+    return uiDrawRect;
 }
 
 QRectF Draw::calculateAspectRatioRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize)

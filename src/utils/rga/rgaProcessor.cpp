@@ -187,7 +187,7 @@ int RgaProcessor::getIndex_auto(rga_buffer_t& src, rga_buffer_t& dst, Frame* fra
             index = mmapPtrFrameProcess(src, dst, frame->data());
             break;
         case Frame::MemoryType::DMABUF:
-            index = dmabufFrameProcess(src, dst, frame->dmabuf_fd());
+            index = dmabufFrameProcess(src, dst, frame->dmabuf_fd(0));
             break;
         default:
             std::cerr << "Unsupported frame type.\n";
@@ -219,21 +219,24 @@ FramePtr RgaProcessor::infer() {
         return dstFrame;
     } while (!rawQueue_->try_dequeue(rawFrame));
     if (!running_) return dstFrame;
-    // 计算 RGA_submit timestamp
-    // uint64_t t1 = mk::timeDiffMs(rawFrame->timestamp(), "[DQ→RGA_submit]");
     int index = getIndex_auto(src, dst, rawFrame.get());
 
     if (0 > index) {
         // 无可用 buffer(或格式错误)
-        fprintf(stdout,"RGA: No free buffer, dropping rawFrame.\n");
+        // fprintf(stdout,"RGA: No free buffer, dropping rawFrame.\n");
         // 丢帧
         rawFrame.reset();
-        // cctr_->returnBuffer(rawFrame->index());
-        // std::this_thread::sleep_for(std::chrono::milliseconds(10));
         return dstFrame;
     }
     // 若提前释放内存需撤销占用
-    if (false == rawFrame->sharedState()->valid){
+    auto state = rawFrame->sharedState(0);
+    if (nullptr == state) {
+        fprintf(stderr, "[RGAProcesse] Get null frame.\n");
+        bufferPool_[index].in_use = false;
+        return dstFrame;
+    }
+    if (false == state->valid){
+        fprintf(stderr, "[RGAProcesse] Frame is invaild.\n");
         bufferPool_[index].in_use = false;
         return dstFrame;
     }
@@ -243,11 +246,9 @@ FramePtr RgaProcessor::infer() {
     // 格式转换
     IM_STATUS status = RgaConverter::instance().FormatTransform(params);
 
-    // 同步回调时间点mk::timeDiffMs(t1, "[RGA_process]");
+    // 复制元数据
     auto rgaMeta = rawFrame->meta;
-    // std::cout << "[RGAProcessor] rawframe Index: " << rgaMeta.index << "\n";
     rgaMeta.index = index;
-    // std::cout << "[RGAProcessor] rga4kframe Index: " << rgaMeta.index << "\n";
     
     // 不管是否转换成功都归还
     rawFrame.reset();
@@ -294,27 +295,18 @@ void RgaProcessor::run()
 // 取出future
 int RgaProcessor::dump(FramePtr& frame, int64_t timeout) {
     frame = nullptr;
-    if (futs.empty()) {
-        return -1;
-    }
+    if (futs.empty()) return -1;
 
     auto& f = futs.front();
     // 非阻塞尝试等待任务完成
     if (f.wait_for(std::chrono::milliseconds(timeout)) != std::future_status::ready) {
-        // 丢弃未完成任务
-        // futs.pop_front();
         return -1;
     }
 
-    try {
-        frame = f.get(); // 获取任务结果
-    } catch (const std::exception& e) {
-        fprintf(stderr, "Future exception: %s\n", e.what());
-        frame = nullptr;
-    }
-
+    try { frame = f.get(); } // 获取任务结果
+    catch (const std::exception& e) { frame = nullptr; }
     futs.pop_front();
-    return (nullptr == frame ? -1 : 0);
+    return (frame == nullptr ? -1 : 0);
 }
 
 bool RgaProcessor::dumpDmabufAsXXXX8888(int dmabuf_fd, uint32_t width, uint32_t height, uint32_t size, uint32_t pitch, const char* path)

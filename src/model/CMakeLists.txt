@@ -8,8 +8,17 @@ add_library(model STATIC
 )
 
 target_include_directories(model PUBLIC
+    ${CMAKE_SYSROOT}/usr/include/opencv4
     ${CMAKE_SOURCE_DIR}/include/model
 )
 
-target_link_libraries(model PUBLIC
+# 连接 OpenCV 库
+target_link_libraries(model PUBLIC     
+    utils
+    ${CMAKE_SYSROOT}/usr/lib/librknn_api.so
+
+    ${CMAKE_SYSROOT}/usr/lib/libopencv_core.so
+    ${CMAKE_SYSROOT}/usr/lib/libopencv_imgproc.so
+    ${CMAKE_SYSROOT}/usr/lib/libopencv_imgcodecs.so
+    ${CMAKE_SYSROOT}/usr/lib/libopencv_videoio.so
 )

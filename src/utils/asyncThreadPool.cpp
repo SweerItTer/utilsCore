@@ -27,6 +27,10 @@ asyncThreadPool::asyncThreadPool(std::size_t poolSize, std::size_t maxQueueSize)
 
 asyncThreadPool::~asyncThreadPool()
 {
+    stop();
+}
+
+void asyncThreadPool::stop() {
     running_ = false;
     condition_.notify_all();  // 唤醒所有等待的线程
 
@@ -35,7 +39,7 @@ asyncThreadPool::~asyncThreadPool()
 
 void asyncThreadPool::worker()
 {
-    fprintf(stdout, "ThreadPool worker TID: %d \n", syscall(SYS_gettid));
+    fprintf(stdout, "[ThreadPool] worker TID: %d \n", syscall(SYS_gettid));
     std::function<void()> task;
 
     while (running_) {

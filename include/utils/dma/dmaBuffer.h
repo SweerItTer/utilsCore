@@ -23,13 +23,14 @@ struct dmaBufferData {
     uint32_t pitch;
     uint64_t size;
     uint32_t offset;
+    uint32_t channel;
 };
 
 public:
     // ---------- 工厂方法 ----------
     static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size, uint32_t offset);
     static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t offset);
-    static std::shared_ptr<DmaBuffer> importFromFD(int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size);
+    static std::shared_ptr<DmaBuffer> importFromFD(int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size, uint32_t offset=0);
 
     // ---------- 基本信息 ----------
     int fd() const noexcept;
@@ -40,6 +41,7 @@ public:
     uint32_t pitch()  const noexcept;
     uint32_t size()   const noexcept;
     uint32_t offset() const noexcept;
+    uint32_t channel() const noexcept;
 
     // ---------- 映射控制 ----------
     uint8_t* map();
@@ -76,11 +78,13 @@ public:
 private:
     static int exportFD(drm_mode_create_dumb& create_arg);
     DmaBuffer(int primeFd, dmaBufferData& data);
+    DmaBuffer(int primeFd, dmaBufferData& data, bool isimport);
     void cleanup() noexcept;
 
     int m_fd = -1;
     dmaBufferData data_;
     uint8_t* mappedPtr_ = nullptr;
+    std::atomic<bool> isimport_{false};
 };
 
 using DmaBufferPtr = std::shared_ptr<DmaBuffer>;

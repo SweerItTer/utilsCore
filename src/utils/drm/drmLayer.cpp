@@ -42,7 +42,7 @@ DrmLayer::DrmLayer(std::vector<DmaBufferPtr> buffers, size_t cacheSize)
         {"fbId",    [this](PropertyValue v) { props_.fb_id_      = v.get<uint32_t>(); }},
         {"type",    [this](PropertyValue v) { props_.type_       = v.get<int>(); }}
     };
-    updateBuffer(buffers);
+    updateBuffer(std::move(buffers));
 }
 
 DrmLayer::~DrmLayer()
@@ -50,7 +50,7 @@ DrmLayer::~DrmLayer()
     destroyFramebuffer();
 }
 
-void DrmLayer::updateBuffer(std::vector<DmaBufferPtr> buffers)
+void DrmLayer::updateBuffer(std::vector<DmaBufferPtr>&& buffers)
 {
     if (buffers.empty() || buffers.size() > 4) {
         fprintf(stderr, "DrmLayer::DrmLayer: Invalid DmaBuffer count\n");
@@ -75,8 +75,9 @@ void DrmLayer::updateBuffer(std::vector<DmaBufferPtr> buffers)
 uint32_t DrmLayer::createFramebuffer()
 {
     uint32_t handles[4] = {0};
-    uint32_t pitches[4] = {0};
+    uint32_t pitches[4] = {0};  // bytes per line
     uint32_t offsets[4] = {0};
+    uint32_t format = buffers_[0]->format();
     for (size_t i = 0; i < buffers_.size(); ++i) {
         auto buf = buffers_[i];
         if (nullptr == buf) {
@@ -84,17 +85,17 @@ uint32_t DrmLayer::createFramebuffer()
             return -1 ;
         }
         handles[i] = buf->handle();
-        pitches[i] = buf->pitch();
+        if (format == DRM_FORMAT_NV12 || format == DRM_FORMAT_NV21) {
+            // NV12/NV21 格式的 pitch 是宽度 (历史遗留问题)
+            pitches[i] = buf->width();
+        } else {
+            pitches[i] = buf->pitch();
+        }        
         offsets[i] = buf->offset();
     }
-    uint32_t format = convertV4L2ToDrmFormat(buffers_[0]->format());
-    if (format == -1){
-        format = formatRGAtoDRM(buffers_[0]->format());
-        if (format == -1) format = buffers_[0]->format();
-    }
 
-    std::lock_guard<std::mutex> lock(DrmDev::fd_mutex);
     uint32_t fbId = -1;
+    std::lock_guard<std::mutex> lock(DrmDev::fd_mutex);
     // 创建 framebuffer
     int ret = drmModeAddFB2(
         DrmDev::fd_ptr->get(),  /* DRM 设备 fd */
@@ -107,8 +108,8 @@ uint32_t DrmLayer::createFramebuffer()
         &fbId,
         0  // flags, 通常填 0
     );
-    if (ret != 0 || fbId == -1) {
-        fprintf(stderr, "drmModeAddFB2 failed: %d\n", errno);
+    if (ret != 0 || fbId == (uint32_t)-1) {
+        fprintf(stderr, "drmModeAddFB2 failed\tret: %d\n", ret);
     }
     return fbId;
 }
@@ -120,8 +121,7 @@ void DrmLayer::onFenceSignaled()
 }
 
 static int fbFree(uint32_t& fbId){
-    if (fbId == 0) {
-        fprintf(stderr,"Invalid parameters: %u\n", fbId);
+    if (fbId == 0 || fbId == (uint32_t)-1){
         return -1;
     }
     std::lock_guard<std::mutex> lock(DrmDev::fd_mutex);
@@ -131,7 +131,6 @@ static int fbFree(uint32_t& fbId){
         fprintf(stderr, "drmModeRmFB failed: %d\n", errno);
         return -1;
     } else {
-        // fprintf(stdout, "Framebuffer %u destroyed\n", fbId);
         fbId = 0;
     }
     return 0;
@@ -156,11 +155,10 @@ void DrmLayer::recycleOldFbs(size_t keep)
     // 确保至少保留 keep 个最新的 FB
     while (fbCache_.size() > keep) {
         uint32_t oldFb = fbCache_.front();
-        fbCache_.pop_front();
-
-        int ret = fbFree(oldFb);
+        int ret = fbFree(fbCache_.front());
         if (ret < 0) {
-            fprintf(stderr, "drmModeRmFB (recycle) failed: fb=%u errno=%d\n", oldFb, errno);
+            // fprintf(stderr, "drmModeRmFB (recycle) failed: fb=%u errno=%d\n", oldFb, errno);
         }
+        fbCache_.pop_front();
     }
 }
