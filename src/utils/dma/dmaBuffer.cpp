@@ -33,15 +33,16 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
     }
 
     // 按不同对齐方式尝试分配
-    constexpr uint32_t align_options[] = {16, 32, 64, 128};
+    constexpr uint32_t align_options[] = {4, 8, 16, 32, 64, 128};
     for (uint32_t align : align_options) {
         // 按字节对齐计算新的 pitch 和 width
-        uint32_t pitch_bytes   = ((width * bpp / 8 + align - 1) / align) * align;
-        uint32_t aligned_width = pitch_bytes * 8 / bpp;
+        uint32_t pitch_bytes    = ((width * bpp / 8 + align - 1) / align) * align;
+        uint32_t aligned_width  = pitch_bytes * 8 / bpp;
+        uint32_t aligned_height = ((height + align - 1) / align) * align;
 
-        drm_mode_create_dumb create_arg = {};
+        drm_mode_create_dumb create_arg{};
         create_arg.width  = aligned_width; // 直接用对齐后的宽度,避免内核二次对齐
-        create_arg.height = height;
+        create_arg.height = aligned_height;
         create_arg.bpp    = bpp;
 
         if (drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg) < 0) {
@@ -63,10 +64,11 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
             fprintf(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
             return nullptr;
         }
-
+        fprintf(stdout, "[DmaBuffer] Created dumb buffer: %ux%u, aligned: %ux%u, pitch(byte)=%u, size=%lu, align=%u\n",
+                width, height, aligned_width, aligned_height, create_arg.pitch, create_arg.size, align);
         dmaBufferData data = {
             create_arg.handle, width, height,
-            format, create_arg.pitch, create_arg.size, offset
+            format, create_arg.pitch, create_arg.size, offset, bpp/8
         };
         return std::shared_ptr<DmaBuffer>(new DmaBuffer(primefd, data));
     }
@@ -74,7 +76,6 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
     fprintf(stderr, "Failed to create dumb buffer with required size %u\n", required_size);
     return nullptr;
 }
-
 
 // 无需对齐的 dumb buffer 创建
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
@@ -109,14 +110,14 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
 
     dmaBufferData data = {
         create_arg.handle, width, height,
-        format, create_arg.pitch, create_arg.size, offset
+        format, create_arg.pitch, create_arg.size, offset, bpp/8
     };
     return std::shared_ptr<DmaBuffer>(new DmaBuffer(primefd, data));
 }
 
 // 从外部导入
 std::shared_ptr<DmaBuffer> DmaBuffer::importFromFD(
-    int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size)
+    int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size, uint32_t offset)
 {
     if (importFd < 0) {
         fprintf(stderr, "Invalid import fd: %d\n", importFd);
@@ -143,15 +144,8 @@ std::shared_ptr<DmaBuffer> DmaBuffer::importFromFD(
     // 查询实际 pitch
     uint32_t pitch = size / height;
 
-    drm_mode_map_dumb map_arg = {};
-    map_arg.handle = handle;
-    if (drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_MAP_DUMB, &map_arg) < 0) {
-        fprintf(stderr, "DRM_IOCTL_MODE_MAP_DUMB failed for handle %u\n", handle);
-        return nullptr;
-    }
-
-    dmaBufferData data = {handle, width, height, format, pitch, size, static_cast<uint32_t>(map_arg.offset)};
-    return std::shared_ptr<DmaBuffer>(new DmaBuffer(importFd, data));
+    dmaBufferData data = {handle, width, height, format, pitch, size, offset};
+    return std::shared_ptr<DmaBuffer>(new DmaBuffer(importFd, data, true));
 }
 
 
@@ -179,6 +173,10 @@ DmaBuffer::DmaBuffer(int primeFd, dmaBufferData& data)
     : m_fd(primeFd)
     , data_(data) {}
 
+DmaBuffer::DmaBuffer(int primeFd, dmaBufferData& data, bool isimport)
+    : m_fd(primeFd)
+    , data_(data), isimport_(isimport){}
+
 DmaBuffer::~DmaBuffer() {
     unmap();
     // 回收资源
@@ -186,7 +184,8 @@ DmaBuffer::~DmaBuffer() {
 }
 
 void DmaBuffer::cleanup() noexcept {
-    fprintf(stdout, "DmaBuffer: closed: fd=%d, handle=%d\n", m_fd, data_.handle);
+    if (isimport_) return;
+    // fprintf(stdout, "DmaBuffer: closed: fd=%d, handle=%d\n", m_fd, data_.handle);
 
     if (-1 != m_fd) {
         // 关闭 dambuf fd
@@ -231,6 +230,7 @@ uint32_t DmaBuffer::format() const noexcept { return data_.format; }
 uint32_t DmaBuffer::pitch()  const noexcept { return data_.pitch;  }
 uint32_t DmaBuffer::size()   const noexcept { return data_.size;   }
 uint32_t DmaBuffer::offset() const noexcept { return data_.offset; }
+uint32_t DmaBuffer::channel() const noexcept { return data_.channel; }
 
 // ---------- map/unmap ----------
 uint8_t* DmaBuffer::map() {

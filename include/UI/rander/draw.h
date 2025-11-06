@@ -28,6 +28,11 @@ enum class RenderMode {
     CenterNoScale     // 居中显示
 };
 
+struct DrawRect {
+    QRectF rect;
+    qreal scale;
+};
+
 struct DrawBox {
     QRectF rect;
     QColor color;
@@ -70,7 +75,7 @@ public:
     // 绘制多个框
     void drawBoxes(const Core::resourceSlot& slot, const std::vector<DrawBox>& boxes, int penWidth = 3);
     // 支持不同渲染模式
-    void drawWidget(const Core::resourceSlot& slot, QWidget* widget, 
+    DrawRect drawWidget(const Core::resourceSlot& slot, QWidget* widget, 
         const QRect& targetRect = QRect(),
         RenderMode mode = RenderMode::KeepAspectRatio);
 private:

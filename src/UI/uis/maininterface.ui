@@ -14,289 +14,215 @@
    <string>摄像头控制</string>
   </property>
   <property name="styleSheet">
-   <string notr="true">background-color: rgba(255, 255, 255, 100); color: black;</string>
+   <string notr="true">background-color: rgb(255, 255, 255); color: black;</string>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout">
-   <property name="spacing">
-    <number>8</number>
-   </property>
+  <layout class="QGridLayout" name="gridLayout">
    <property name="leftMargin">
-    <number>10</number>
+    <number>0</number>
    </property>
    <property name="topMargin">
-    <number>10</number>
+    <number>0</number>
    </property>
    <property name="rightMargin">
-    <number>10</number>
+    <number>0</number>
    </property>
    <property name="bottomMargin">
-    <number>10</number>
+    <number>0</number>
    </property>
-   <item>
-    <widget class="QLabel" name="titleLabel">
-     <property name="text">
-      <string>摄像头控制</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="statusLabel">
-     <property name="text">
-      <string>状态: 运行中</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="latencyLabel">
-     <property name="text">
-      <string>延迟: 28ms</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="fpsLabel">
-     <property name="text">
-      <string>帧率: 30</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="npuLabel">
-     <property name="text">
-      <string>NPU: 75%</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="modelLayout">
-     <item>
-      <widget class="QLabel" name="modelLabel">
-       <property name="text">
-        <string>模型:</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QComboBox" name="modelComboBox">
-       <item>
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <item row="0" column="0">
+    <widget class="QWidget" name="widget" native="true">
+     <layout class="QVBoxLayout" name="verticalLayout">
+      <item>
+       <widget class="QLabel" name="titleLabel">
         <property name="text">
-         <string>YOLOv5s</string>
+         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p align=&quot;center&quot;&gt;摄像头控制&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
         </property>
-       </item>
-       <item>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="buttonLayout">
+        <item>
+         <widget class="QLabel" name="recordLabel">
+          <property name="text">
+           <string>录像:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="startButton">
+          <property name="text">
+           <string>开始</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="statusLabel">
         <property name="text">
-         <string>YOLOv5m</string>
+         <string>状态: 运行中</string>
         </property>
-       </item>
-       <item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="latencyLabel">
         <property name="text">
-         <string>YOLOv5l</string>
+         <string>延迟: 28ms</string>
         </property>
-       </item>
-       <item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="fpsLabel">
         <property name="text">
-         <string>YOLOv8n</string>
+         <string>帧率: 30</string>
         </property>
-       </item>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="resolutionLayout">
-     <item>
-      <widget class="QLabel" name="resolutionLabel">
-       <property name="text">
-        <string>分辨率:</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QComboBox" name="resolutionComboBox">
-       <item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="npuLabel">
         <property name="text">
-         <string>720p</string>
+         <string>NPU: 75%</string>
         </property>
-       </item>
-       <item>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="confidenceLayout">
+        <item>
+         <widget class="QLabel" name="confidenceLabel">
+          <property name="text">
+           <string>置信度</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="confidenceValueLabel">
+          <property name="styleSheet">
+           <string notr="true">color: #4a90e2; font-weight: bold;</string>
+          </property>
+          <property name="text">
+           <string>65%</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QSlider" name="confidenceSlider">
+        <property name="maximum">
+         <number>100</number>
+        </property>
+        <property name="value">
+         <number>65</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="brightnessLayout">
+        <item>
+         <widget class="QLabel" name="brightnessLabel">
+          <property name="text">
+           <string>亮度</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="brightnessValueLabel">
+          <property name="styleSheet">
+           <string notr="true">color: #4a90e2; font-weight: bold;</string>
+          </property>
+          <property name="text">
+           <string>75%</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QSlider" name="brightnessSlider">
+        <property name="maximum">
+         <number>100</number>
+        </property>
+        <property name="value">
+         <number>75</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="contrastLayout">
+        <item>
+         <widget class="QLabel" name="contrastLabel">
+          <property name="text">
+           <string>对比度</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="contrastValueLabel">
+          <property name="styleSheet">
+           <string notr="true">color: #4a90e2; font-weight: bold;</string>
+          </property>
+          <property name="text">
+           <string>56%</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QSlider" name="contrastSlider">
+        <property name="maximum">
+         <number>100</number>
+        </property>
+        <property name="value">
+         <number>56</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="verticalSpacer">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>187</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QLabel" name="versionLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #666666; font-size: 10px;</string>
+        </property>
         <property name="text">
-         <string>1080p</string>
+         <string>EdgeVision(RK3568) 系统</string>
         </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>1440p</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>2160p</string>
-        </property>
-       </item>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="confidenceLayout">
-     <item>
-      <widget class="QLabel" name="confidenceLabel">
-       <property name="text">
-        <string>置信度</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLabel" name="confidenceValueLabel">
-       <property name="styleSheet">
-        <string notr="true">color: #4a90e2; font-weight: bold;</string>
-       </property>
-       <property name="text">
-        <string>65%</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignRight|Qt::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QSlider" name="confidenceSlider">
-     <property name="maximum">
-      <number>100</number>
-     </property>
-     <property name="value">
-      <number>65</number>
-     </property>
-     <property name="orientation">
-      <enum>Qt::Horizontal</enum>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="brightnessLayout">
-     <item>
-      <widget class="QLabel" name="brightnessLabel">
-       <property name="text">
-        <string>亮度</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLabel" name="brightnessValueLabel">
-       <property name="styleSheet">
-        <string notr="true">color: #4a90e2; font-weight: bold;</string>
-       </property>
-       <property name="text">
-        <string>75%</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignRight|Qt::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QSlider" name="brightnessSlider">
-     <property name="maximum">
-      <number>100</number>
-     </property>
-     <property name="value">
-      <number>75</number>
-     </property>
-     <property name="orientation">
-      <enum>Qt::Horizontal</enum>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="contrastLayout">
-     <item>
-      <widget class="QLabel" name="contrastLabel">
-       <property name="text">
-        <string>对比度</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLabel" name="contrastValueLabel">
-       <property name="styleSheet">
-        <string notr="true">color: #4a90e2; font-weight: bold;</string>
-       </property>
-       <property name="text">
-        <string>56%</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignRight|Qt::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QSlider" name="contrastSlider">
-     <property name="maximum">
-      <number>100</number>
-     </property>
-     <property name="value">
-      <number>56</number>
-     </property>
-     <property name="orientation">
-      <enum>Qt::Horizontal</enum>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="buttonLayout">
-     <item>
-      <widget class="QLabel" name="recordLabel">
-       <property name="text">
-        <string>录像:</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="startButton">
-       <property name="text">
-        <string>开始</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QLabel" name="detectionLabel">
-     <property name="styleSheet">
-      <string notr="true">color: black;</string>
-     </property>
-     <property name="text">
-      <string>检测到: 3个对象</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <spacer name="verticalSpacer">
-     <property name="orientation">
-      <enum>Qt::Vertical</enum>
-     </property>
-     <property name="sizeHint" stdset="0">
-      <size>
-       <width>20</width>
-       <height>40</height>
-      </size>
-     </property>
-    </spacer>
-   </item>
-   <item>
-    <widget class="QLabel" name="versionLabel">
-     <property name="styleSheet">
-      <string notr="true">color: #666666; font-size: 10px;</string>
-     </property>
-     <property name="text">
-      <string>EdgeVision(RK3568) 系统</string>
-     </property>
+       </widget>
+      </item>
+     </layout>
     </widget>
    </item>
   </layout>

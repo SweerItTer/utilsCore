@@ -1,11 +1,10 @@
 
 *.code-workspace
-
+log
 
 # This file is used to ignore files which are generated
 # ----------------------------------------------------------------------------
 
-*.png
 *~
 *.autosave
 *.a

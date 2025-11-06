@@ -16,6 +16,7 @@
 #include "drm/drmLayer.h"
 
 class PlanesCompositor{
+    // DRM 平面属性缓存
     struct PlaneProperty
     {
         uint32_t property_crtc_id    = 0;
@@ -28,7 +29,9 @@ class PlanesCompositor{
         uint32_t property_src_y      = 0;
         uint32_t property_src_w      = 0;
         uint32_t property_src_h      = 0;
+        uint32_t property_zpos      = 0;
     };
+    // 自定义Layer图层属性缓存
     struct LayerProperty {
         uint32_t plane_id       = 0;
         uint32_t crtc_id        = 0;
@@ -42,6 +45,7 @@ class PlanesCompositor{
         uint32_t src_w          = 0;
         uint32_t src_h          = 0;
         float    alpha          = 1.0f;
+        uint32_t zpos           = 0;
         int      type           = 0;
     };
     struct PropertyCache{
@@ -57,14 +61,15 @@ public:
     void removeAllLayer();
     // 更新图层
     bool updateLayer(const DrmLayerPtr& layer);
+    bool updatePropertyForLayer(const DrmLayerPtr& layer);
     void updateLayer(const DrmLayerPtr& layer, const uint32_t fb_id);
     // 提交合成
     int commit(int& fence);
     
     ~PlanesCompositor();
 private:
-    int updatePlaneProperty(bool firstFlag, const DrmLayerPtr& layer);
-    void updateLayerCache(bool firstFlag, const DrmLayerPtr& layer);
+    int updatePlaneProperty(const DrmLayerPtr& layer);
+    void updateLayerCache(const DrmLayerPtr& layer);
     int addProperty2Req(const PropertyCache& propertyCache);
     
     PlanesCompositor();

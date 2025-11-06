@@ -11,8 +11,10 @@
 #include <cstdint>
 #include <cstddef>
 #include <functional>
+#include <new>
 #include "v4l2/v4l2Exception.h"
 #include "sharedBufferState.h"
+#include "fixedSizePool.h"
 
 struct FrameMeta {
     uint64_t    frame_id = -1;      // 单调递增
@@ -25,6 +27,7 @@ struct FrameMeta {
 
 // 统一帧接口(MMAP&DMABUF)
 class Frame {
+    static FixedSizePool s_pool_;
 public:
     using SharedBufferPtr = std::shared_ptr<SharedBufferState>;
     FrameMeta meta;
@@ -34,16 +37,30 @@ public:
     Frame() noexcept;
     ~Frame();
     Frame(SharedBufferPtr s);
+    Frame(std::vector<SharedBufferPtr> states);
+
+    static void* operator new(std::size_t size);
+
+    static void operator delete(void* p) noexcept;
     
     MemoryType type() const noexcept { return type_; }
     
     // 二次检查
-    void* data() const;
-    int dmabuf_fd() const;
+    void* data(int planeIndex = -1) const;
+    int dmabuf_fd(int planeIndex = -1) const;
 
-    size_t size() const { return state_->length; }
+    size_t size() const;
     uint64_t timestamp() const { return meta.timestamp_ns; }
-    SharedBufferPtr sharedState() const noexcept { return state_; }
+    SharedBufferPtr sharedState(int planeIndex = -1) const noexcept {
+        if (!mutiPlane_) {
+            return state_;
+        }
+        if (planeIndex < 0 || planeIndex >= states_.size()) {
+            fprintf(stderr, "Frame is mutiplane.\n");
+            return nullptr;
+        }
+        return states_[planeIndex];
+    }
     int index() const { return meta.index; }
 
     void setTimestamp(uint64_t ts) { meta.timestamp_ns = ts; }
@@ -53,9 +70,10 @@ public:
     }
 private:
     std::function<void(int)> bufReleasCallback_;
-    
+    std::atomic_bool mutiPlane_;
     MemoryType type_;
     SharedBufferPtr state_;
+    std::vector<SharedBufferPtr> states_;
 };
 
 #endif // !FRAME_H
