@@ -16,5 +16,5 @@ target_include_directories(utils
 )
 
 target_link_libraries(utils 
-    PUBLIC drm rga udev
+    PUBLIC drm rga udev rockchip_mpp
 )

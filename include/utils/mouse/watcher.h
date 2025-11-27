@@ -16,6 +16,7 @@
 #include <sys/ioctl.h>
 #include <vector>
 #include <mutex>
+#include <unordered_map>
 #include <linux/input.h>
 
 #include "fdWrapper.h"      // fd RAII处理类
@@ -49,7 +50,7 @@ private:
     std::atomic<uint64_t> m_sequence{0};
 
     // 回调管理
-    using Callback = std::function<void()>;
+    using Callback = std::function<void(uint16_t, uint8_t)>;    // type, value
     struct Handler {
         std::function<bool(const uint16_t)> pred;
         Callback cb;
@@ -63,29 +64,29 @@ public:
         mouseFd = std::move(mouseInfo.first);
         std::string devicePath = mouseInfo.second;
         if (mouseFd.get() < 0) {
-            fprintf(stderr, "Not find any mouse device.\n");
+            fprintf(stderr, "[MouseWatcher] Not find any mouse device.\n");
         }
         
         // 注册设备变动回调
         UdevMonitor::registerHandler("input", {"change", "add", "remove"}, [this](){
             // 检查移除的设备是否是当前鼠标设备
             this->pause();
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // 等待系统稳定
+            std::this_thread::sleep_for(std::chrono::milliseconds(5)); // 等待系统稳定
             auto newMouseInfo = this->getMouseInfo();
             std::lock_guard<std::mutex> fdLock(fdMtx);
             // 更新 mouseFd
             this->mouseFd = std::move(newMouseInfo.first);
             if (this->mouseFd.get() < 0) {
-                fprintf(stderr, "Mouse device disconnected.\n");
+                fprintf(stderr, "[MouseWatcher] Mouse device disconnected.\n");
             } else {
-                fprintf(stdout, "Mouse device changed to %s\n", newMouseInfo.second.c_str());
+                fprintf(stdout, "[MouseWatcher] Mouse device changed to %s\n", newMouseInfo.second.c_str());
                 this->start();
             }
         });
         // 初始化事件数据
         m_events.resize(2);
         
-        fprintf(stdout, "Mouse device: %s\n", devicePath.c_str());
+        fprintf(stdout, "[MouseWatcher] Mouse device: %s\n", devicePath.c_str());
     }
     
     void setScreenSize(int width, int height) {
@@ -131,7 +132,11 @@ public:
     void registerHandler(const std::vector<uint16_t>& eventCodes,  Callback cb) {
         // 原理参考 include/utils/udevMonitor.h
         std::unordered_set<uint16_t> actionSet(eventCodes.begin(), eventCodes.end());
-
+        fprintf(stdout, "[MouseWatcher] registed actions: \t");
+        for(auto& act : actionSet){
+            fprintf(stdout, "%u, ", act);
+        }
+        fprintf(stdout, "\n");
         auto pred = [actionSet](const uint16_t evCode) -> bool {
             return (actionSet.find(evCode) != actionSet.end());
         };
@@ -172,7 +177,8 @@ protected:
                 handlers = handlers_; // 复制一份避免锁住太久
                 }
                 for (auto& handler : handlers) { // 这里不保证一定可以在主线程前join, 依赖使用者的逻辑
-                    if (handler.pred(ev.code)) std::thread([cb=handler.cb](){ cb(); }).detach();
+                    if (handler.pred(ev.code)) 
+                        std::thread([code=ev.code, val=ev.value, cb=handler.cb]() { cb(code, val); }).detach();
                 }
             }
             
@@ -183,18 +189,16 @@ protected:
                 case REL_Y:         mouse_y += ev.value; keyName = "Y"; break;
                 case REL_WHEEL:     keyName = "wheel vertical"; break;
                 case REL_HWHEEL:    keyName = "wheel horizontal"; break;
-                case BTN_LEFT:      keyName = "Left"; break;
-                case BTN_RIGHT:     keyName = "Right"; break;
-                case BTN_MIDDLE:    keyName = "Middle"; break;
-                case BTN_SIDE:      keyName = "Side"; break;
-                case BTN_EXTRA:     keyName = "Extra"; break;
+                case BTN_LEFT:      keyName = "Left Button"; break;
+                case BTN_RIGHT:     keyName = "Right Button"; break;
+                case BTN_MIDDLE:    keyName = "Middle Button"; break;
+                case BTN_SIDE:      keyName = "Back Side Button"; break;    // 侧后键
+                case BTN_EXTRA:     keyName = "Forward Side Button"; break; // 侧前键
                 default: break;
             }
             if (!keyName) continue; // 非关心事件
-            // fprintf(stdout, "Mouse Event - Type: %u, Code: %u (%s), Value: %d\n",
-            //         ev.type, ev.code, keyName, ev.value);
             if (screenWidth == 0 || screenHeight == 0) {
-                fprintf(stderr, "Warning: Screen size not set, mouse position clamping may be invalid.\n");
+                fprintf(stderr, "[MouseWatcher] Warning: Screen size not set, mouse position clamping may be invalid.\n");
             }
             // 更新鼠标事件
             updateMouseEvent(mouse_x, mouse_y, ev.code, ev.value);

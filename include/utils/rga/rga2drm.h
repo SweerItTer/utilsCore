@@ -42,7 +42,46 @@ static const std::unordered_map<int, uint32_t> rgaToDrmMap = {
     {RK_FORMAT_YCrCb_422_P,  DRM_FORMAT_YVU422}
 };
 
-// 转换函数
+// DRM -> RGA 格式映射表
+static const std::unordered_map<uint32_t, int> drmToRgaMap = {
+    // --- RGB / ARGB ---
+    {DRM_FORMAT_RGB565,   RK_FORMAT_RGB_565},
+    {DRM_FORMAT_RGB888,   RK_FORMAT_RGB_888},
+    {DRM_FORMAT_BGR888,   RK_FORMAT_BGR_888},
+
+    {DRM_FORMAT_ABGR8888, RK_FORMAT_RGBA_8888},  // DRM:ABGR → RGA:RGBA
+    {DRM_FORMAT_ARGB8888, RK_FORMAT_BGRA_8888},  // DRM:ARGB → RGA:BGRA
+    {DRM_FORMAT_BGRA8888, RK_FORMAT_ARGB_8888},  // DRM:BGRA → RGA:ARGB
+    {DRM_FORMAT_RGBA8888, RK_FORMAT_ABGR_8888},  // DRM:RGBA → RGA:ABGR
+
+    {DRM_FORMAT_BGRX8888, RK_FORMAT_XRGB_8888},
+    {DRM_FORMAT_RGBX8888, RK_FORMAT_XBGR_8888},
+    {DRM_FORMAT_XBGR8888, RK_FORMAT_RGBX_8888},
+    {DRM_FORMAT_XRGB8888, RK_FORMAT_BGRX_8888},
+
+    // --- YUV 4:2:0 ---
+    {DRM_FORMAT_NV12,     RK_FORMAT_YCbCr_420_SP},
+    {DRM_FORMAT_NV21,     RK_FORMAT_YCrCb_420_SP},
+    {DRM_FORMAT_YUV420,   RK_FORMAT_YCbCr_420_P},
+    {DRM_FORMAT_YVU420,   RK_FORMAT_YCrCb_420_P},
+
+    // --- YUV 4:2:2 ---
+    {DRM_FORMAT_NV16,     RK_FORMAT_YCbCr_422_SP},
+    {DRM_FORMAT_NV61,     RK_FORMAT_YCrCb_422_SP},
+    {DRM_FORMAT_YUV422,   RK_FORMAT_YCbCr_422_P},
+    {DRM_FORMAT_YVU422,   RK_FORMAT_YCrCb_422_P}
+};
+
+// DRM -> RGA 转换函数
+inline int formatDRMtoRGA(uint32_t drmFmt) {
+    auto it = drmToRgaMap.find(drmFmt);
+    if (it != drmToRgaMap.end()) {
+        return it->second;
+    }
+    return -1; // 未找到对应格式
+}
+
+// RGA -> DRM 转换函数
 inline uint32_t formatRGAtoDRM(int rgaFmt) {
     auto it = rgaToDrmMap.find(rgaFmt);
     if (it != rgaToDrmMap.end()) {

@@ -39,7 +39,7 @@ void asyncThreadPool::stop() {
 
 void asyncThreadPool::worker()
 {
-    fprintf(stdout, "ThreadPool worker TID: %d \n", syscall(SYS_gettid));
+    fprintf(stdout, "[ThreadPool] worker TID: %d \n", syscall(SYS_gettid));
     std::function<void()> task;
 
     while (running_) {

@@ -75,25 +75,27 @@ DmaBufferPtr readImage(const std::string &image_path, uint32_t format) {
     }
 
     // 创建 DMABUF
+    std::cout << "Try to create DmaBuffer." << std::endl;
     auto dma_buf = DmaBuffer::create(converted.cols, converted.rows, format, 0);
     if (!dma_buf) {
         std::cerr << "Failed to create DmaBuffer" << std::endl;
         exit(-1);
     }
     
-    // ==================== 关键修复：按行拷贝 ====================
-    uint8_t* dst = (uint8_t*)dma_buf->map();
+    // ==================== 按行拷贝: mat->dmabuf ====================
     uint8_t* src = converted.data;
+    uint8_t* dst = (uint8_t*)dma_buf->map();
     
     int width = converted.cols;
     int height = converted.rows;
-    int bytes_per_pixel = converted.channels();
-    int src_row_bytes = width * bytes_per_pixel; // OpenCV 行字节数（紧密）
-    int dst_stride = dma_buf->pitch();  // DmaBuffer 行字节数（对齐）
+    int src_stride = width * converted.channels(); // OpenCV 行字节数（紧密）
+    int dst_stride = dma_buf->pitch();             // DmaBuffer 行字节数（对齐）
         
     // 逐行拷贝
     for (int y = 0; y < height; y++) {
-        memcpy(dst + y * dst_stride, src + y * src_row_bytes, src_row_bytes);
+        memcpy(dst + y * dst_stride,   // DmaBuffer 的第 y 行起始地址
+            src + y * src_stride,      // OpenCV 的第 y 行起始地址
+            src_stride);               // 只拷贝有效数据, 不拷贝 padding
     }
 
     dma_buf->unmap();

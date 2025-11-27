@@ -15,7 +15,7 @@ RgaConverter &RgaConverter::instance()
 RgaConverter::RgaConverter() {
     // 初始化RGA上下文
     m_rga.RkRgaInit();
-    fprintf(stdout, "%s", querystring(RGA_VERSION));
+    fprintf(stdout, "%s\t", querystring(RGA_VERSION));
     m_initialized = true;
 }
 
@@ -35,13 +35,13 @@ IM_STATUS RgaConverter::FormatTransform(RgaParams& params){
         return IM_STATUS_ILLEGAL_PARAM;
     }
     
-    IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
-    if (IM_STATUS_NOERROR != ret) {
-        fprintf(stderr, "%s", imStrError(ret));
-        return ret;
-    }
+    // IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
+    // if (IM_STATUS_NOERROR != ret) {
+    //     fprintf(stderr, "%s", imStrError(ret));
+    //     return ret;
+    // }
 
-    ret = imcvtcolor(params.src, params.dst, params.src.format, params.dst.format);
+    IM_STATUS ret = imcvtcolor(params.src, params.dst, params.src.format, params.dst.format);
     if (IM_STATUS_SUCCESS != ret) {
         fprintf(stderr, "%s", imStrError(ret));
     }
@@ -53,14 +53,15 @@ IM_STATUS RgaConverter::ImageResize(RgaParams& params){
     if (!m_initialized) {
         return IM_STATUS_NOT_SUPPORTED;
     }
-    if (params.dst.width == params.src.width && params.dst.height == params.src.height){
-        return IM_STATUS_ILLEGAL_PARAM;
-    }
-
+    
     IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
     if (ret != IM_STATUS_NOERROR) {
         fprintf(stderr, "%s", imStrError(ret));
         return ret;
+    }
+
+    if (params.dst.width == params.src.width && params.dst.height == params.src.height){
+        return imcopy(params.src, params.dst);
     }
 
     ret = imresize(params.src, params.dst);
@@ -76,8 +77,8 @@ IM_STATUS RgaConverter::ImageFill(rga_buffer_t& dst_buffer, im_rect& dst_rect, c
         imcolor |= ((unsigned char)color << (i * 8));
     }
     
-    fprintf(stdout, "fill dst image (x y w h)=(%d %d %d %d) with color=0x%x\n",
-        dst_rect.x, dst_rect.y, dst_rect.width, dst_rect.height, imcolor);
+    // fprintf(stdout, "fill dst image (x y w h)=(%d %d %d %d) with color=0x%x\n",
+    //     dst_rect.x, dst_rect.y, dst_rect.width, dst_rect.height, imcolor);
     IM_STATUS ret = imfill(dst_buffer, dst_rect, imcolor); // 填充指定区域为目标颜色
 
     if (ret != IM_STATUS_SUCCESS) {

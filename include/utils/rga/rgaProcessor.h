@@ -107,6 +107,7 @@ private:
 
     std::unique_ptr<asyncThreadPool> rgaThreadPool;
     std::deque<std::future<FramePtr>> futs;
+    std::mutex futsMutex;
     
     uint32_t width_;
     uint32_t height_;

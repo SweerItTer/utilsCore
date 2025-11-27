@@ -19,6 +19,9 @@
 #include "orderedQueue.h"
 #include "asyncThreadPool.h"
 #include "mouse/watcher.h"
+#include "sys/cpuMonitor.h"
+#include "sys/memoryMonitor.h"
+#include "encoderTest.h"
 
 using namespace DrmDev;
 
@@ -59,7 +62,7 @@ int mpmcTestMaxPerf() {
                     continue;
                 }
                 TimedBuffer item;
-                item.buffer = DmaBuffer::create(640, 640, DRM_FORMAT_RGB888, 0);
+                item.buffer = DmaBuffer::create(640, 640, DRM_FORMAT_RGB888, 0, 0);
                 item.enqueue_time = std::chrono::steady_clock::now();
                 testQueue.enqueue(std::move(item));
                 total_produced++;
@@ -126,7 +129,7 @@ int spscTestMaxPerf() {
     producer = std::thread([&testQueue, &total_produced] {
         while (running) {
             auto item = std::make_unique<TimedBuffer>();
-            item->buffer = DmaBuffer::create(640, 640, DRM_FORMAT_RGB888, 0);
+            item->buffer = DmaBuffer::create(640, 640, DRM_FORMAT_RGB888, 0, 0);
             item->enqueue_time = std::chrono::steady_clock::now();
             testQueue.enqueue(std::move(item));
             total_produced++;
@@ -194,7 +197,7 @@ int orderedQueueTest() {
             }
             // 模拟构造一帧
             auto sptr = std::make_shared<SharedBufferState>(
-                DmaBuffer::create(640, 640, DRM_FORMAT_RGB888, 0));
+                DmaBuffer::create(640, 640, DRM_FORMAT_RGB888, 0, 0));
             FramePtr frame(new Frame(sptr));
             frame->meta.frame_id = frame_id.fetch_add(1, std::memory_order_relaxed);
 
@@ -379,7 +382,7 @@ int dmabufTest()
 
     for (int i = 0; i < 8; ++i)
     {
-        DmaBufferPtr buf = DmaBuffer::create(1920, 1080, DRM_FORMAT_XRGB8888, 0);
+        DmaBufferPtr buf = DmaBuffer::create(1920, 1080, DRM_FORMAT_XRGB8888, 0, 0);
         queue_.enqueue(std::move(buf));
     }
     auto size = queue_.size();
@@ -491,10 +494,10 @@ int mouseTest(){
     std::cout << "Press Ctrl+C to stop.\n";
     int x = 0;
     int y = 0;
-    mouse.registerHandler({BTN_LEFT}, [](){
+    mouse.registerHandler({BTN_LEFT}, [](uint16_t ty, uint8_t val){
         std::cout << "\nLeft button clicked!\n";
     });
-    mouse.registerHandler({BTN_RIGHT}, [](){
+    mouse.registerHandler({BTN_RIGHT}, [](uint16_t ty, uint8_t val){
         std::cout << "\nRight button clicked!\n";
     });
     while (running) {
@@ -503,6 +506,36 @@ int mouseTest(){
     }
     mouse.stop();
     std::cout << "Mouse Test stopped.\n" << std::endl;
+    return 0;
+}
+
+int resourceMonitorTest(){
+    CpuMonitor cpu_monitor(500);  // 500ms 采样间隔
+    MemoryMonitor mem_monitor(500);
+
+    float mem_usage = 0.0f;
+    float cpu_usage = 0.0f;
+
+    // 初始化清屏，设置起始位置
+    fprintf(stdout, "\033[2J\033[H"); // 清屏并移到左上角
+    fflush(stdout);
+
+    while (running) {
+        cpu_usage = cpu_monitor.getUsage();
+        mem_usage = mem_monitor.getUsage();
+
+        // 移动光标到第一行，覆盖刷新
+        fprintf(stdout, "\033[1;1H"); // 移动到第1行第1列
+        fprintf(stdout, "CPU usage:  %.1f%%\033[K\n", cpu_usage); // 清行尾
+        fprintf(stdout, "Memory usage: %.1f%%\033[K", mem_usage); // 无换行，清行尾
+        fflush(stdout); // 立即刷新输出
+
+        sleep(1);
+    }
+
+    // 退出时清屏
+    fprintf(stdout, "\033[2J\033[H");
+    fflush(stdout);
     return 0;
 }
 
@@ -527,6 +560,12 @@ int main(int argc, char const *argv[]) {
         {"--layertest", layerTest},
         {"--mousetest", mouseTest},
         {"--devtest", drmDevicesControllerTest},
+        {"--restest", resourceMonitorTest},
+        {"--ctxtest", ENCTest::contextInit},
+        {"--coretest", ENCTest::coreTest},
+        {"--RGA_coretest", ENCTest::rgaCopy_coreTest},
+        {"--streamtest", ENCTest::streamTest},
+        {"--recordtest", ENCTest::cameraRecordTest},
         {"--fbshow", [](){ 
             FrameBufferTest test;
             test.start();

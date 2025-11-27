@@ -56,6 +56,7 @@ public:
             return state_;
         }
         if (planeIndex < 0 || planeIndex >= states_.size()) {
+            fprintf(stderr, "Frame is mutiplane.\n");
             return nullptr;
         }
         return states_[planeIndex];

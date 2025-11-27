@@ -228,17 +228,17 @@ private:
                 continue;
             }
             // 取出该帧的drmbuf
-            auto dmabuf = frame->sharedState(0)->dmabuf_ptr;
-            auto dmabuf2 = DmaBuffer::importFromFD(
-                dmabuf->fd(),
-                dmabuf->width(),
-                dmabuf->height(),
-                dmabuf->format(),
-                dmabuf->size(),
-                dmabuf->width() * dmabuf->height()
+            auto Y_buf = frame->sharedState(0)->dmabuf_ptr;
+            auto UV_buf = DmaBuffer::importFromFD(
+                Y_buf->fd(),
+                Y_buf->width(),
+                Y_buf->height() / 2,                  // UV hight = Y height / 2
+                Y_buf->format(),
+                Y_buf->pitch() * Y_buf->height() / 2, // UV Size
+                Y_buf->pitch() * Y_buf->height()      // UV Offset = Y Size
             );
-            buffers.emplace_back(std::move(dmabuf));
-            buffers.emplace_back(std::move(dmabuf2));
+            buffers.emplace_back(std::move(Y_buf));
+            buffers.emplace_back(std::move(UV_buf));
             // 更新fb,同时回调触发合成器更新fbid
             frameLayer->updateBuffer(std::move(buffers));
             // 提交一次
@@ -260,7 +260,6 @@ private:
                 continue;
             }
             if (!mouseMonitor.getPosition(x, y)) {
-                fprintf(stderr, "1");
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             }
