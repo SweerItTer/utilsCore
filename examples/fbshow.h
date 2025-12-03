@@ -3,6 +3,7 @@
 #include <functional>
 #include <iostream>
 #include <thread>
+#include <numeric>
 
 #include "rga/rgaProcessor.h"
 #include "v4l2/cameraController.h"
@@ -24,6 +25,133 @@ extern int layerTest();
 extern int drmDevicesControllerTest();
 extern int rgaTest();
 
+class ComprehensiveAnalyzer {
+private:
+    // 理论帧率计算
+    std::chrono::steady_clock::time_point m_lastProcessingTime;
+    int m_processingFrameCount = 0;
+    double m_theoreticalFps = 0.0;
+    
+    // 实际帧率计算
+    std::chrono::steady_clock::time_point m_lastDisplayTime;
+    int m_displayFrameCount = 0;
+    double m_actualFps = 0.0;
+    
+    // 详细耗时统计
+    std::vector<int64_t> m_queueTimes;
+    std::vector<int64_t> m_dmaTimes;
+    std::vector<int64_t> m_updateTimes;
+    std::vector<int64_t> m_commitTimes;
+    std::vector<int64_t> m_totalProcessingTimes;
+    
+    std::chrono::steady_clock::time_point m_lastLogTime;
+    
+public:
+    ComprehensiveAnalyzer() {
+        m_lastProcessingTime = m_lastDisplayTime = m_lastLogTime = std::chrono::steady_clock::now();
+    }
+    
+    void markProcessingStart() {
+        m_lastProcessingTime = std::chrono::steady_clock::now();
+    }
+    
+    void markProcessingEnd(int64_t queueTime, int64_t dmaTime, int64_t updateTime, int64_t commitTime, int64_t totalTime) {
+        m_processingFrameCount++;
+        
+        // 记录详细耗时
+        m_queueTimes.push_back(queueTime);
+        m_dmaTimes.push_back(dmaTime);
+        m_updateTimes.push_back(updateTime);
+        m_commitTimes.push_back(commitTime);
+        m_totalProcessingTimes.push_back(totalTime);
+        
+        // 计算理论帧率（基于处理耗时）
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastLogTime).count();
+        
+        if (elapsed >= 1000) {
+            // 计算理论FPS（基于处理能力）
+            int64_t avgProcessingTime = std::accumulate(m_totalProcessingTimes.begin(), m_totalProcessingTimes.end(), 0LL) / m_totalProcessingTimes.size();
+            m_theoreticalFps = 1000000.0 / avgProcessingTime;
+            
+            // 计算实际FPS（基于显示）
+            m_actualFps = m_displayFrameCount * 1000.0 / elapsed;
+            
+            // 输出完整性能报告
+            printComprehensiveReport();
+            
+            // 重置计数器
+            m_processingFrameCount = 0;
+            m_displayFrameCount = 0;
+            m_queueTimes.clear();
+            m_dmaTimes.clear();
+            m_updateTimes.clear();
+            m_commitTimes.clear();
+            m_totalProcessingTimes.clear();
+            m_lastLogTime = now;
+        }
+    }
+    
+    void markFrameDisplayed() {
+        m_displayFrameCount++;
+    }
+    
+    void printComprehensiveReport() {
+        // 计算各阶段平均耗时
+        int64_t avgQueueTime = std::accumulate(m_queueTimes.begin(), m_queueTimes.end(), 0LL) / m_queueTimes.size();
+        int64_t avgDmaTime = std::accumulate(m_dmaTimes.begin(), m_dmaTimes.end(), 0LL) / m_dmaTimes.size();
+        int64_t avgUpdateTime = std::accumulate(m_updateTimes.begin(), m_updateTimes.end(), 0LL) / m_updateTimes.size();
+        int64_t avgCommitTime = std::accumulate(m_commitTimes.begin(), m_commitTimes.end(), 0LL) / m_commitTimes.size();
+        int64_t avgTotalTime = std::accumulate(m_totalProcessingTimes.begin(), m_totalProcessingTimes.end(), 0LL) / m_totalProcessingTimes.size();
+        
+        printf("\n=== 完整性能分析报告 ===\n");
+        printf("实际显示帧率: %.2f FPS\n", m_actualFps);
+        printf("理论处理帧率: %.2f FPS\n", m_theoreticalFps);
+        printf("性能利用率: %.1f%%\n", (m_actualFps / m_theoreticalFps) * 100);
+        
+        printf("\n--- 详细耗时分析 ---\n");
+        printf("队列等待: %lldus (%.1f%%)\n", avgQueueTime, (avgQueueTime * 100.0 / avgTotalTime));
+        printf("DMA处理: %lldus (%.1f%%)\n", avgDmaTime, (avgDmaTime * 100.0 / avgTotalTime));
+        printf("缓冲区更新: %lldus (%.1f%%)\n", avgUpdateTime, (avgUpdateTime * 100.0 / avgTotalTime));
+        printf("提交操作: %lldus (%.1f%%)\n", avgCommitTime, (avgCommitTime * 100.0 / avgTotalTime));
+        printf("单帧总处理: %lldus\n", avgTotalTime);
+        
+        // 瓶颈分析
+        printf("\n--- 瓶颈诊断 ---\n");
+        if (m_actualFps < 25.0) {
+            printf("🔴 帧率不足: ");
+            if (m_actualFps > 19.5 && m_actualFps < 20.5) {
+                printf("锁定在20FPS模式\n");
+            } else {
+                printf("仅 %.1f FPS\n", m_actualFps);
+            }
+            
+            if (m_theoreticalFps > 1000.0 && m_actualFps < 30.0) {
+                printf("💡 理论处理能力充足，瓶颈在显示流水线\n");
+            } else if (m_theoreticalFps < 30.0) {
+                printf("💡 理论处理能力不足\n");
+            }
+        } else {
+            printf("✅ 帧率正常: %.1f FPS\n", m_actualFps);
+        }
+        
+        // 检查各阶段占比
+        std::vector<std::pair<std::string, int64_t>> stages = {
+            {"队列等待", avgQueueTime},
+            {"DMA处理", avgDmaTime},
+            {"缓冲区更新", avgUpdateTime},
+            {"提交操作", avgCommitTime}
+        };
+        
+        auto maxStage = *std::max_element(stages.begin(), stages.end(), 
+            [](const auto& a, const auto& b) { return a.second < b.second; });
+        
+        if (maxStage.second > avgTotalTime * 0.3) { // 超过30%
+            printf("💡 主要瓶颈: %s (占%.1f%%)\n", maxStage.first.c_str(), 
+                    (maxStage.second * 100.0 / avgTotalTime));
+        }
+    }
+};
 
 class FrameBufferTest{
     // 16.16 定位
@@ -141,18 +269,18 @@ public:
     explicit FrameBufferTest(){
         // 创建队列
 // 准备思路: v4l2捕获后图像直接显示到DRM上, 若开启推理才让RGA实际跑起来
-        rawFrameQueue  	= std::make_shared<FrameQueue>(2);
+        rawFrameQueue  	= std::make_shared<FrameQueue>(31);
         
         // 相机配置
         cctrCfg = CameraController::Config {
-            .buffer_count = 2,
+            .buffer_count = 25,
             .plane_count = 2,
             .use_dmabuf = true,
             .device = "/dev/video0",
-            // .width = 3840,
-            // .height = 2160,
-            .width = 1280,
-            .height = 720,
+            .width = 3840,
+            .height = 2160,
+            // .width = 1280,
+            // .height = 720,
             .format = cctrFormat
         };
         
@@ -213,44 +341,82 @@ public:
 
 private:
     // 线程实现
-    void run(){        
+    void run(){              
+        int totalFrames = 0;
+        int waitRefreshCount = 0;
+        int waitQueueCount = 0;
+        ComprehensiveAnalyzer analyzer;
+        
         while (running) {
-            // 等待刷新完成
+            auto loopStart = std::chrono::steady_clock::now();
+                        
+            // 刷新等待
             if (true == refreshing) {
+                waitRefreshCount++;
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             }
             
-            FramePtr frame; // 自动释放drmbuf
+            FramePtr frame;
             std::vector<DmaBufferPtr> buffers;
+            
+            // 队列检查
+            auto queueStart = std::chrono::steady_clock::now();
             if (!rawFrameQueue->try_dequeue(frame)) {
+                waitQueueCount++;
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
-            // 取出该帧的drmbuf
+            analyzer.markProcessingStart();
+            
+            auto queueEnd = std::chrono::steady_clock::now();
+            auto queueTime = std::chrono::duration_cast<std::chrono::microseconds>(queueEnd - queueStart).count();
+            
+            // DMA缓冲区处理
+            auto dmaStart = std::chrono::steady_clock::now();
             auto Y_buf = frame->sharedState(0)->dmabuf_ptr;
             auto UV_buf = DmaBuffer::importFromFD(
                 Y_buf->fd(),
                 Y_buf->width(),
-                Y_buf->height() / 2,                  // UV hight = Y height / 2
+                Y_buf->height() / 2,
                 Y_buf->format(),
-                Y_buf->pitch() * Y_buf->height() / 2, // UV Size
-                Y_buf->pitch() * Y_buf->height()      // UV Offset = Y Size
+                Y_buf->pitch() * Y_buf->height() / 2,
+                Y_buf->pitch() * Y_buf->height()
             );
             buffers.emplace_back(std::move(Y_buf));
             buffers.emplace_back(std::move(UV_buf));
-            // 更新fb,同时回调触发合成器更新fbid
+            auto dmaEnd = std::chrono::steady_clock::now();
+            auto dmaTime = std::chrono::duration_cast<std::chrono::microseconds>(dmaEnd - dmaStart).count();
+            
+            // 更新缓冲区
+            auto updateStart = std::chrono::steady_clock::now();
             frameLayer->updateBuffer(std::move(buffers));
-            // 提交一次
+            auto updateEnd = std::chrono::steady_clock::now();
+            auto updateTime = std::chrono::duration_cast<std::chrono::microseconds>(updateEnd - updateStart).count();
+
+            // 提交
+            auto commitStart = std::chrono::steady_clock::now();
             int fence = -1;
             compositor->commit(fence);
-            // 监听fence
-            FenceWatcher::instance().watchFence(fence, [this](){
+            auto commitEnd = std::chrono::steady_clock::now();
+            auto commitTime = std::chrono::duration_cast<std::chrono::microseconds>(commitEnd - commitStart).count();
+                        
+            // Fence监听 - 实际显示时间点
+            FenceWatcher::instance().watchFence(fence, [&analyzer, this](){
                 frameLayer->onFenceSignaled();
+                analyzer.markFrameDisplayed();
             });
+            totalFrames++;
+
+            // 总处理时间
+            auto loopEnd = std::chrono::steady_clock::now();
+            auto totalTime = std::chrono::duration_cast<std::chrono::microseconds>(loopEnd - loopStart).count();
+            
+            // 记录处理完成
+            analyzer.markProcessingEnd(queueTime, dmaTime, updateTime, commitTime, totalTime);
         }
     }
-
+    // 鼠标光标
     void cursorLoop(){
         int x = 0, y = 0;           
         while (running) {
@@ -312,9 +478,9 @@ private:
             compositor->updateLayer(cursorLayer);
         }
     }
-
+    
+    // 加载光标图像
     void loadCursorIcon(const std::string& iconPath) {
-        // 加载光标图像
         auto cursorIcon = std::move(readImage(iconPath, DRM_FORMAT_ABGR8888));
         if (!cursorIcon) {
             std::cout << "Failed to create cursor DmaBuffer.\n";

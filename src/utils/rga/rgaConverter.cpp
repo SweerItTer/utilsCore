@@ -20,9 +20,13 @@ RgaConverter::RgaConverter() {
 }
 
 RgaConverter::~RgaConverter() {
+    deinit();
+}
+
+void RgaConverter::deinit() {
     if (m_initialized) {
-        // 清理RGA资源
-        m_rga.RkRgaDeInit();
+        m_rga.RkRgaDeInit(); 
+        m_initialized = false;
     }
 }
 

@@ -32,7 +32,7 @@
 #include "mpp/encoderCore.h"
 
 /// 默认每片 packet 数量(根据I帧适应) (每N个I帧切一次)
-static constexpr size_t STREAMWRITER_DEFAULT_I_PACKETS_PER_SEGMENT = 30;
+static constexpr size_t STREAMWRITER_DEFAULT_I_PACKETS_PER_SEGMENT = 60;
 
 /// 写线程数量(固定为 2)
 static constexpr size_t STREAMWRITER_WRITER_COUNT = 2;
@@ -73,12 +73,13 @@ private:
      */
     class FILEGuard {
     public:
-        explicit FILEGuard(FILE *f) : fp_(f) {}
+        explicit FILEGuard(FILE *f);
         ~FILEGuard();
         FILE *get() const { return fp_; }
         void reset(FILE *f);
     private:
         FILE *fp_ = nullptr;
+        int fd = 0;
     };
 
     /**

@@ -197,7 +197,7 @@ public:
      * @return true 配置兼容ffmpeg
      * @return false 配置可能导致ffmpeg转换问题
      */
-    static bool validateForFfmpeg(const Config& cfg) {
+    static void validateForFfmpeg(const Config& cfg) {
         // Check format compatibility
         if (cfg.prep_format != MPP_FMT_YUV420SP && cfg.prep_format != MPP_FMT_YUV420P) {
             fprintf(stderr, "[MppEncoderContext] WARNING: Format %d may not be optimal for ffmpeg. Use MPP_FMT_YUV420SP (NV12).\n", cfg.prep_format);
@@ -217,8 +217,6 @@ public:
         if (cfg.codec_type == CodingType::H264 && cfg.h264_profile != 77 && cfg.h264_profile != 100) {
             fprintf(stderr, "[MppEncoderContext] WARNING: H264 profile %d may not be widely supported. Use 77 (Main) or 100 (High).\n", cfg.h264_profile);
         }
-
-        return true;
     }
 
     /**
@@ -356,7 +354,7 @@ inline static MppEncoderContext::Config defconfig_video_recording(int width, int
     cfg.rc_color_range_override = 1;  // MPEG range (16-235)
 
     // 禁用高级特性以获得稳定性 (参考MPP测试代码默认禁用)
-    cfg.rc_low_delay   = false;
+    cfg.rc_low_delay   = true;
     cfg.rc_super_mode  = 0;
     cfg.rc_debreath_en = false;
     cfg.rc_max_reenc_times = 1;
@@ -367,20 +365,67 @@ inline static MppEncoderContext::Config defconfig_video_recording(int width, int
     return cfg;
 }
 
+// 生成 JPEG 编码器配置
+inline static MppEncoderContext::Config createJpegConfig(
+    uint32_t width, uint32_t height,  MppFrameFormat format = MPP_FMT_YUV420SP,
+    int quality = 8  // 0-10
+) {
+    MppEncoderContext::Config cfg;
+    // ---- 基础配置 ----
+    cfg.codec_type = MppEncoderContext::CodingType::MJPEG;
+    
+    // ---- PREP ----
+    cfg.prep_width = width;
+    cfg.prep_height = height;
+    cfg.prep_format = format;
+    cfg.prep_hor_stride = 0;  // 自动计算
+    cfg.prep_ver_stride = 0;
+    cfg.prep_rotation = MPP_ENC_ROT_0;
+    cfg.prep_mirroring = 0;
+    
+    // ---- JPEG 质量参数 ----
+    cfg.jpeg_q_factor = quality * 10;  // 转换为 0-100
+    cfg.jpeg_qf_max = 99;
+    cfg.jpeg_qf_min = 10;
+    
+    // ---- 禁用 H.264/HEVC 无关参数 ----
+    cfg.rc_mode = MPP_ENC_RC_MODE_FIXQP;  // JPEG 不需要码率控制
+    cfg.rc_fps_in_flex = 0;
+    cfg.rc_fps_in_num = 1;   // JPEG 单帧,帧率无意义
+    cfg.rc_fps_in_denorm = 1;
+    cfg.rc_fps_out_flex = 0;
+    cfg.rc_fps_out_num = 1;
+    cfg.rc_fps_out_denorm = 1;
+    cfg.rc_gop = 0;          // JPEG 无 GOP
+    cfg.rc_bps_target = 0;   // JPEG 无码率控制
+    cfg.rc_bps_max = 0;
+    cfg.rc_bps_min = 0;
+    
+    // ---- SEI/Header ----
+    cfg.sei_mode = MPP_ENC_SEI_MODE_DISABLE;
+    cfg.header_mode = MPP_ENC_HEADER_MODE_EACH_IDR;
+    
+    return cfg;
+}
+
 /// 获取常用分辨率视频录制配置
-inline static MppEncoderContext::Config defconfig_720p_video() {
-    return defconfig_video_recording(1280, 720, 60, 0);
+inline static MppEncoderContext::Config defconfig_480p_video(int fps=120) {
+    return defconfig_video_recording(640, 480, fps, 0);
 }
 
-inline static MppEncoderContext::Config defconfig_1080p_video() {
-    return defconfig_video_recording(1920, 1080, 60, 0);
+inline static MppEncoderContext::Config defconfig_720p_video(int fps=60) {
+    return defconfig_video_recording(1280, 720, fps, 0);
 }
 
-inline static MppEncoderContext::Config defconfig_4k_video() {
-    return defconfig_video_recording(3840, 2160, 30, 25);
+inline static MppEncoderContext::Config defconfig_1080p_video(int fps=60) {
+    return defconfig_video_recording(1920, 1080, fps, 0);
 }
 
-inline static MppEncoderContext::Config defconfig_2k_video() {
-    return defconfig_video_recording(2560, 1440, 30, 10);
+inline static MppEncoderContext::Config defconfig_4k_video(int fps=30) {
+    return defconfig_video_recording(3840, 2160, fps, 25);
+}
+
+inline static MppEncoderContext::Config defconfig_2k_video(int fps=30) {
+    return defconfig_video_recording(2560, 1440, fps, 10);
 }
 } // namespace DefaultConfigs

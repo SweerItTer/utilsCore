@@ -36,7 +36,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
         fprintf(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
         return nullptr;
     }
-    fprintf(stdout, "[DmaBuffer] ratio_w=%.2f, ratio_h=%.2f, bpp=%u\n", ratio_w, ratio_h, bpp);
+    // fprintf(stdout, "[DmaBuffer] ratio_w=%.2f, ratio_h=%.2f, bpp=%u\n", ratio_w, ratio_h, bpp);
     // 按不同对齐方式尝试分配
     constexpr uint32_t align_options[] = { 16, 32, 64, 128};
     for (uint32_t align : align_options) {
@@ -68,8 +68,8 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
             fprintf(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
             return nullptr;
         }
-        fprintf(stdout, "[DmaBuffer] Created dumb buffer: %ux%u, aligned: %ux%u, pitch(byte)=%u, size=%lu, align=%u\n",
-                width, height, aligned_width, aligned_height, create_arg.pitch, create_arg.size, align);
+        // fprintf(stdout, "[DmaBuffer] Created dumb buffer: %ux%u, aligned: %ux%u, pitch(byte)=%u, size=%lu, align=%u\n",
+        //         width, height, aligned_width, aligned_height, create_arg.pitch, create_arg.size, align);
         dmaBufferData data = {
             create_arg.handle, width, height,
             format, create_arg.pitch, create_arg.size, offset, bpp/8

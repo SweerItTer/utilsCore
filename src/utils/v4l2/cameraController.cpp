@@ -560,7 +560,7 @@ void CameraController::Impl::reclaimAllBuffers()
         for (int i = 0; i < buffers_.size(); i++) {
             if (true == buffers_[i].queued) continue; // 已归还(在内核排队)
             
-            if (0 == returnBuffer(i)){
+            if (0 == returnBuffer(i) || EEXIST == errno){
                 // 归还成功
                 continue;
             } else if (EAGAIN == errno) {

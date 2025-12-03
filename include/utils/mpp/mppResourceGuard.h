@@ -23,13 +23,13 @@ private:
 // MppBuffer RAII 守卫类
 class MppBufferGuard {
 public:
-    explicit MppBufferGuard(MppBuffer* b) : buffer_(b) {}
-    ~MppBufferGuard() { if (buffer_ && *buffer_) mpp_buffer_put(*buffer_); }
-    MppBuffer operator->() const { return *buffer_; }
-    MppBuffer get() const { return *buffer_; }
-    void release() { buffer_ = nullptr; }
+    explicit MppBufferGuard(MppBuffer b) : handle(b) {}
+    ~MppBufferGuard() { if (handle) mpp_buffer_put(handle); handle = nullptr; }
+    MppBuffer operator->() const { return handle; }
+    MppBuffer get() const { return handle; }
+    void release() { handle = nullptr; }
 private:
-    MppBuffer* buffer_;
+    MppBuffer handle = nullptr;
 };
 
 // MppPacket RAII 守卫类

@@ -25,6 +25,7 @@
 #include "mpp/streamWriter.h"
 
 #include <cstdio>
+#include <fcntl.h>
 #include <cstring>
 #include <chrono>
 #include <iomanip>
@@ -72,6 +73,10 @@ static void extract_sps_pps(const uint8_t* data, size_t len, std::vector<uint8_t
 }
 
 // -------------------- FILEGuard --------------------
+StreamWriter::FILEGuard::FILEGuard(FILE * f) {
+    reset(f);
+}
+
 StreamWriter::FILEGuard::~FILEGuard() {
     if (nullptr != fp_) {
         fclose(fp_);
@@ -81,9 +86,13 @@ StreamWriter::FILEGuard::~FILEGuard() {
 
 void StreamWriter::FILEGuard::reset(FILE *f) {
     if (fp_) {
+        fflush(fp_); // 保证写盘
+        posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
         fclose(fp_);
     }
     fp_ = f;
+    fd = fileno(fp_);
+    posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 }
 
 // -------------------- 构造/初始化/析构 --------------------
@@ -135,18 +144,17 @@ StreamWriter::~StreamWriter() {
 }
 
 void StreamWriter::stop() {
-    while (!dispatchQueue_.empty() && !currentWriter_->queue.empty() && !idleWriter_->queue.empty());    
-    running_ = false;
-
-    // 唤醒所有等待写线程
-    {
-        std::lock_guard<std::mutex> lkA(writerA_.mtx);
-        std::lock_guard<std::mutex> lkB(writerB_.mtx);
-    
+    do{
+        // 写完数据        
         writerA_.cv.notify_all();
         writerB_.cv.notify_all();
-    }
-    dispatchCv_.notify_all();
+        dispatchCv_.notify_all();
+        dispatchCv_.notify_all();
+        writerA_.cv.notify_all();
+        writerB_.cv.notify_all();
+    } while (!dispatchQueue_.empty() && !writerA_.queue.empty() && !writerB_.queue.empty());  
+    // 唤醒所有等待写线程
+    running_ = false;
 
     // join
     if (dispatchThread_.joinable()) dispatchThread_.join();
@@ -232,7 +240,9 @@ bool StreamWriter::pushMeta(const MppEncoderCore::EncodedMeta &meta) {
  */
 void StreamWriter::writerLoop(WriterCtx *ctx) {
     if (nullptr == ctx) return;
-    FILE* last_fp = nullptr; // 检测文件是否变化
+    constexpr size_t FLUSH_THRESHOLD = 1024 * 1024 * 2; // 2MB
+    size_t accumulatedSize{0};
+
     while (running_) {        
         MppEncoderCore::EncodedPacketPtr packet;
         MppEncoderCore::EncodedMeta meta;
@@ -260,50 +270,33 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
         }
         // 写入文件
         FILE* fp = ctx->fp->get();
+        int fd = fileno(fp);
         size_t length = packet->length();
-        
+
+        // 顺序访问优化
+        posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
         size_t written = fwrite(data, 1, length, fp);
-        if (fflush(fp) < 0) {
-            fprintf(stderr, "[StreamWriter] Flush STREAM error:%s\n", std::strerror(errno));
-        }
+             
         if (written != length) {
             fprintf(stderr, "[StreamWriter] Insufficient actual data written: %zu/%zu\n", written, length);
         }
+        
+        // 更新累加大小
+        accumulatedSize += written;
+        
+        // 达到阈值时刷新并重置累加器
+        if (accumulatedSize < FLUSH_THRESHOLD) {
+            continue;
+        }
+        if (fflush(fp) < 0) {
+            // 将缓冲数据推到内核缓冲区(需要马上可读才需要这一步)
+            fprintf(stderr, "[StreamWriter] Flush STREAM error:%s\n", std::strerror(errno));
+        }
+        accumulatedSize = 0;
         // SlotGuard自动释放
     }
-    // 线程退出时自动由 FILEGuard 关闭文件(unique_ptr 析构)
+    // 线程退出时自动由 FILEGuard 关闭文件
 }
-
-/*if (packet->isKeyframe()){
-            auto count = currentPacketCount_.fetch_add(1, std::memory_order_relaxed) + 1;
-            {
-                std::lock_guard<std::mutex> lk(ctx->mtx);
-                if (ctx->sps_pps_.empty()){
-                    ctx->sps_pps_.assign(reinterpret_cast<uint8_t*>(data),
-                                        reinterpret_cast<uint8_t*>(data) + length);
-                }
-            }
-            if(count >= packetsPerSegment_){
-                std::lock_guard<std::mutex> lk(idleWriter_->mtx);
-                idleWriter_->sps_pps_.assign(reinterpret_cast<uint8_t*>(data),
-                                            reinterpret_cast<uint8_t*>(data) + length);
-                continue;
-            }
-        }
-        // ----------【切段检测】----------
-        if (fp != last_fp) {
-            std::lock_guard<std::mutex> lk(ctx->mtx);
-            // 新文件开始, 写缓存的 SPS/PPS
-            if (!ctx->sps_pps_.empty()) {
-                size_t written = fwrite(ctx->sps_pps_.data(), 1, ctx->sps_pps_.size(), fp);
-                fflush(fp);
-                fprintf(stdout, "[StreamWriter] Write SPS/PPS to new segment: %zu bytes\n", written);
-                ctx->sps_pps_.clear();
-            }
-            last_fp = fp; // 记录当前文件
-        }
-        // --------------------------------
-        */
 
 /**
  * @brief 调度线程主循环: 从 dispatchQueue_ 取出 meta, 分发给 currentWriter_
@@ -352,13 +345,10 @@ void StreamWriter::dispatchLoop() {
             // 交换 writer
             {
                 std::lock_guard<std::mutex> lk2(currentWriter_->mtx);
+                // currentWriter_->fp->reset(nullptr);
                 std::swap(currentWriter_, idleWriter_);
             }
             
-            // do {
-            //     idleWriter_->cv.notify_one();
-            //     fprintf(stdout, "[StreamWriter] Notified idle writer to flush remaining packets.\n");
-            // } while (!idleWriter_->queue.empty());
             // 重置计数
             currentPacketCount_.store(0,  std::memory_order_relaxed); 
         }
@@ -385,9 +375,9 @@ bool StreamWriter::obtainPacketForMeta(MppEncoderCore::EncodedPacketPtr &out,
     if (nullptr == meta.core) {
         return false;
     }
-
+    auto id = meta.slot_id;
     int tries = 200;
-    for (int i = 0; i < tries && running_; ++i) {
+    while (--tries && running_) {
         bool ok = meta.core->tryGetEncodedPacket(meta);
         if (!ok) {
             std::this_thread::sleep_for(100us);
@@ -396,14 +386,14 @@ bool StreamWriter::obtainPacketForMeta(MppEncoderCore::EncodedPacketPtr &out,
         out = meta.packet;
         if (out == nullptr) {
             // 安全检查
-            fprintf(stderr, "[StreamWriter] obtainPacketForMeta: packet is nullptr, slot_id=%d\n", meta.slot_id);
+            fprintf(stderr, "[StreamWriter] obtainPacketForMeta: packet is nullptr, slot_id=%d\n", id);
             break;
         }
         return true;
     }
     if (tries <= 0) {
-        fprintf(stderr, "[StreamWriter] obtainPacketForMeta: timeout getting packet, slot_id=%d\n", meta.slot_id);
+        fprintf(stderr, "[StreamWriter][slot_id:%d] Timeout, packet dropped\n", id);
     }
-    meta.core->releaseSlot(meta.slot_id);
+    meta.core->releaseSlot(id);
     return false;
 }

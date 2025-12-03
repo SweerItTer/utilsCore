@@ -11,6 +11,7 @@
 #include <vector>
 #include <atomic>
 #include <chrono>
+#include <iostream>
 #include <numeric>
 #include <algorithm>
 #include <unistd.h>
@@ -31,6 +32,24 @@ static void handleSignal(int signal) {
         std::cout << "Ctrl+C received, stopping..." << std::endl;
         running.store(false);
     }
+}
+
+// 图像保存方法(CPU)
+int virSave(void *data, size_t buffer_size){
+    // 保存为图像文件
+    FILE* fp = fopen("output.rgba", "wb");
+    if (nullptr == fp) {
+        fprintf(stderr, "Failed to open output file");
+        free(data);
+        return -1;
+    }
+    fwrite(data, 1, buffer_size, fp);
+    fclose(fp);
+
+    // 释放内存
+    free(data);
+     
+    return 0;
 }
 
 struct TimedBuffer { 
@@ -281,23 +300,7 @@ int orderedQueueTest() {
     return 0;
 }
 
-int virSave(void *data, size_t buffer_size){
-    // 保存为图像文件
-    FILE* fp = fopen("output.rgba", "wb");
-    if (nullptr == fp) {
-        fprintf(stderr, "Failed to open output file");
-        free(data);
-        return -1;
-    }
-    fwrite(data, 1, buffer_size, fp);
-    fclose(fp);
-
-    // 释放内存
-    free(data);
-     
-    return 0;
-}
-
+// --------------- RGA 图像转换测试 -----------------
 int rgaTest(){
     int ret = 0;
     // 创建队列
@@ -376,6 +379,97 @@ int rgaTest(){
     return 0;
 }
 
+// ---------------- 摄像头帧率测试 ---------------- 
+int cameraFpsTest() {
+    // 创建队列
+    auto rawFrameQueue = std::make_shared<FrameQueue>(30);
+
+    // 相机配置
+    CameraController::Config cfg = {
+        .buffer_count = 10,
+        .plane_count = 1,
+        .use_dmabuf = true,
+        .device = "/dev/video0",
+        .width = 1920,
+        .height = 1080,
+        .format = V4L2_PIX_FMT_NV12
+    };
+    
+    // 初始化相机控制器
+    auto cctr = std::make_shared<CameraController>(cfg);
+    if (!cctr) {
+        std::cout << "Failed to create CameraController object.\n";
+        return -1;
+    }
+    
+    // 设置入队队列
+    cctr->setFrameCallback([&rawFrameQueue](FramePtr f) {
+        rawFrameQueue->enqueue(std::move(f));
+    });
+
+    // 帧率计算变量
+    int frameCount = 0;
+    auto startTime = std::chrono::steady_clock::now();
+    auto lastFpsTime = startTime;
+    double fps = 0.0;
+    
+    // 启动相机
+    cctr->start();
+    
+    std::cout << "Starting FPS test, press Ctrl+C to stop..." << std::endl;
+
+    while (running) {
+        FramePtr f;
+        if (!rawFrameQueue->try_dequeue(f)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+        
+        // 帧计数
+        frameCount++;
+        
+        // 计算帧率（每秒更新一次）
+        auto currentTime = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            currentTime - lastFpsTime).count();
+        
+        if (elapsed >= 1000) { // 每1秒计算一次FPS
+            fps = frameCount * 1000.0 / elapsed;
+            
+            std::cout << "Current FPS: " << fps 
+                      << " | Total frames: " << frameCount 
+                      << " | Queue size: " << rawFrameQueue->size_approx()
+                      << std::endl;
+            
+            // 重置计数器和时间
+            frameCount = 0;
+            lastFpsTime = currentTime;
+        }
+        
+        // 这里可以添加帧处理逻辑
+        // processFrame(f);
+        
+        // 简单退出条件，实际使用时可能需要信号处理
+        if (frameCount > 1000) { // 测试1000帧后退出
+            running = false;
+        }
+    }
+    
+    // 输出平均帧率
+    auto totalTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - startTime).count();
+    double averageFps = frameCount * 1000.0 / totalTime;
+    
+    std::cout << "\n=== Test Results ===" << std::endl;
+    std::cout << "Total frames processed: " << frameCount << std::endl;
+    std::cout << "Total time: " << totalTime / 1000.0 << " seconds" << std::endl;
+    std::cout << "Average FPS: " << averageFps << std::endl;
+    
+    cctr->stop();
+    return 0;
+}
+
+// ------------ DMABUF 申请测试 -------------
 int dmabufTest() 
 {   
     SafeQueue<DmaBufferPtr> queue_(8);
@@ -407,6 +501,7 @@ int dmabufTest()
     return 0;
 }
 
+// ---------------- drm-plane 测试 ---------------
 int layerTest(){
     auto& devices = DrmDev::fd_ptr->getDevices();
     if (devices.empty()) {
@@ -436,6 +531,7 @@ int layerTest(){
     return ret;
 }
 
+// -------------- DRM 设备管理测试 ----------------
 int drmDevicesControllerTest(){
     auto fd = DrmDev::fd_ptr;
     // 测试各项资源获取
@@ -485,6 +581,7 @@ int drmDevicesControllerTest(){
     return 0;
 }
 
+// --------------- 鼠标监听测试 ---------------
 int mouseTest(){
     MouseWatcher mouse;
     mouse.setScreenSize(1280, 720);
@@ -509,6 +606,7 @@ int mouseTest(){
     return 0;
 }
 
+// ----------------- 资源监听测试 ---------------
 int resourceMonitorTest(){
     CpuMonitor cpu_monitor(500);  // 500ms 采样间隔
     MemoryMonitor mem_monitor(500);
@@ -566,6 +664,9 @@ int main(int argc, char const *argv[]) {
         {"--RGA_coretest", ENCTest::rgaCopy_coreTest},
         {"--streamtest", ENCTest::streamTest},
         {"--recordtest", ENCTest::cameraRecordTest},
+        {"--rrecordtest", ENCTest::cameraRawPiplineRecordTest},
+        {"--jpegtest", ENCTest::jpegCaptureTest},
+        {"--fpstest", cameraFpsTest},
         {"--fbshow", [](){ 
             FrameBufferTest test;
             test.start();

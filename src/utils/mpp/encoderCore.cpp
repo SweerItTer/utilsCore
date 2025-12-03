@@ -38,7 +38,7 @@ MppEncoderCore::EncodedPacket::~EncodedPacket() {
     }
 }
 MppPacket& MppEncoderCore::EncodedPacket::rawPacket() { return packet_; }
-void* MppEncoderCore::EncodedPacket::data() const { return mpp_packet_get_data(packet_); }
+void* MppEncoderCore::EncodedPacket::data() const { if(packet_) return mpp_packet_get_data(packet_); else return nullptr; }
 size_t MppEncoderCore::EncodedPacket::length() const { return data_len_; }
 bool MppEncoderCore::EncodedPacket::isKeyframe() const { return keyframe_; }
 u_int64_t MppEncoderCore::EncodedPacket::getPts() const { return pts_; }
@@ -123,28 +123,22 @@ void MppEncoderCore::initSlots() {
             continue;
         }
 
-        // 初始化 MppPacket(用 dmabuf 里的内存)
-        MppPacket pkt = nullptr;
-        MppBuffer temp_buf = nullptr;
-        // 自动计算缓存 内存
-        size_t buffer_size = calculateBufferSize(width, height);
-        RK_S32 ret = mpp_buffer_get(nullptr, &temp_buf, buffer_size);
-        if (ret || !temp_buf) {
-            fprintf(stderr, "[MppEncoderCore:%d] mpp_buffer_get failed for packet buffer\n", core_id_);
+        // dmabuf 导入到 buffer
+        MppBuffer mpp_buf = nullptr;
+        MppBufferInfo import_info{};
+        import_info.type = MPP_BUFFER_TYPE_EXT_DMA;
+        import_info.fd   = dmabuf->fd();
+        import_info.size = dmabuf->size();
+        
+        if (MPP_OK != mpp_buffer_import(&mpp_buf, &import_info)) {
+            fprintf(stderr, "[MppEncoderCore:%d] mpp_buffer_import failed (slot %zu)\n", core_id_, i);
             continue;
         }
-        // 用 buffer 初始化 packet
-        ret = mpp_packet_init_with_buffer(&pkt, temp_buf);
-        if (ret || !pkt) {
-            fprintf(stderr, "[MppEncoderCore:%d] mpp_packet_init_with_buffer failed\n", core_id_);
-            mpp_buffer_put(temp_buf);
-            continue;
-        }
-        // 释放持有权, packet 完全持有内存
-        mpp_buffer_put(temp_buf);
 
+        // 伴随 Slot 的整个生命周期
         slots_[i].dmabuf = dmabuf;
-        slots_[i].packet = std::make_shared<EncodedPacket>(pkt, 0, false);
+        slots_[i].enc_buf = std::make_shared<MppBufferGuard>(mpp_buf); // 保存句柄
+        slots_[i].packet = std::make_shared<EncodedPacket>(nullptr, 0, false);
         slots_[i].state  = SlotState::Writable;
         
         std::lock_guard<std::mutex> lk(free_mtx_);
@@ -158,6 +152,7 @@ void MppEncoderCore::initSlots() {
 void MppEncoderCore::cleanupSlots()
 {
     for (auto& s : slots_) {
+        s.enc_buf.reset();
         s.packet.reset();
         s.dmabuf.reset();
         s.state.store(SlotState::invalid);
@@ -222,12 +217,43 @@ MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlot(int slot_id) {
     };
 }
 
-void MppEncoderCore::endOfthisEncode(){
-    endOfEncode = true;
-    // 等待所有待编码任务完成
-    while (!pending_slots_.empty()){
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlotWithExternal(
+    int slot_id, 
+    DmaBufferPtr external_dma,
+    std::shared_ptr<void> lifetime_holder)
+{
+    if (paused_) return {};
+
+    if (slot_id < 0 || static_cast<size_t>(slot_id) >= SLOT_COUNT) {
+        // 无效 slot_id
+        return {};
     }
+
+    auto& s = slots_[slot_id];
+
+    // 置为 Filled
+    auto expected = SlotState::Writing;
+    if (!s.state.compare_exchange_weak(expected, SlotState::Filled)){
+        // 状态不正确
+        fprintf(stderr, "[MppEncoderCore:%d] submitFilledSlot: slot %d state invalid\n", core_id_, slot_id);
+        return {};
+    }
+    s.external_dmabuf = external_dma;
+    s.using_external = true;
+    s.lifetime_holder = lifetime_holder;
+    s.packet->setPts(std::chrono::steady_clock::now());    // 更新时间戳
+    {
+        std::lock_guard<std::mutex> lk(pending_mtx_);
+        pending_slots_.push(slot_id);
+    }
+    pending_cv_.notify_one();   // 立即唤醒 worker
+    // 立即返回 meta (data_length/keyframe 解码完成时填充)
+    return EncodedMeta{
+        .core_id     = core_id_,
+        .slot_id     = slot_id,
+        .core        = this
+    };
 }
 
 /* --------------------------------------------------------------------- */
@@ -275,12 +301,12 @@ void MppEncoderCore::workerThread() {
         s.state.store(SlotState::Encoding);
 
         MppFrame   frame_raw   = nullptr;
-        MppBuffer  buffer_raw  = nullptr;
         MppPacket  packet_raw  = nullptr;
+        MppBuffer  buffer_raw  = nullptr;
 
         MppFrameGuard   frame_guard(&frame_raw);
-        MppBufferGuard  buffer_guard(&buffer_raw);
         MppPacketGuard  packet_guard(&packet_raw);
+        MppBufferGuard  buffer_guard(buffer_raw);
 
         // 创建可编码 frame
         if (!createEncodableFrame(s, frame_raw, buffer_raw)) {
@@ -301,13 +327,10 @@ void MppEncoderCore::workerThread() {
          * 如果尝试保存的只是指针, 实际内存依旧会被mpp修改, 导致无效或者脏数据
          * 因此只能使用memcp深拷贝数据...
         */
-        MppPacket& rawpkt = s.packet->rawPacket(); 
-        void* dst = mpp_packet_get_data(rawpkt);
-        void* src = mpp_packet_get_data(packet_raw);
+        MppPacket& rawpkt = s.packet->rawPacket();
+        mpp_packet_deinit(&rawpkt);
+        mpp_packet_copy_init(&rawpkt, packet_raw);
         size_t len = mpp_packet_get_length(packet_raw);
-        // 深拷贝数据
-        memcpy(dst, src, len);
-        mpp_packet_set_length(rawpkt, len);
         
         // 更新 EncodedPacket 信息
         s.packet->setDataLen(len);
@@ -317,6 +340,7 @@ void MppEncoderCore::workerThread() {
             MppMeta meta = mpp_packet_get_meta(packet_raw);
             mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &intra_flag);
         }
+        // 关键帧判断
         if (intra_flag == 0){
             s.packet->setKeyframe(false);
         } else{
@@ -331,7 +355,7 @@ void MppEncoderCore::workerThread() {
 /* --------------------------------------------------------------------- */
 /*                             写线程接口                                 */
 /* --------------------------------------------------------------------- */
-bool MppEncoderCore::tryGetEncodedPacket(EncodedMeta& meta) const {
+bool MppEncoderCore::tryGetEncodedPacket(EncodedMeta& meta) {
     if (paused_) return false;
 
     // 非当前 core 或者 id 非法
@@ -341,13 +365,15 @@ bool MppEncoderCore::tryGetEncodedPacket(EncodedMeta& meta) const {
         return false;
     }
 
-    const auto& s = slots_[meta.slot_id];
+    auto& s = slots_[meta.slot_id];
     // 检查状态
     if (s.state.load() != SlotState::Encoded) {
         return false;
     }
     // 返回结果
     meta.packet   = s.packet;
+    // 释放引用(由meta析构)
+    s.packet.reset(new EncodedPacket(nullptr, 0, false));
     return true;
 }
 
@@ -363,6 +389,11 @@ void MppEncoderCore::releaseSlot(int slot_id) {
         fprintf(stderr, "[MppEncoderCore:%d] releaseSlot: slot %d state invalid\n", core_id_, slot_id);
         return;
     }
+    if (s.using_external){
+        s.external_dmabuf.reset();
+        s.lifetime_holder.reset();
+        s.using_external.store(false);
+    }
     s.state.store(SlotState::Writable);
 
     std::lock_guard<std::mutex> lk(free_mtx_);
@@ -372,44 +403,44 @@ void MppEncoderCore::releaseSlot(int slot_id) {
 /* --------------------------------------------------------------------- */
 /*                               工厂函数                                */
 /* --------------------------------------------------------------------- */
-bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFrame& out_frame, MppBuffer& out_buffer) {
+bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFrame& out_frame, MppBuffer& mpp_buf) {
     out_frame = nullptr;
-    out_buffer = nullptr;
-
-    if (!s.dmabuf) return false;
+    mpp_buf   = nullptr;
+    if (!s.dmabuf || !s.enc_buf) return false; // 检查缓存的 buffer 是否有效
 
     // ============ 零拷贝导入 dmabuf fd ============
-    MppBufferInfo import_info{};
-    import_info.type = MPP_BUFFER_TYPE_EXT_DMA;   // 必须和 group 类型一致
-    import_info.fd   = s.dmabuf->fd();
-    import_info.size = s.dmabuf->size();
-
-    RK_S32 ret = mpp_buffer_import(&out_buffer, &import_info);
-    if (ret != MPP_OK || !out_buffer) {
-        fprintf(stderr, "[MppEncoderCore:%d] mpp_buffer_import failed: %d (fd=%d)\n",
-                core_id_, ret, s.dmabuf->fd());
-        return false;
-    }
+    // 复用 Slot 缓存的 buffer
     
     // 创建 frame
-    ret = mpp_frame_init(&out_frame);
+    RK_S32 ret = mpp_frame_init(&out_frame);
     if (ret != MPP_OK || !out_frame) {
         fprintf(stderr, "[MppEncoderCore:%d] mpp_frame_init failed\n", core_id_);
         return false;
     }
-
+    if (s.using_external){
+        // dmabuf 导入到 buffer
+        MppBufferInfo import_info{};
+        import_info.type = MPP_BUFFER_TYPE_EXT_DMA;
+        import_info.fd   = s.external_dmabuf->fd();
+        import_info.size = s.external_dmabuf->size();
+        
+        if (MPP_OK != mpp_buffer_import(&mpp_buf, &import_info)) {
+            fprintf(stderr, "[MppEncoderCore:%d] mpp_buffer_import failed.\n", core_id_);
+            return false;
+        }
+    }
 
     // 设置参数
     mpp_frame_set_width(out_frame,       s.dmabuf->width());
     mpp_frame_set_height(out_frame,      s.dmabuf->height());
     
     // Rockchip_Developer_Guide_MPP_CN.md: hor_stride	RK_U32	表示垂直方向相邻两行之间的距离，单位为byte数
-    // uint32_t hor_stride_pixel = s.dmabuf->pitch() / s.dmabuf->channel(); // pitch 字节 -> 像素
-    // mpp_frame_set_hor_stride(out_frame,  hor_stride_pixel); // 像素单位
-    mpp_frame_set_hor_stride(out_frame,  s.dmabuf->pitch()); // 详细问题见 注意.txt
+    mpp_frame_set_hor_stride(out_frame,  s.dmabuf->pitch());
     mpp_frame_set_ver_stride(out_frame,  s.dmabuf->height());  // 像素单位
     mpp_frame_set_fmt(out_frame,         drm2mpp_format(s.dmabuf->format())); // 2022~2023 版本API
-    mpp_frame_set_buffer(out_frame,      out_buffer);
+    // mpp_frame_set_buffer 会增加引用计数, mpp_frame_deinit 会减少引用计数
+    // s.enc_buf 本身的引用计数(1)保持不变
+    mpp_frame_set_buffer(out_frame,      s.using_external ? mpp_buf : s.enc_buf->get());
     mpp_frame_set_pts(out_frame,         s.packet->getPts());
     return true;
 }

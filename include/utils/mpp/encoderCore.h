@@ -25,13 +25,15 @@
 #include "mpp/mppResourceGuard.h"
 #include "mpp/formatTool.h"
 
+#include "types.h"
+
 /* NV12(DMABUF / pointer) → MppFrame → MPP → MppPacket
  * 负责 Packet/Frame 内存池复用, MppFrame 构建  
  */
 class MppEncoderCore {
 public:
     /// Slot 数量，RK356X 实测值
-    static constexpr size_t SLOT_COUNT = 12;
+    static constexpr size_t SLOT_COUNT = 15;
 
     /**
      * @class EncodedPacket
@@ -88,9 +90,13 @@ public:
      * @brief 内部 Slot 数据结构
      */
     struct Slot {
-        DmaBufferPtr           dmabuf;   ///< DMABUF 引用, 保持生命周期
-        // MppFrame               frame = nullptr; ///< MPP 编码输入帧
-        EncodedPacketPtr       packet = nullptr; ///< 编码结果包
+        DmaBufferPtr           dmabuf;           ///< DMABUF 引用, 保持生命周期
+        std::shared_ptr<MppBufferGuard> enc_buf; ///< 缓存导入后的 Buffer
+
+        DmaBufferPtr external_dmabuf;            ///< 外部DMABUF 
+        std::atomic_bool using_external{false};  ///< 使用外部DMABUF标志
+        std::shared_ptr<void> lifetime_holder;   ///< 保留外部资源生命周期
+        EncodedPacketPtr       packet = nullptr; ///< 编码结果
         std::atomic<SlotState> state {SlotState::invalid}; ///< 当前状态
     };
 public:
@@ -107,7 +113,7 @@ public:
      */
     ~MppEncoderCore();
     
-    void endOfthisEncode();
+    void endOfthisEncode() { endOfEncode = true; }
     /**
      * @brief 获取可写 Slot 并置为 Writing
      * @return std::pair<DmaBufferPtr, int> 成功返回 {DMABUF, Slot 索引}, 失败返回 {nullptr, -1}
@@ -121,14 +127,14 @@ public:
      * @return EncodedMeta 成功返回 meta 信息, 失败返回空 meta
      */
     EncodedMeta submitFilledSlot(int slot_id);
-
+    EncodedMeta submitFilledSlotWithExternal(int slot_id, DmaBufferPtr external_dmabuf, std::shared_ptr<void> lifetime_holder);
     /**
      * @brief 获取 Encoded 的 Packet
      * @param meta 编码数据 meta
      * @param packet 输出参数, 存放编码结果
      * @return true 成功, false 失败
      */
-    bool tryGetEncodedPacket(EncodedMeta& meta) const;
+    bool tryGetEncodedPacket(EncodedMeta& meta);
 
     /**
      * @brief 释放已使用的 Slot, 置为 Writable
@@ -138,7 +144,7 @@ public:
 
     /// 获取 core_id
     int coreId() const noexcept { return core_id_; }
-    /// 获取负载
+    /// 获取负载(越小越多空间)
     size_t load() const noexcept { return SLOT_COUNT - free_slots_.size(); }
 
 private:
@@ -147,7 +153,7 @@ private:
     void initSlots();    ///< 初始化 Slot 内存池
     void cleanupSlots(); ///< 清理 Slot 内存
 
-    bool createEncodableFrame(const MppEncoderCore::Slot& s, MppFrame& out_frame, MppBuffer& out_buffer);
+    bool createEncodableFrame(const MppEncoderCore::Slot& s, MppFrame& out_frame, MppBuffer& mpp_buf);
     bool tryGetEncodedMppPacket(MppCtx ctx, MppApi* mpi, MppFrame frame_raw, MppPacket& out_pkt);
     
     const int core_id_;              ///< 核心编号

@@ -1,4 +1,4 @@
-// utils/mpp/formatTool.h  —— 先补全这个（一次性搞定所有格式）
+// utils/mpp/formatTool.h
 #pragma once
 #include <rockchip/mpp_frame.h>
 #include <drm/drm_fourcc.h>
