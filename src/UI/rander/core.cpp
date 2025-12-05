@@ -218,11 +218,15 @@ bool Core::queryAllFormats(uint32_t targetFmt) {
     return flag;
 }
 
-std::shared_ptr<Core::resourceSlot> Core::acquireFreeSlot(const std::string &type) {
+std::shared_ptr<Core::resourceSlot> Core::acquireFreeSlot(const std::string &type, int timeout_ms) {
     std::lock_guard<std::mutex> slotLock(slotMutex);
     const auto& it = slots_.find(type);
     if (slots_.find(type) == slots_.end()) return nullptr;
-    return it->second.acquire();
+    std::shared_ptr<Core::resourceSlot> slot{nullptr};
+    if (!it->second.tryAcquire(slot, std::chrono::milliseconds(timeout_ms))){
+        fprintf(stderr, "[core] Get slot timeout.\n");
+    }
+    return slot;
 }
 
 void Core::releaseSlot(const std::string &type, std::shared_ptr<resourceSlot> &slot) {
@@ -253,10 +257,13 @@ bool Core::registerResSlot(const std::string &type, size_t poolSize, DmaBufferPt
 {
     std::lock_guard<std::mutex> slotLock(slotMutex);
     if (poolSize <= 0 || nullptr == bufTemplate) {
-        fprintf(stderr, "Inviled parameter.\n");
+        fprintf(stderr, "[Core] Inviled parameter.\n");
         return false;
     }
-    if (!queryAllFormats(bufTemplate->format())) return false;
+    if (!queryAllFormats(bufTemplate->format())) {
+        fprintf(stderr, "[Core] DMABUF format not support.\n");
+        return false;
+    }
     if (slots_.find(type) != slots_.end()) {
         slots_.erase(type);
     }
@@ -270,9 +277,13 @@ bool Core::registerResSlot(const std::string &type, size_t poolSize, DmaBufferPt
                 bufTemplate->height(), 
                 bufTemplate->format(),
                 bufTemplate->size(),
-                bufTemplate->offset()
+                bufTemplate->offset(),
+                0
             );
-            if (!newBuf) return std::shared_ptr<resourceSlot>();
+            if (!newBuf) {
+                fprintf(stderr, "[Core] Failed to create DMABUF.\n");
+                return std::shared_ptr<resourceSlot>();
+            }
             return std::make_shared<resourceSlot>(std::move(createSlot(std::move(newBuf))));
         }));
 

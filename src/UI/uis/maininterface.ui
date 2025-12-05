@@ -6,15 +6,231 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>240</width>
-    <height>480</height>
+    <width>300</width>
+    <height>600</height>
    </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>300</width>
+    <height>600</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>300</width>
+    <height>600</height>
+   </size>
   </property>
   <property name="windowTitle">
    <string>摄像头控制</string>
   </property>
   <property name="styleSheet">
-   <string notr="true">background-color: rgb(255, 255, 255); color: black;</string>
+   <string notr="true">/* 专业深色配色方案 - 三种颜色 */
+/* 深灰 #1E1E1E | 中灰 #2D2D2D | 深蓝绿 #2D4F67 */
+
+QWidget {
+    background-color: #1E1E1E;
+    color: #D4D4D4;
+    font-family: &quot;Segoe UI&quot;, &quot;Microsoft YaHei&quot;, sans-serif;
+    font-size: 13px;
+    border: none;
+}
+
+/* 标题样式 */
+QLabel#titleLabel {
+    font-size: 16px;
+    font-weight: bold;
+    color: #FFFFFF;
+    background-color: #2D2D2D;
+    padding: 12px 0;
+    border-bottom: 1px solid #3C3C3C;
+}
+
+/* 普通标签样式 */
+QLabel {
+    font-size: 13px;
+    color: #D4D4D4;
+    padding: 2px 0;
+    background-color: transparent;
+}
+
+/* 数值显示标签 */
+QLabel#fpsShow,
+QLabel#CPUpayloadShow,
+QLabel#memoryUsageShow,
+QLabel#confidenceValueLabel,
+QLabel#exposureValueLabel,
+QLabel#mirrorModeLabel {
+    font-size: 13px;
+    font-weight: bold;
+    color: #4EC9B0;
+    background-color: #2D2D2D;
+    padding: 4px 8px;
+    border-radius: 3px;
+    border: 1px solid #3C3C3C;
+    min-width: 50px;
+    max-width: 50px;
+    text-align: center;
+}
+
+QLabel#mirrorModeLabel {
+    min-width: 100px;
+    max-width: 100px;
+}
+
+/* 主要按钮样式 */
+QPushButton {
+    background-color: #2D2D2D;
+    color: #D4D4D4;
+    border: 1px solid #3C3C3C;
+    padding: 8px 12px;
+    border-radius: 3px;
+    font-weight: normal;
+    font-size: 13px;
+    min-height: 32px;
+    min-width: 80px;
+    max-width: 120px;
+}
+
+QPushButton:hover {
+    background-color: #3C3C3C;
+    border-color: #2D4F67;
+}
+
+QPushButton:pressed {
+    background-color: #2D4F67;
+    color: #FFFFFF;
+}
+
+/* 录像/拍照按钮特殊样式 */
+QPushButton#actionButton {
+    background-color: #8B3519;
+    color: #FFFFFF;
+    border: 1px solid #A53E1F;
+    font-weight: bold;
+    min-width: 100px;
+    max-width: 100px;
+}
+
+QPushButton#actionButton:hover {
+    background-color: #A53E1F;
+    border-color: #BF4826;
+}
+
+QPushButton#actionButton:pressed {
+    background-color: #6D2A14;
+}
+
+/* 模式切换按钮 */
+QPushButton#modeToggleButton {
+    background-color: #2D4F67;
+    color: #FFFFFF;
+    border: 1px solid #3A6585;
+    font-weight: bold;
+    min-width: 80px;
+    max-width: 80px;
+    min-height: 36px;
+}
+
+QPushButton#modeToggleButton:hover {
+    background-color: #3A6585;
+    border-color: #4A7A9F;
+}
+
+QPushButton#modeToggleButton:pressed {
+    background-color: #234158;
+}
+
+/* 小控制按钮 */
+QPushButton#confidenceSUB,
+QPushButton#confidenceADD,
+QPushButton#exposureSUB,
+QPushButton#exposureADD,
+QPushButton#mirrorLeftButton,
+QPushButton#mirrorRightButton {
+    background-color: #2D2D2D;
+    color: #D4D4D4;
+    border: 1px solid #3C3C3C;
+    min-width: 28px;
+    min-height: 28px;
+    max-width: 28px;
+    max-height: 28px;
+    padding: 0px;
+    border-radius: 3px;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+QPushButton#confidenceSUB:hover,
+QPushButton#confidenceADD:hover,
+QPushButton#exposureSUB:hover,
+QPushButton#exposureADD:hover,
+QPushButton#mirrorLeftButton:hover,
+QPushButton#mirrorRightButton:hover {
+    background-color: #3C3C3C;
+    border-color: #2D4F67;
+}
+
+QPushButton#confidenceSUB:pressed,
+QPushButton#confidenceADD:pressed,
+QPushButton#exposureSUB:pressed,
+QPushButton#exposureADD:pressed,
+QPushButton#mirrorLeftButton:pressed,
+QPushButton#mirrorRightButton:pressed {
+    background-color: #2D4F67;
+    color: #FFFFFF;
+}
+
+/* 滑块样式 */
+QSlider::groove:horizontal {
+    border: 1px solid #3C3C3C;
+    height: 4px;
+    background-color: #2D2D2D;
+    border-radius: 2px;
+}
+
+QSlider::handle:horizontal {
+    background-color: #2D4F67;
+    border: 2px solid #1E1E1E;
+    width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    margin: -5px 0;
+}
+
+QSlider::handle:horizontal:hover {
+    background-color: #3A6585;
+}
+
+QSlider::sub-page:horizontal {
+    background-color: #2D4F67;
+    border-radius: 2px;
+}
+
+/* 分割线样式 */
+Line {
+    background-color: #3C3C3C;
+    color: #3C3C3C;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}
+
+/* 版本信息标签 */
+QLabel#versionLabel {
+    color: #808080;
+    font-size: 11px;
+    padding: 8px 0;
+    background-color: transparent;
+}
+
+/* 布局容器 */
+QWidget#widget {
+    background-color: #1E1E1E;
+    border: 1px solid #3C3C3C;
+}
+</string>
   </property>
   <layout class="QGridLayout" name="gridLayout">
    <property name="leftMargin">
@@ -34,170 +250,587 @@
    </property>
    <item row="0" column="0">
     <widget class="QWidget" name="widget" native="true">
-     <layout class="QVBoxLayout" name="verticalLayout">
+     <layout class="QVBoxLayout" name="verticalLayout_3">
       <item>
        <widget class="QLabel" name="titleLabel">
         <property name="text">
-         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p align=&quot;center&quot;&gt;摄像头控制&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+         <string>系统控制界面</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
         </property>
        </widget>
       </item>
       <item>
-       <layout class="QHBoxLayout" name="buttonLayout">
+       <layout class="QHBoxLayout" name="modeLayout">
         <item>
-         <widget class="QLabel" name="recordLabel">
+         <widget class="QPushButton" name="modeToggleButton">
+          <property name="minimumSize">
+           <size>
+            <width>106</width>
+            <height>54</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>106</width>
+            <height>54</height>
+           </size>
+          </property>
           <property name="text">
-           <string>录像:</string>
+           <string>录像</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QPushButton" name="startButton">
-          <property name="text">
-           <string>开始</string>
+         <spacer name="horizontalSpacer_10">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
           </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item>
-       <widget class="QLabel" name="statusLabel">
-        <property name="text">
-         <string>状态: 运行中</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="latencyLabel">
-        <property name="text">
-         <string>延迟: 28ms</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="fpsLabel">
-        <property name="text">
-         <string>帧率: 30</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="npuLabel">
-        <property name="text">
-         <string>NPU: 75%</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="confidenceLayout">
-        <item>
-         <widget class="QLabel" name="confidenceLabel">
-          <property name="text">
-           <string>置信度</string>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
           </property>
-         </widget>
+         </spacer>
         </item>
         <item>
-         <widget class="QLabel" name="confidenceValueLabel">
-          <property name="styleSheet">
-           <string notr="true">color: #4a90e2; font-weight: bold;</string>
+         <widget class="QPushButton" name="actionButton">
+          <property name="minimumSize">
+           <size>
+            <width>126</width>
+            <height>50</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>126</width>
+            <height>50</height>
+           </size>
           </property>
           <property name="text">
-           <string>65%</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           <string>开始录制</string>
           </property>
          </widget>
         </item>
        </layout>
       </item>
       <item>
-       <widget class="QSlider" name="confidenceSlider">
-        <property name="maximum">
-         <number>100</number>
-        </property>
-        <property name="value">
-         <number>65</number>
-        </property>
+       <widget class="Line" name="line_2">
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
         </property>
        </widget>
       </item>
       <item>
-       <layout class="QHBoxLayout" name="brightnessLayout">
+       <layout class="QHBoxLayout" name="horizontalLayout_2">
         <item>
-         <widget class="QLabel" name="brightnessLabel">
+         <widget class="QLabel" name="fpsLabel">
           <property name="text">
-           <string>亮度</string>
+           <string>帧率：</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QLabel" name="brightnessValueLabel">
-          <property name="styleSheet">
-           <string notr="true">color: #4a90e2; font-weight: bold;</string>
+         <spacer name="horizontalSpacer_8">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QLabel" name="fpsShow">
+          <property name="minimumSize">
+           <size>
+            <width>68</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>68</width>
+            <height>16777215</height>
+           </size>
           </property>
           <property name="text">
-           <string>75%</string>
+           <string>30 fps</string>
           </property>
           <property name="alignment">
-           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           <set>Qt::AlignCenter</set>
           </property>
          </widget>
         </item>
        </layout>
       </item>
       <item>
-       <widget class="QSlider" name="brightnessSlider">
-        <property name="maximum">
-         <number>100</number>
-        </property>
-        <property name="value">
-         <number>75</number>
-        </property>
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="contrastLayout">
+       <layout class="QHBoxLayout" name="horizontalLayout">
         <item>
-         <widget class="QLabel" name="contrastLabel">
+         <widget class="QLabel" name="CPUpayloadLabel">
           <property name="text">
-           <string>对比度</string>
+           <string>CPU负载：</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QLabel" name="contrastValueLabel">
-          <property name="styleSheet">
-           <string notr="true">color: #4a90e2; font-weight: bold;</string>
+         <spacer name="horizontalSpacer_9">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QLabel" name="CPUpayloadShow">
+          <property name="minimumSize">
+           <size>
+            <width>68</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>68</width>
+            <height>16777215</height>
+           </size>
           </property>
           <property name="text">
-           <string>56%</string>
+           <string>25%</string>
           </property>
           <property name="alignment">
-           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           <set>Qt::AlignCenter</set>
           </property>
          </widget>
         </item>
        </layout>
       </item>
       <item>
-       <widget class="QSlider" name="contrastSlider">
-        <property name="maximum">
-         <number>100</number>
-        </property>
-        <property name="value">
-         <number>56</number>
-        </property>
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
+       <layout class="QHBoxLayout" name="horizontalLayout_3">
+        <item>
+         <widget class="QLabel" name="memoryUsageLabel">
+          <property name="text">
+           <string>内存使用：</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_11">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QLabel" name="memoryUsageShow">
+          <property name="minimumSize">
+           <size>
+            <width>68</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>68</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>45%</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="Line" name="line">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
         </property>
        </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="mirrorLayout">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="mirrorLabel">
+          <property name="text">
+           <string>镜像模式：</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_3">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QPushButton" name="mirrorLeftButton">
+          <property name="minimumSize">
+           <size>
+            <width>30</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>30</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>◀</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="mirrorModeLabel">
+          <property name="minimumSize">
+           <size>
+            <width>118</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>118</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>水平镜像</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="mirrorRightButton">
+          <property name="minimumSize">
+           <size>
+            <width>30</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>30</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>▶</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QVBoxLayout" name="verticalLayout_2">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item>
+         <layout class="QHBoxLayout" name="exposureLayout">
+          <item>
+           <widget class="QLabel" name="exposureLabel">
+            <property name="text">
+             <string>曝光度：</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacer_2">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>20</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QLabel" name="exposureValueLabel">
+            <property name="minimumSize">
+             <size>
+              <width>68</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>68</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>75%</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="exposureSUB">
+            <property name="minimumSize">
+             <size>
+              <width>30</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>30</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>-</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="exposureADD">
+            <property name="minimumSize">
+             <size>
+              <width>30</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>30</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>+</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QSlider" name="exposureSlider">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="maximum">
+           <number>100</number>
+          </property>
+          <property name="value">
+           <number>75</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="Line" name="line_4">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_5">
+        <item>
+         <spacer name="horizontalSpacer_4">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkBox">
+          <property name="text">
+           <string/>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="CPUpayloadLabel_2">
+          <property name="text">
+           <string>模型推理:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_12">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QVBoxLayout" name="verticalLayout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item>
+         <layout class="QHBoxLayout" name="confidenceLayout">
+          <item>
+           <widget class="QLabel" name="confidenceLabel">
+            <property name="text">
+             <string>置信度：</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>20</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QLabel" name="confidenceValueLabel">
+            <property name="minimumSize">
+             <size>
+              <width>68</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>68</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>65%</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="confidenceSUB">
+            <property name="minimumSize">
+             <size>
+              <width>30</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>30</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>-</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="confidenceADD">
+            <property name="minimumSize">
+             <size>
+              <width>30</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>30</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>+</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QSlider" name="confidenceSlider">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="maximum">
+           <number>100</number>
+          </property>
+          <property name="value">
+           <number>65</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item>
        <spacer name="verticalSpacer">
@@ -207,20 +840,31 @@
         <property name="sizeHint" stdset="0">
          <size>
           <width>20</width>
-          <height>187</height>
+          <height>20</height>
          </size>
         </property>
        </spacer>
       </item>
       <item>
-       <widget class="QLabel" name="versionLabel">
-        <property name="styleSheet">
-         <string notr="true">color: #666666; font-size: 10px;</string>
-        </property>
-        <property name="text">
-         <string>EdgeVision(RK3568) 系统</string>
+       <widget class="Line" name="line_3">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
         </property>
        </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_4">
+        <item>
+         <widget class="QLabel" name="versionLabel">
+          <property name="text">
+           <string>EdgeVision (RK356x)</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
      </layout>
     </widget>

@@ -27,7 +27,7 @@ public:
     // 实现移动赋值
     FdWrapper& operator=(FdWrapper&& other) noexcept {
         if (this != &other) {
-            closeFd();       // 先关闭当前fd（如果有效）
+            closeFd();       // 先关闭当前fd(如果有效)
             fd_ = other.fd_; // 接管fd
             other.fd_ = -1;  // 清空原对象fd，避免重复关闭
         }

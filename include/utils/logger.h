@@ -62,7 +62,7 @@ public:
         return fp;
     }
     
-    // 重置资源（安全关闭文件）
+    // 重置资源(安全关闭文件)
     void reset() noexcept {
         if (fp_) {
             fclose(fp_);

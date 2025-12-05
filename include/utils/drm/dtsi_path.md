@@ -43,7 +43,7 @@
 ```bash
 #!/bin/bash
 
-INTERVAL=2  # 监控间隔（秒）
+INTERVAL=2  # 监控间隔(秒)
 
 echo "开始监控 DRM 资源使用情况..."
 echo "按 Ctrl+C 停止"

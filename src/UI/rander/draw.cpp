@@ -26,7 +26,10 @@ DrawRect Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget,
         qWarning() << "Draw::drawWidget: null widget";
         return uiDrawRect;
     }
-    if (!widget->isVisible()) return uiDrawRect;
+    QVariant v = widget->property("Visable");
+    if (v.isValid() && v.toBool() == false) {
+        return uiDrawRect;
+    }
     if (!slot.valid() || !slot.qfbo) return uiDrawRect;
 
     Core::instance().makeQCurrent();

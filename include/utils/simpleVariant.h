@@ -87,7 +87,7 @@ private:
         }
     }
 
-    // assign终止条件（最后一个类型）
+    // assign终止条件(最后一个类型)
     template <typename T, typename TLast>
     int assign(T val, VariantStorage<TLast>* s, int currentIndex = 0) {
         if (std::is_same<T, TLast>::value) {

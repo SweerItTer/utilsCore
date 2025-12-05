@@ -10,10 +10,10 @@
 #include <cstdint>
 
 /*
- * OrderedQueue - 高性能无锁环形缓冲有序队列（模板化）
+ * OrderedQueue - 高性能无锁环形缓冲有序队列(模板化)
  *
  * 特点：
- *  - 支持多生产者并发入队（lock-free CAS）
+ *  - 支持多生产者并发入队(lock-free CAS)
  *  - 支持单消费者或多消费者顺序出队
  *  - 使用环形缓冲 + slot CAS 避免 map 分配开销
  *  - slot 内存由外部管理，入队/出队只操作 slot.data_
@@ -54,11 +54,11 @@ private:
         }
     };
 
-    size_t capacity_;                     // 环形缓冲容量（必须为 2 的幂）
+    size_t capacity_;                     // 环形缓冲容量(必须为 2 的幂)
     std::vector<BufferSlot> ring_buffer_; // 环形缓冲存储
     std::atomic<uint64_t> expected_id_{0}; // 消费者期望的下一个 frame_id
 
-    // 统计信息（避免频繁锁操作）
+    // 统计信息(避免频繁锁操作)
     alignas(64) std::atomic<uint64_t> total_enqueued_{0};
     alignas(64) std::atomic<uint64_t> total_dequeued_{0};
     alignas(64) std::atomic<uint64_t> timeout_skip_count_{0};
@@ -81,7 +81,7 @@ private:
 
 public:
     // 构造函数
-    // capacity: 环形缓冲大小（最好大于最大乱序跨度）
+    // capacity: 环形缓冲大小(最好大于最大乱序跨度)
     OrderedQueue(size_t capacity) {
         capacity_ = next_power_of_two(capacity);
         ring_buffer_.resize(capacity_);
@@ -93,9 +93,9 @@ public:
     // ===================== 核心接口 =====================
 
     /*
-     * enqueue - 入队操作（支持多生产者并发）
+     * enqueue - 入队操作(支持多生产者并发)
      * frame_id: 当前帧 id
-     * data: 帧数据 T（由外部管理）
+     * data: 帧数据 T(由外部管理)
      * policy: slot 冲突或容量超限时的处理策略
      * 返回 true 表示成功入队，false 表示被丢弃
      */

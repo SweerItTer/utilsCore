@@ -99,7 +99,7 @@ public:
         uint32_t width, uint32_t height, uint32_t format, uint32_t required_size, uint32_t offset);
         
     // 取出一个 slot
-    std::shared_ptr<resourceSlot> acquireFreeSlot(const std::string& type);
+    std::shared_ptr<resourceSlot> acquireFreeSlot(const std::string &type, int timeout_ms=10);
     // 回收 slot
     void releaseSlot(const std::string& type, std::shared_ptr<resourceSlot>& slot);
 

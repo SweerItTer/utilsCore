@@ -48,7 +48,7 @@ void RgaProcessor::initpool() {
         } else {
             uint32_t format = formatRGAtoDRM(dstFormat_);
             // 实际格式是DRM的
-            auto dma_buf = DmaBuffer::create(width_, height_, format, 0);
+            auto dma_buf = DmaBuffer::create(width_, height_, format, 0, 0);
             if (!dma_buf || dma_buf->fd() < 0) {
                 throw std::runtime_error("RGA: dmabuf create failed");
             }

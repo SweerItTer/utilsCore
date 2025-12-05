@@ -94,10 +94,11 @@ private:
     };
 private:
     // 创建dmabuf
-    DmaBufferPtr createDmabuf(__u32 width, __u32 height, size_t needed_size, uint32_t offset);
+    DmaBufferPtr createDmabuf(__u32 width, __u32 height, size_t needed_size, uint32_t offset, uint32_t planeIndex);
     // 获取格式尺寸
     bool getFormatSize(uint32_t& width, uint32_t& height, uint32_t planeIndex);
 
+    void inquireCapabilities();
     void init();
     void setupFormat();
     void requestBuffers();
@@ -116,7 +117,7 @@ private:
     // 统一调用接口参数
     std::shared_ptr<SharedBufferState> mapSinglePlaneBuffer(int fd, v4l2_buffer& buf);    
     std::vector<Plane> mapMultiPlaneBuffer(int fd, v4l2_buffer& buf);
-    void resolutionVerify(v4l2_format& fmt);
+    void resolutionVerify(v4l2_format& fmt, uint32_t bpl);
     // 等待帧 v4l2
     bool waitForFrameReady();
     // 计算帧率
@@ -155,22 +156,11 @@ CameraController::Impl::Impl(const Config& config)
         if (fd_.get() < 0) {
             throw V4L2Exception("Failed to open device: " + config_.device, errno);
         }
-        
-        // 查询设备能力
-        v4l2_capability cap = {};
-        if (ioctl(fd_.get(), VIDIOC_QUERYCAP, &cap) < 0) {
-            throw V4L2Exception("VIDIOC_QUERYCAP failed", errno);
-        }
-        
-        // 确定缓冲区类型
-        buf_type_ = (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) ?
-            V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : 
-            V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        memory_type_ = config_.use_dmabuf ? V4L2_MEMORY_DMABUF : V4L2_MEMORY_MMAP;
+        inquireCapabilities();
         // 初始化设备
         init();
     } catch (const V4L2Exception& ex) {
-        fprintf(stderr, "CameraController : %s\n", ex.what());
+        fprintf(stderr, "[CameraController][ERROR] Error in Constructor : %s\n", ex.what());
         throw;  // 也可以选择不向上传递，或者改成其他处理
     }
 }
@@ -178,6 +168,20 @@ CameraController::Impl::Impl(const Config& config)
 CameraController::Impl::~Impl() {
     is_destroying_ = true; // 标记正在析构
     stop();
+}
+
+void CameraController::Impl::inquireCapabilities(){
+    // 查询设备能力
+    v4l2_capability cap = {};
+    if (ioctl(fd_.get(), VIDIOC_QUERYCAP, &cap) < 0) {
+        throw V4L2Exception("VIDIOC_QUERYCAP failed", errno);
+    }
+    
+    // 确定缓冲区类型
+    buf_type_ = (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) ?
+        V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : 
+        V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    memory_type_ = config_.use_dmabuf ? V4L2_MEMORY_DMABUF : V4L2_MEMORY_MMAP;
 }
 
 void CameraController::Impl::start() {
@@ -243,36 +247,43 @@ int CameraController::Impl::getDeviceFd() const {
     return fd_.get();
 }
 
-void CameraController::Impl::resolutionVerify(v4l2_format& fmt)
-{
-    // 根据实际情况修改分辨率
-    currentWidth = config_.width;
-	currentHeight = config_.height;
-    switch (buf_type_) {
-    case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
-        if (fmt.fmt.pix_mp.width != config_.width || fmt.fmt.pix_mp.height != config_.height){
-            currentWidth = fmt.fmt.pix_mp.width;
-            currentHeight = fmt.fmt.pix_mp.height;
-            fprintf(stderr, "Warning: driver changed resolution to %dx%d\n",
-                currentWidth, currentHeight);
-        }
-        break;
-    case V4L2_BUF_TYPE_VIDEO_CAPTURE:
-        if(fmt.fmt.pix.width != config_.width || fmt.fmt.pix.height != config_.height){
-            currentWidth = fmt.fmt.pix.width;
-            currentHeight = fmt.fmt.pix.height;
-            fprintf(stderr, "Warning: driver changed resolution to %dx%d\n",
-                currentWidth, currentHeight);
-        }
-        break;
-    default:
-        return;
+void CameraController::Impl::resolutionVerify(v4l2_format& fmt, uint32_t bpl) {
+    if (0 != ioctl(fd_.get(), VIDIOC_G_FMT, &fmt)) {
+        fprintf(stderr, "[CameraController][Warning] VIDIOC_G_FMT failed: %s\n", strerror(errno));
+    }
+    bool muitable = (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_);
+    // 更新当前分辨率
+    currentWidth = muitable ? fmt.fmt.pix_mp.width : fmt.fmt.pix.width;
+    currentHeight = muitable ? fmt.fmt.pix_mp.height : fmt.fmt.pix.height;
+    fprintf(stdout, "[CameraController] Current Format: width=%u, height=%u, bpl=%u\n",
+        muitable ? fmt.fmt.pix_mp.width : fmt.fmt.pix.width,
+        muitable? fmt.fmt.pix_mp.height : fmt.fmt.pix.height,
+        muitable ? fmt.fmt.pix_mp.plane_fmt[0].bytesperline : fmt.fmt.pix.bytesperline);
+    // 验证 bytesperline
+    uint32_t actual_bpl = muitable ? fmt.fmt.pix_mp.plane_fmt[0].bytesperline : fmt.fmt.pix.bytesperline;
+    if (actual_bpl != bpl) {
+        fprintf(stdout, "[CameraController][Warning] Driver adjusted bytesperline from %u to %u\n", bpl, actual_bpl);
+    }
+    // 只对 V4L2_BUF_TYPE_VIDEO_CAPTURE 却驱动支持时输出帧率
+    if (muitable == true) return;
+
+    struct v4l2_streamparm streamparm{};
+    streamparm.type = buf_type_;
+    if (0 == ioctl(fd_.get(), VIDIOC_G_PARM, &streamparm)) {
+        fprintf(stdout, "[CameraController] Current Frame Rate: %u/%u\n",
+            streamparm.parm.capture.timeperframe.numerator,
+            streamparm.parm.capture.timeperframe.denominator);
+    } else if (EINVAL == errno) {
+        fprintf(stdout, "[CameraController][Warning] VIDIOC_G_PARM not supported for this capture type\n");
     }
 }
 
+// Stride控制: 只能通过 bytesperline, 没有其他途径
 void CameraController::Impl::setupFormat() {
     v4l2_format fmt = {};
     fmt.type = buf_type_;
+    // auto buf = DmaBuffer::create(config_.width, config_.height, convertV4L2ToDrmFormat(config_.format), 0, 0);
+    uint32_t bpl = config_.width;
     // 配置格式
     if (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_) {
         fmt.fmt.pix_mp.width = config_.width;
@@ -281,30 +292,21 @@ void CameraController::Impl::setupFormat() {
         fmt.fmt.pix_mp.field = V4L2_FIELD_NONE;
         // 根据驱动需求修改
         fmt.fmt.pix_mp.num_planes = config_.plane_count;
+        fmt.fmt.pix_mp.plane_fmt[0].bytesperline = bpl;
     } else {
         fmt.fmt.pix.width = config_.width;
         fmt.fmt.pix.height = config_.height;
         fmt.fmt.pix.pixelformat = config_.format;
         fmt.fmt.pix.field = V4L2_FIELD_NONE;
+        fmt.fmt.pix.bytesperline = bpl;
     }
     
     if (ioctl(fd_.get(), VIDIOC_S_FMT, &fmt) < 0) {
         throw V4L2Exception("VIDIOC_S_FMT failed", errno);
     }
 
-    if (V4L2_BUF_TYPE_VIDEO_CAPTURE == buf_type_) {
-        struct v4l2_streamparm streamparm{};
-        streamparm.type = buf_type_;
-        if (0 == ioctl(fd_.get(), VIDIOC_G_PARM, &streamparm)) {
-            fprintf(stdout, "Current Frame Rate: %u/%u\n",
-                streamparm.parm.capture.timeperframe.numerator,
-                streamparm.parm.capture.timeperframe.denominator);
-        } else if (EINVAL == errno) {
-            fprintf(stdout, "VIDIOC_G_PARM not supported for this capture type\n");
-        }
-    }
     // 验证
-    resolutionVerify(fmt);
+    resolutionVerify(fmt, bpl);
 }
 
 void CameraController::Impl::requestBuffers() {
@@ -425,13 +427,13 @@ void CameraController::Impl::allocateDMABuffers() {
             plane_num = buf.length; 
         }
         config_.plane_count = plane_num; // 更新配置中的 plane 个数
-
+        fprintf(stdout, "[CameraController] Buffer %d: plane count = %zu\n", i, plane_num);
         // --- 创建DMABUF缓冲区 ---
         /* V4L2 内核驱动可能做了对齐或 stride 扩展
          * 导致需要的 plane.length 比通过 currentWidth * currentHeight * bpp 估算的分配的大
          */
         if (V4L2_BUF_TYPE_VIDEO_CAPTURE == buf_type_){
-            auto dmabuf = createDmabuf(currentWidth, currentHeight, buf.bytesused, 0);
+            auto dmabuf = createDmabuf(currentWidth, currentHeight, buf.bytesused, 0, 0);
             // 单平面直接对buffers_赋值
             buffers_[i].state = std::make_shared<SharedBufferState>(
                 std::move(dmabuf), nullptr);
@@ -448,16 +450,16 @@ void CameraController::Impl::allocateDMABuffers() {
             size_t planes_offset = buf.m.planes[p].data_offset;     // 数据偏移量 (第一个平面一般为0)
             __u32 width_ = currentWidth;
             __u32 height_ = currentHeight;
-            if (!getFormatSize(width_, height_, p)) {   // 获取当前层的尺寸
-                throw V4L2Exception("Failed to get format size for plane " + std::to_string(p), EINVAL);
-            }
+            // if (!getFormatSize(width_, height_, p)) {   // 获取当前层的尺寸
+            //     throw V4L2Exception("Failed to get format size for plane " + std::to_string(p), EINVAL);
+            // }
             // 创建 dmabuf
-            auto dmabuf = createDmabuf(width_, height_, planes_length, planes_offset);
+            auto dmabuf = createDmabuf(width_, height_, planes_length, planes_offset, p);
             fprintf(stdout, "[CameraController] Allocated plane %zu: size=%ux%u, length=%zu, offset=%u\n", 
                 p, width_, height_, planes_length, planes_offset);
             // 多平面下给对应的平面赋值
             buffers_[i].planes[p].state = std::make_shared<SharedBufferState>(
-                std::move(dmabuf), nullptr);
+                std::move(dmabuf), nullptr, planes_length);
             /* 需要移动保证生命周期
              * shared_ptr 的意义不在这,意义在于给其他硬件共享 prime fd
              * 如果在这里引用 +1 后又 -1 ,白白浪费了一次拷贝销耗的性能
@@ -486,11 +488,12 @@ int CameraController::Impl::enqueueBuffer(int index) {
         if (V4L2_MEMORY_DMABUF == memory_type_) {
             // DMABUF: 每个 plane 填 fd
             for (size_t p = 0; p < buffers_[index].planes.size(); ++p) {
-                planes[p].m.fd = buffers_[index].planes[p].state->dmabuf_fd();
-                planes[p].length = buffers_[index].planes[p].state->length;
-                planes[p].bytesused = buffers_[index].planes[p].state->length;
+                auto pbuf = buffers_[index].planes[p].state->dmabuf_ptr;
+                planes[p].m.fd = pbuf->fd();
+                planes[p].length = pbuf->size();
+                // planes[p].bytesused = pbuf->size(); // bytesused 驱动填充了多少数据, 是只读数据...
             }
-        } 
+        }
         else {
             // MMAP: 不需要额外填 fd,内核知道 offset
             for (size_t p = 0; p < buffers_[index].planes.size(); ++p) {
@@ -501,7 +504,7 @@ int CameraController::Impl::enqueueBuffer(int index) {
 
     int ret = ioctl(fd_.get(), VIDIOC_QBUF, &buf);
     if (0 > ret) {
-        fprintf(stderr, "VIDIOC_QBUF failed in returnBuffer (errno=%d): %s\n", errno, strerror(errno));
+        fprintf(stderr, "[CameraController][ERROR] VIDIOC_QBUF failed in returnBuffer (errno=%d): %s\n", errno, strerror(errno));
     }
     // 当操作成功即入队
     buffers_[index].queued = (0 == ret);
@@ -533,13 +536,13 @@ int CameraController::Impl::returnBuffer(int index) {
     
     // 检查索引范围
     if (index < 0 || index >= buffers_.size()) {
-        fprintf(stderr, "returnBuffer: invalid index %d\n", index);
+        fprintf(stderr, "[CameraController][Warning] returnBuffer: invalid index %d\n", index);
         return -1;
     }
     
     // 检查缓冲区是否已经排队
     if (buffers_[index].queued) {
-        fprintf(stderr, "returnBuffer: buffer %d already queued\n", index);
+        fprintf(stderr, "[CameraController][Warning] returnBuffer: buffer %d already queued\n", index);
         return -1;
     }
     
@@ -557,7 +560,7 @@ void CameraController::Impl::reclaimAllBuffers()
         for (int i = 0; i < buffers_.size(); i++) {
             if (true == buffers_[i].queued) continue; // 已归还(在内核排队)
             
-            if (0 == returnBuffer(i)){
+            if (0 == returnBuffer(i) || EEXIST == errno){
                 // 归还成功
                 continue;
             } else if (EAGAIN == errno) {
@@ -586,7 +589,7 @@ void CameraController::Impl::releaseBuffers()
     buffers_.swap(temp);
 }
 
-DmaBufferPtr CameraController::Impl::createDmabuf(__u32 width, __u32 height, size_t needed_size, uint32_t offset) {
+DmaBufferPtr CameraController::Impl::createDmabuf(__u32 width, __u32 height, size_t needed_size, uint32_t offset, uint32_t planeIndex) {
     DmaBufferPtr buf = nullptr;
     // 获取实际格式 (V4L2_PIX_FMT_NV12 -> DRM_FORMAT_NV12)
     auto currentformat = convertV4L2ToDrmFormat(config_.format);
@@ -595,7 +598,7 @@ DmaBufferPtr CameraController::Impl::createDmabuf(__u32 width, __u32 height, siz
     }
 
     // 根据实际长宽分配内存(NV12等每个平面宽高不一致需要特殊处理)
-    buf = DmaBuffer::create(width, height, currentformat, needed_size, offset);
+    buf = DmaBuffer::create(width, height, currentformat, needed_size, offset, planeIndex);
     if (nullptr == buf) {
         throw V4L2Exception("create DmaBuffer failed.");
     }
@@ -613,13 +616,13 @@ DmaBufferPtr CameraController::Impl::createDmabuf(__u32 width, __u32 height, siz
 bool CameraController::Impl::getFormatSize(uint32_t& width, uint32_t& height, uint32_t planeIndex) {
     auto it = FormatTool::formatPlaneMap.find(config_.format);
     if (FormatTool::formatPlaneMap.end() == it) {
-        fprintf(stderr, "Unsupported format in getFormatSize()\n");
+        fprintf(stderr, "[CameraController][ERROR] Unsupported format in getFormatSize()\n");
         return false; // 未知格式不处理
     }
 
     const auto& scales = it->second;
     if (planeIndex >= scales.size()) {
-        fprintf(stderr, "Invalid plane index %u for format %u\n", planeIndex, config_.format);
+        fprintf(stderr, "[CameraController][ERROR] Invalid plane index %u for format %u\n", planeIndex, config_.format);
         return false; // 无效平面索引
     }
 
@@ -797,7 +800,7 @@ void CameraController::Impl::captureLoop() {
         // calculateFps(sensor_us);
     }
     } catch (const std::exception& e) {
-        fprintf(stderr, "Capture loop error: %s\n", e.what());
+        fprintf(stderr, "[CameraController][ERROR] Capture loop error: %s\n", e.what());
         running_ = false;
     }
 }

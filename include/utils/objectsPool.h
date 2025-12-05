@@ -6,7 +6,7 @@
  */
 #ifndef OBJECT_POOL_H
 #define OBJECT_POOL_H
-#include <vector>
+#include <queue>
 #include <memory>
 #include <mutex>
 #include <condition_variable>
@@ -19,7 +19,7 @@ public:
 
     ObjectPool(size_t poolSize, CreatorFunc creator) : creator_(creator) {
         for (size_t i = 0; i < poolSize; ++i) {
-            free_.push_back(creator_());
+            free_.push(creator_());
         }
     }
 
@@ -27,16 +27,26 @@ public:
     T acquire() { // 返回 T 而不是 T&&
         std::unique_lock<std::mutex> lock(mutex_);
         cond_.wait(lock, [this]{ return !free_.empty(); });
-        T obj = free_.back();
-        free_.pop_back();
+        T obj = std::move(free_.front());
+        free_.pop();
         return obj;
+    }
+
+    bool tryAcquire(T& obj, std::chrono::milliseconds timeout){
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!cond_.wait_for(lock, timeout, [this]{ return !free_.empty(); })) {
+            return false; // 超时
+        }
+        obj = std::move(free_.front());
+        free_.pop();
+        return true;
     }
 
     // 归还对象回池
     void release(T obj) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            free_.push_back(obj);
+            free_.push(std::move(obj));
         }
         cond_.notify_one();
     }
@@ -50,7 +60,7 @@ private:
     CreatorFunc creator_;
     mutable std::mutex mutex_;
     std::condition_variable cond_;
-    std::vector<T> free_;
+    std::queue<T> free_;
 };
 
 #endif // OBJECT_POOL_H

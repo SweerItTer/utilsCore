@@ -10,7 +10,6 @@ int main(int argc, char *argv[]) {
 	DrmDev::fd_ptr = DeviceController::create(); // 初始化全局唯一fd_ptr
 	
 	FrameBufferTest test;
-	test.start();
 	test.RunUI(argc, argv);
 	return 0;
 }

@@ -36,7 +36,7 @@ endif()
 
 # Release 下额外优化
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    # 仅 Release 构建使用 -march=armv8.2-a（交叉编译或者 native）
+    # 仅 Release 构建使用 -march=armv8.2-a(交叉编译或者 native)
     if(USE_CROSS_COMPILE)
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=armv8.2-a")
     else()

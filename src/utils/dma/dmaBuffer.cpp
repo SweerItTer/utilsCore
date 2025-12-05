@@ -19,26 +19,30 @@ using namespace DrmDev;
  */
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
                                              uint32_t format, uint32_t required_size,
-                                             uint32_t offset) {
+                                             uint32_t offset, uint32_t planeIndex) {
     std::lock_guard<std::mutex> lock(fd_mutex);
     if (-1 == fd_ptr->get()) {
-        fprintf(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
+        fprintf(stderr, "[DmaBuffer] DRM fd not initialized, please call initialize_drm_fd() first\n");
         return nullptr;
     }
 
+    PlaneFormatInfo info = getPlaneInfo(format);
+    // 获取宽高的比例而不是bpp(BitPerPixel)
+    float ratio_w = info(planeIndex).w;
+    float ratio_h = info(planeIndex).h;
+
     uint32_t bpp = calculate_bpp(format);
-    if ((uint32_t)-1 == bpp) {
+    if (bpp <= (uint32_t)0) {
         fprintf(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
         return nullptr;
     }
-
+    // fprintf(stdout, "[DmaBuffer] ratio_w=%.2f, ratio_h=%.2f, bpp=%u\n", ratio_w, ratio_h, bpp);
     // 按不同对齐方式尝试分配
-    constexpr uint32_t align_options[] = {4, 8, 16, 32, 64, 128};
+    constexpr uint32_t align_options[] = {8, 16, 32, 64, 128};
     for (uint32_t align : align_options) {
         // 按字节对齐计算新的 pitch 和 width
-        uint32_t pitch_bytes    = ((width * bpp / 8 + align - 1) / align) * align;
-        uint32_t aligned_width  = pitch_bytes * 8 / bpp;
-        uint32_t aligned_height = ((height + align - 1) / align) * align;
+        uint32_t aligned_width  = static_cast<uint32_t>((width * ratio_w + align - 1) / align) * align;
+        uint32_t aligned_height = static_cast<uint32_t>((height * ratio_h + align - 1) / align) * align;
 
         drm_mode_create_dumb create_arg{};
         create_arg.width  = aligned_width; // 直接用对齐后的宽度,避免内核二次对齐
@@ -46,7 +50,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
         create_arg.bpp    = bpp;
 
         if (drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg) < 0) {
-            fprintf(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed with align %u: %d\n",
+            fprintf(stderr, "[DmaBuffer] DRM_IOCTL_MODE_CREATE_DUMB failed with align %u: %d\n",
                         align, errno);
             continue;
         }
@@ -73,46 +77,26 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
         return std::shared_ptr<DmaBuffer>(new DmaBuffer(primefd, data));
     }
 
-    fprintf(stderr, "Failed to create dumb buffer with required size %u\n", required_size);
+    fprintf(stderr, "[DmaBuffer] Failed to create dumb buffer with required size %u\n", required_size);
     return nullptr;
 }
 
 // 无需对齐的 dumb buffer 创建
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
-                                             uint32_t format, uint32_t offset) {
-    std::lock_guard<std::mutex> lock(fd_mutex);
-    if (-1 == fd_ptr->get()) {
-        fprintf(stderr, "DRM fd not initialized, please call initialize_drm_fd() first");
-        return nullptr;
-    }
-
+                                             uint32_t format, uint32_t offset, uint32_t planeIndex) {
+    PlaneFormatInfo planeInfo = getPlaneInfo(format);
+    float ratio_w = planeInfo(planeIndex).w;
+    float ratio_h = planeInfo(planeIndex).h;
     uint32_t bpp = calculate_bpp(format);
-    if ((uint32_t)-1 == bpp) {
+    if (bpp <= (uint32_t)0) {
         fprintf(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
         return nullptr;
     }
+    width *= ratio_w; height *= ratio_h;
 
-    drm_mode_create_dumb create_arg = {};
-    create_arg.width  = width;
-    create_arg.height = height;
-    create_arg.bpp    = bpp;
-
-    if (0 > drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_CREATE_DUMB, &create_arg)) {
-        fprintf(stderr, "DRM_IOCTL_MODE_CREATE_DUMB failed: %d\n", errno);
-        return nullptr;
-    }
-
-    int primefd = exportFD(create_arg);
-    if (0 > primefd) {
-        fprintf(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
-        return nullptr;
-    }
-
-    dmaBufferData data = {
-        create_arg.handle, width, height,
-        format, create_arg.pitch, create_arg.size, offset, bpp/8
-    };
-    return std::shared_ptr<DmaBuffer>(new DmaBuffer(primefd, data));
+    // 当前层所需字节数
+    uint32_t required_size = static_cast<uint32_t>(width * height * bpp / 8);
+    return create(width, height, format, required_size, offset, planeIndex);
 }
 
 // 从外部导入
@@ -120,24 +104,30 @@ std::shared_ptr<DmaBuffer> DmaBuffer::importFromFD(
     int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size, uint32_t offset)
 {
     if (importFd < 0) {
-        fprintf(stderr, "Invalid import fd: %d\n", importFd);
+        fprintf(stderr, "[DmaBuffer] Invalid import fd: %d\n", importFd);
         return nullptr;
     }
     if (0 == width || 0 == height) {
-        fprintf(stderr, "Invalid dimensions: %ux%u\n", width, height);
+        fprintf(stderr, "[DmaBuffer] Invalid dimensions: %ux%u\n", width, height);
         return nullptr;
     }
 
-    std::lock_guard<std::mutex> lock(fd_mutex);
-    if (-1 == fd_ptr->get()) {
-        fprintf(stderr, "DRM fd not initialized, please call initialize_drm_fd() first\n");
-        return nullptr;
-    }
-
-    // Step 1: 把 fd 转成 DRM handle
     uint32_t handle = 0;
-    if (drmPrimeFDToHandle(fd_ptr->get(), importFd, &handle) < 0) {
-        fprintf(stderr, "Failed to import DMA-BUF fd: %d\n", importFd);
+    {
+        std::lock_guard<std::mutex> lock(fd_mutex);
+        if (!fd_ptr || -1 == fd_ptr->get()) {
+            fprintf(stderr, "[DmaBuffer] DRM fd not initialized, please call initialize_drm_fd() first\n");
+            return nullptr;
+        }
+
+        // 把 fd 转成 DRM handle
+        if (drmPrimeFDToHandle(fd_ptr->get(), importFd, &handle) < 0) {
+            fprintf(stderr, "[DmaBuffer] Failed to import DMA-BUF fd: %d\n", importFd);
+            return nullptr;
+        }
+    }
+    if (0 == handle) {
+        fprintf(stderr, "[DmaBuffer] Imported handle is 0 for fd: %d\n", importFd);
         return nullptr;
     }
 
@@ -156,7 +146,7 @@ int DmaBuffer::exportFD(drm_mode_create_dumb &create_arg) {
         drm_mode_destroy_dumb destroy_arg = {};
         destroy_arg.handle = create_arg.handle;
         drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
-        fprintf(stderr, "drmPrimeHandleToFD failed");
+        fprintf(stderr, "[DmaBuffer] drmPrimeHandleToFD failed");
     }
 
     /* 如果完全依赖 prime fd，可立即销毁 handle。
@@ -235,14 +225,14 @@ uint32_t DmaBuffer::channel() const noexcept { return data_.channel; }
 // ---------- map/unmap ----------
 uint8_t* DmaBuffer::map() {
     if (m_fd < 0) {
-        throw std::runtime_error("Invalid DMABUF fd");
+        throw std::runtime_error("[DmaBuffer] Invalid DMABUF fd");
     }
     if (nullptr != mappedPtr_) {
         return mappedPtr_;
     }
     void* ptr = mmap(nullptr, data_.size, PROT_READ | PROT_WRITE, MAP_SHARED, m_fd, 0);
     if (MAP_FAILED == ptr) {
-        perror("mmap failed");
+        perror("[DmaBuffer] mmap failed");
         return nullptr;
     }
     mappedPtr_ = reinterpret_cast<uint8_t*>(ptr);

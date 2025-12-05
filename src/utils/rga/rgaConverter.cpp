@@ -15,14 +15,18 @@ RgaConverter &RgaConverter::instance()
 RgaConverter::RgaConverter() {
     // 初始化RGA上下文
     m_rga.RkRgaInit();
-    fprintf(stdout, "%s", querystring(RGA_VERSION));
+    fprintf(stdout, "%s\t", querystring(RGA_VERSION));
     m_initialized = true;
 }
 
 RgaConverter::~RgaConverter() {
+    deinit();
+}
+
+void RgaConverter::deinit() {
     if (m_initialized) {
-        // 清理RGA资源
-        m_rga.RkRgaDeInit();
+        m_rga.RkRgaDeInit(); 
+        m_initialized = false;
     }
 }
 
@@ -53,14 +57,15 @@ IM_STATUS RgaConverter::ImageResize(RgaParams& params){
     if (!m_initialized) {
         return IM_STATUS_NOT_SUPPORTED;
     }
-    if (params.dst.width == params.src.width && params.dst.height == params.src.height){
-        return IM_STATUS_ILLEGAL_PARAM;
-    }
-
+    
     IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
     if (ret != IM_STATUS_NOERROR) {
         fprintf(stderr, "%s", imStrError(ret));
         return ret;
+    }
+
+    if (params.dst.width == params.src.width && params.dst.height == params.src.height){
+        return imcopy(params.src, params.dst);
     }
 
     ret = imresize(params.src, params.dst);

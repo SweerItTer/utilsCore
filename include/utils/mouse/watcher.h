@@ -71,7 +71,7 @@ public:
         UdevMonitor::registerHandler("input", {"change", "add", "remove"}, [this](){
             // 检查移除的设备是否是当前鼠标设备
             this->pause();
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // 等待系统稳定
+            std::this_thread::sleep_for(std::chrono::milliseconds(5)); // 等待系统稳定
             auto newMouseInfo = this->getMouseInfo();
             std::lock_guard<std::mutex> fdLock(fdMtx);
             // 更新 mouseFd

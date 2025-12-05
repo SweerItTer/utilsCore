@@ -38,8 +38,9 @@ struct SharedBufferState {
         else if (0 < rawFd && nullptr == start) backing = BufferBacking::DMABUF_FD;
     }
     // 使用智能指针的dmabuf
-    SharedBufferState(DmaBufferPtr dmabuf_ptr_ = nullptr, void* ptr = nullptr)
-    : dmabuf_ptr(dmabuf_ptr_), start(ptr), length(dmabuf_ptr_->size()), valid(true) {
+    SharedBufferState(DmaBufferPtr dmabuf_ptr_ = nullptr, void* ptr = nullptr, size_t len = 0)
+    : dmabuf_ptr(dmabuf_ptr_), start(ptr), length(len), valid(true) {
+        if (length==0) length = dmabuf_ptr_->size();
         if (nullptr != start && nullptr == dmabuf_ptr_) backing = BufferBacking::MMAP;
         else if (nullptr != dmabuf_ptr_ && nullptr == start) backing = BufferBacking::DMABUF_OBJ;
     }

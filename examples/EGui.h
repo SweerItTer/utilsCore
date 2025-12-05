@@ -27,6 +27,8 @@
 #include "qMouseWatch.h"
 #include "rander/core.h"			// 渲染核心
 #include "rander/draw.h"			// 绘制方法
+#include "sys/cpuMonitor.h"         // 资源检测
+#include "sys/memoryMonitor.h"
 
 // 选择最接近屏幕分辨率的标准分辨率
 static auto chooseClosestResolution(int screenW, int screenH) -> std::pair<int, int> {
@@ -131,5 +133,7 @@ private:
 	std::shared_ptr<DrmLayer> primaryLayer;  	// primary上显示UI等绘制元素
 	// 合成器
 	std::unique_ptr<PlanesCompositor> compositor;
-	
+	// 资源监视器
+    CpuMonitor CPUMonitor;
+    MemoryMonitor MMonitor;
 };
