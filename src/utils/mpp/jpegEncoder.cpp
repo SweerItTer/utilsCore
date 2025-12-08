@@ -64,7 +64,7 @@ bool JpegEncoder::captureFromDmabuf(const DmaBufferPtr dmabuf) {
     mpp_frame_set_height(frame, dmabuf->height());
     mpp_frame_set_hor_stride(frame, dmabuf->pitch());
     mpp_frame_set_ver_stride(frame, dmabuf->height());
-    mpp_frame_set_fmt(frame, drm2mpp_format(dmabuf->format()));
+    mpp_frame_set_fmt(frame, convertDrmToMppFormat(dmabuf->format()));
     mpp_frame_set_buffer(frame, buffer);
 
     // 生成文件名

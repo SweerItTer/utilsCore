@@ -67,8 +67,11 @@ IM_STATUS RgaConverter::ImageResize(RgaParams& params){
     if (params.dst.width == params.src.width && params.dst.height == params.src.height){
         return imcopy(params.src, params.dst);
     }
-
-    ret = imresize(params.src, params.dst);
+    
+    double scaleX = static_cast<double>(params.dst.width) / static_cast<double>(params.src.width);
+    double scaleY = static_cast<double>(params.dst.height) / static_cast<double>(params.src.height);
+    double scale  = (scaleX < scaleY) ? scaleX : scaleY;   // 取最小, 保证完整显示
+    ret = imresize(params.src, params.dst, scale, scale, INTER_LINEAR, 1);
     if (ret != IM_STATUS_SUCCESS) {
         fprintf(stderr, "%s", imStrError(ret));
     }

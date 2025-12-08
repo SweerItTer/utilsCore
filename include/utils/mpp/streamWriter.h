@@ -132,4 +132,5 @@ private:
 
     // 运行开关
     std::atomic<bool> running_{true};
+    std::atomic<bool> firstIframeNeed;
 };

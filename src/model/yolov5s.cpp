@@ -5,7 +5,7 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "yolov5s.h"
-#include "rga/rga2drm.h"
+#include "rga/formatTool.h"
 #include <iostream>
 
 Yolov5s::Yolov5s(const std::string &modelPath, const std::string &COCOPath,
@@ -52,7 +52,7 @@ object_detect_result_list Yolov5s::infer(DmaBufferPtr in_dmabuf)
     rknn_io_tensor_mem* mem = &appCtx.io_mem;
     DmaBufferPtr dstbuf = DmaBuffer::importFromFD(mem->input_mems[0]->fd,
         appCtx.model_width, appCtx.model_height,
-        formatRGAtoDRM(RK_FORMAT_RGB_888), mem->input_mems[0]->size);
+        convertRGAtoDRMFormat(RK_FORMAT_RGB_888), mem->input_mems[0]->size);
     // 将 in_dmabuf 预处理并输出到 dstbuf
     int ret = preprocess::convert_image_with_letterbox(in_dmabuf, dstbuf, &letterbox_, bg_color);
     if (ret < 0){

@@ -108,7 +108,7 @@ void MppEncoderCore::initSlots() {
 
     uint32_t width  = cfg->prep_width;
     uint32_t height = cfg->prep_height;
-    uint32_t drm_fmt = mpp2drm_format(cfg->prep_format);
+    uint32_t drm_fmt = convertMppToDrmFormat(cfg->prep_format);
 
     for (size_t i = 0; i < SLOT_COUNT; ++i) {
         auto dmabuf = DmaBuffer::create(
@@ -344,7 +344,6 @@ void MppEncoderCore::workerThread() {
         if (intra_flag == 0){
             s.packet->setKeyframe(false);
         } else{
-            fprintf(stdout, "GET I(ntra) frame.\n");
             s.packet->setKeyframe( true );
         }
         s.state.store(SlotState::Encoded);
@@ -437,7 +436,7 @@ bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFram
     // Rockchip_Developer_Guide_MPP_CN.md: hor_stride	RK_U32	表示垂直方向相邻两行之间的距离，单位为byte数
     mpp_frame_set_hor_stride(out_frame,  s.dmabuf->pitch());
     mpp_frame_set_ver_stride(out_frame,  s.dmabuf->height());  // 像素单位
-    mpp_frame_set_fmt(out_frame,         drm2mpp_format(s.dmabuf->format())); // 2022~2023 版本API
+    mpp_frame_set_fmt(out_frame,         convertDrmToMppFormat(s.dmabuf->format())); // 2022~2023 版本API
     // mpp_frame_set_buffer 会增加引用计数, mpp_frame_deinit 会减少引用计数
     // s.enc_buf 本身的引用计数(1)保持不变
     mpp_frame_set_buffer(out_frame,      s.using_external ? mpp_buf : s.enc_buf->get());

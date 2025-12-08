@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-09-04 01:33:35
- * @FilePath: /EdgeVision/include/utils/rga/rga2drm.h
+ * @FilePath: /EdgeVision/include/utils/rga/formatTool.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #pragma once
@@ -15,7 +15,7 @@
     我nm
 */
 // RGA->DRM 格式映射表
-static const std::unordered_map<int, uint32_t> rgaToDrmMap = {
+static const std::unordered_map<int, uint32_t> rgaToDrmFormat = {
     // --- RGB / ARGB ---
     {RK_FORMAT_RGB_565,    DRM_FORMAT_RGB565},
     {RK_FORMAT_RGB_888,    DRM_FORMAT_RGB888},     // 24bit
@@ -43,7 +43,7 @@ static const std::unordered_map<int, uint32_t> rgaToDrmMap = {
 };
 
 // DRM -> RGA 格式映射表
-static const std::unordered_map<uint32_t, int> drmToRgaMap = {
+static const std::unordered_map<uint32_t, int> drmToRgaFormat = {
     // --- RGB / ARGB ---
     {DRM_FORMAT_RGB565,   RK_FORMAT_RGB_565},
     {DRM_FORMAT_RGB888,   RK_FORMAT_RGB_888},
@@ -73,19 +73,85 @@ static const std::unordered_map<uint32_t, int> drmToRgaMap = {
 };
 
 // DRM -> RGA 转换函数
-inline int formatDRMtoRGA(uint32_t drmFmt) {
-    auto it = drmToRgaMap.find(drmFmt);
-    if (it != drmToRgaMap.end()) {
+inline int convertDRMtoRGAFormat(uint32_t drmFmt) {
+    auto it = drmToRgaFormat.find(drmFmt);
+    if (it != drmToRgaFormat.end()) {
         return it->second;
     }
     return -1; // 未找到对应格式
 }
 
 // RGA -> DRM 转换函数
-inline uint32_t formatRGAtoDRM(int rgaFmt) {
-    auto it = rgaToDrmMap.find(rgaFmt);
-    if (it != rgaToDrmMap.end()) {
+inline uint32_t convertRGAtoDRMFormat(int rgaFmt) {
+    auto it = rgaToDrmFormat.find(rgaFmt);
+    if (it != rgaToDrmFormat.end()) {
         return it->second;
     }
     return -1; // 未找到对应格式
+}
+
+// ---------------------------
+
+// V4L2 -> RGA 格式映射表
+static const std::unordered_map<uint32_t, int> v4l2ToRgaFormat = {
+    // --- RGB ---
+    {V4L2_PIX_FMT_RGB565,  RK_FORMAT_RGB_565},
+    {V4L2_PIX_FMT_RGB24,   RK_FORMAT_RGB_888},
+    {V4L2_PIX_FMT_BGR24,   RK_FORMAT_BGR_888},
+
+    {V4L2_PIX_FMT_ARGB32,  RK_FORMAT_ARGB_8888},
+    {V4L2_PIX_FMT_ABGR32,  RK_FORMAT_ABGR_8888},
+
+    // --- YUV 4:2:0 ---
+    {V4L2_PIX_FMT_NV12,    RK_FORMAT_YCbCr_420_SP},
+    {V4L2_PIX_FMT_NV21,    RK_FORMAT_YCrCb_420_SP},
+    {V4L2_PIX_FMT_YUV420,  RK_FORMAT_YCbCr_420_P},
+    {V4L2_PIX_FMT_YVU420,  RK_FORMAT_YCrCb_420_P},
+
+    // --- YUV 4:2:2 ---
+    {V4L2_PIX_FMT_NV16,    RK_FORMAT_YCbCr_422_SP},
+    {V4L2_PIX_FMT_NV61,    RK_FORMAT_YCrCb_422_SP},
+    {V4L2_PIX_FMT_YUYV,    RK_FORMAT_YUYV_422},
+    {V4L2_PIX_FMT_UYVY,    RK_FORMAT_UYVY_422}
+};
+
+// RGA -> V4L2 格式映射表
+static const std::unordered_map<int, uint32_t> rgaToV4l2Format = {
+    // --- RGB ---
+    {RK_FORMAT_RGB_565,    V4L2_PIX_FMT_RGB565},
+    {RK_FORMAT_RGB_888,    V4L2_PIX_FMT_RGB24},
+    {RK_FORMAT_BGR_888,    V4L2_PIX_FMT_BGR24},
+
+    {RK_FORMAT_ARGB_8888,  V4L2_PIX_FMT_ARGB32},
+    {RK_FORMAT_ABGR_8888,  V4L2_PIX_FMT_ABGR32},
+
+    // --- YUV 4:2:0 ---
+    {RK_FORMAT_YCbCr_420_SP, V4L2_PIX_FMT_NV12},
+    {RK_FORMAT_YCrCb_420_SP, V4L2_PIX_FMT_NV21},
+    {RK_FORMAT_YCbCr_420_P,  V4L2_PIX_FMT_YUV420},
+    {RK_FORMAT_YCrCb_420_P,  V4L2_PIX_FMT_YVU420},
+
+    // --- YUV 4:2:2 ---
+    {RK_FORMAT_YCbCr_422_SP, V4L2_PIX_FMT_NV16},
+    {RK_FORMAT_YCrCb_422_SP, V4L2_PIX_FMT_NV61},
+    {RK_FORMAT_YUYV_422,     V4L2_PIX_FMT_YUYV},
+    {RK_FORMAT_UYVY_422,     V4L2_PIX_FMT_UYVY}
+};
+
+// V4L2 -> RGA
+inline int convertV4L2toRGAFormat(uint32_t v4l2Fmt) {
+    auto it = v4l2ToRgaFormat.find(v4l2Fmt);
+    if (it != v4l2ToRgaFormat.end()) {
+        return it->second;
+    }
+    return -1;
+}
+
+// RGA -> V4L2
+inline uint32_t convertRGAtoV4L2Format(int rgaFmt) {
+    auto it = rgaToV4l2Format.find(rgaFmt);
+    if (it != rgaToV4l2Format.end()) {
+        return it->second;
+    }
+    return -1;
 }

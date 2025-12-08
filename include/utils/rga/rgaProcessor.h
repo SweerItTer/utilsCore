@@ -18,7 +18,7 @@
 #include "rga/rgaConverter.h"
 #include "asyncThreadPool.h"
 #include "dma/dmaBuffer.h"
-#include "rga/rga2drm.h"
+#include "rga/formatTool.h"
 
 struct RgbaBuffer {
     std::shared_ptr<SharedBufferState> s;

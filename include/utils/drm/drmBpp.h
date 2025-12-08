@@ -72,7 +72,7 @@ static const std::unordered_map<uint32_t, PlaneFormatInfo> drmPlaneMap = {
 };
 
 // ---------------- V4L2 转 DRM ----------------
-static const std::unordered_map<uint32_t,uint32_t> v4l2ToDrmMap = {
+static const std::unordered_map<uint32_t,uint32_t> v4l2ToDrmFormat = {
     {V4L2_PIX_FMT_NV12, DRM_FORMAT_NV12},
     {V4L2_PIX_FMT_NV21, DRM_FORMAT_NV21},
     {V4L2_PIX_FMT_NV16, DRM_FORMAT_NV16},
@@ -100,8 +100,8 @@ inline PlaneFormatInfo getPlaneInfo(uint32_t format) {
 
 // ---------------- V4L2 转 DRM 格式 ----------------
 inline uint32_t convertV4L2ToDrmFormat(uint32_t v4l2_fmt) {
-    auto it = v4l2ToDrmMap.find(v4l2_fmt);
-    return (it != v4l2ToDrmMap.end()) ? it->second : 0;
+    auto it = v4l2ToDrmFormat.find(v4l2_fmt);
+    return (it != v4l2ToDrmFormat.end()) ? it->second : 0;
 }
 
 #endif // DRM_BPP_H

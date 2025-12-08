@@ -46,7 +46,7 @@ void RgaProcessor::initpool() {
             }
             buf.s = std::make_shared<SharedBufferState>(-1, data, buffer_size);
         } else {
-            uint32_t format = formatRGAtoDRM(dstFormat_);
+            uint32_t format = convertRGAtoDRMFormat(dstFormat_);
             // 实际格式是DRM的
             auto dma_buf = DmaBuffer::create(width_, height_, format, 0, 0);
             if (!dma_buf || dma_buf->fd() < 0) {
@@ -57,6 +57,7 @@ void RgaProcessor::initpool() {
 
         bufferPool_.emplace_back(std::move(buf));
     }
+    std::cout << "RGA: bufferPool size: " << bufferPool_.size() << std::endl;
 }
 
 RgaProcessor::~RgaProcessor()
@@ -236,7 +237,7 @@ FramePtr RgaProcessor::infer() {
         return dstFrame;
     }
     if (false == state->valid){
-        fprintf(stderr, "[RGAProcesse] Frame is invaild.\n");
+        fprintf(stderr, "[RGAProcesse] Frame is invalid.\n");
         bufferPool_[index].in_use = false;
         return dstFrame;
     }
@@ -279,7 +280,7 @@ void RgaProcessor::run()
     while (true == running_)
     {
         if ( true == paused ) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::yield();
             if (false == running_) break;
             continue;
         }

@@ -1,10 +1,16 @@
+/*
+ * @Author: SweerItTer xxxzhou.xian@gmail.com
+ * @Date: 2025-12-05 21:12:18
+ * @FilePath: /EdgeVision/include/utils/mpp/formatTool.h
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
+ */
 // utils/mpp/formatTool.h
 #pragma once
 #include <rockchip/mpp_frame.h>
 #include <drm/drm_fourcc.h>
 #include <unordered_map>
 
-inline MppFrameFormat drm2mpp_format(uint32_t drm_fmt) {
+inline MppFrameFormat convertDrmToMppFormat(uint32_t drm_fmt) {
     static const std::unordered_map<uint32_t, MppFrameFormat> table = {
         { DRM_FORMAT_NV12,      MPP_FMT_YUV420SP },
         { DRM_FORMAT_NV21,      MPP_FMT_YUV420SP },
@@ -25,7 +31,7 @@ inline MppFrameFormat drm2mpp_format(uint32_t drm_fmt) {
     return (it != table.end()) ? it->second : MPP_FMT_YUV420SP;
 }
 
-inline uint32_t mpp2drm_format(MppFrameFormat mpp_fmt) {
+inline uint32_t convertMppToDrmFormat(MppFrameFormat mpp_fmt) {
     static const std::unordered_map<MppFrameFormat, uint32_t> table = {
         { MPP_FMT_YUV420SP,     DRM_FORMAT_NV12 },
         { MPP_FMT_YUV420P,      DRM_FORMAT_YUV420 },

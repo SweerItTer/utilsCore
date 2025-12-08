@@ -30,7 +30,7 @@ struct SharedBufferState {
     size_t        length = 0;
 
     // 跨线程可读的有效标志
-    std::atomic<bool> valid;
+    std::atomic<bool> valid{false};
     // 裸指针裸fd的情况
     SharedBufferState(int fd = -1, void* ptr = nullptr, size_t len = 0)
     : rawFd(fd), start(ptr), length(len), valid(true) {

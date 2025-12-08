@@ -21,7 +21,7 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
                                              uint32_t format, uint32_t required_size,
                                              uint32_t offset, uint32_t planeIndex) {
     std::lock_guard<std::mutex> lock(fd_mutex);
-    if (-1 == fd_ptr->get()) {
+    if (!fd_ptr || -1 == fd_ptr->get()) {
         fprintf(stderr, "[DmaBuffer] DRM fd not initialized, please call initialize_drm_fd() first\n");
         return nullptr;
     }
@@ -68,8 +68,8 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
             fprintf(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primefd);
             return nullptr;
         }
-        fprintf(stdout, "[DmaBuffer] Created dumb buffer: %ux%u, aligned: %ux%u, pitch(byte)=%u, size=%lu, align=%u\n",
-                width, height, aligned_width, aligned_height, create_arg.pitch, create_arg.size, align);
+        // fprintf(stdout, "[DmaBuffer] Created dumb buffer: %ux%u, aligned: %ux%u, pitch(byte)=%u, size=%lu, align=%u\n",
+        //         width, height, aligned_width, aligned_height, create_arg.pitch, create_arg.size, align);
         dmaBufferData data = {
             create_arg.handle, width, height,
             format, create_arg.pitch, create_arg.size, offset, bpp/8

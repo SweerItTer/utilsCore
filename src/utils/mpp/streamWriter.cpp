@@ -100,7 +100,7 @@ void StreamWriter::FILEGuard::reset(FILE *f) {
  * @brief 构造函数: 拆分文件名, 打开第一个分段, 启动线程
  */
 StreamWriter::StreamWriter(const std::string &path)
-    : originalPath_(path)
+    : originalPath_(path), firstIframeNeed(true)
 {
     // 拆分 baseName_ 与 suffix_
     size_t pos = originalPath_.find_last_of('.');
@@ -160,6 +160,7 @@ void StreamWriter::stop() {
     if (dispatchThread_.joinable()) dispatchThread_.join();
     if (writerThreadA_.joinable()) writerThreadA_.join();
     if (writerThreadB_.joinable()) writerThreadB_.join();
+    fprintf(stderr, "[StreamWriter] Stop...\n");
 }
 
 /**
@@ -303,6 +304,7 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
  *        并在达到 packetsPerSegment_ 时切换到 idleWriter_
  */
 void StreamWriter::dispatchLoop() {
+    bool exp = firstIframeNeed.load();
     fprintf(stdout, "[StreamWriter] Start form segment index: 1\n");
     while (running_) {
         MppEncoderCore::EncodedMeta meta;
@@ -326,6 +328,8 @@ void StreamWriter::dispatchLoop() {
         bool cutSigment = false;
         // 非关键帧不计数
         if (packet->isKeyframe()) {
+            fprintf(stdout, "GET I(ntra) frame.\n");
+            firstIframeNeed.compare_exchange_weak(exp, false);
             // 关键帧计数
             auto ct = currentPacketCount_.fetch_add(1, std::memory_order_release) + 1;
             // 检测是否切片
@@ -352,6 +356,7 @@ void StreamWriter::dispatchLoop() {
             // 重置计数
             currentPacketCount_.store(0,  std::memory_order_relaxed); 
         }
+        if (firstIframeNeed) continue;
         guard.release(); // 交给写线程释放
         // 分发到 currentWriter_
         {

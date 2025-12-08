@@ -96,7 +96,7 @@ private:
     // 创建dmabuf
     DmaBufferPtr createDmabuf(__u32 width, __u32 height, size_t needed_size, uint32_t offset, uint32_t planeIndex);
     // 获取格式尺寸
-    bool getFormatSize(uint32_t& width, uint32_t& height, uint32_t planeIndex);
+    // bool getFormatSize(uint32_t& width, uint32_t& height, uint32_t planeIndex);
 
     void inquireCapabilities();
     void init();
@@ -613,23 +613,23 @@ DmaBufferPtr CameraController::Impl::createDmabuf(__u32 width, __u32 height, siz
     return buf;
 }
 
-bool CameraController::Impl::getFormatSize(uint32_t& width, uint32_t& height, uint32_t planeIndex) {
-    auto it = FormatTool::formatPlaneMap.find(config_.format);
-    if (FormatTool::formatPlaneMap.end() == it) {
-        fprintf(stderr, "[CameraController][ERROR] Unsupported format in getFormatSize()\n");
-        return false; // 未知格式不处理
-    }
+// bool CameraController::Impl::getFormatSize(uint32_t& width, uint32_t& height, uint32_t planeIndex) {
+//     auto it = FormatTool::formatPlaneMap.find(config_.format);
+//     if (FormatTool::formatPlaneMap.end() == it) {
+//         fprintf(stderr, "[CameraController][ERROR] Unsupported format in getFormatSize()\n");
+//         return false; // 未知格式不处理
+//     }
 
-    const auto& scales = it->second;
-    if (planeIndex >= scales.size()) {
-        fprintf(stderr, "[CameraController][ERROR] Invalid plane index %u for format %u\n", planeIndex, config_.format);
-        return false; // 无效平面索引
-    }
+//     const auto& scales = it->second;
+//     if (planeIndex >= scales.size()) {
+//         fprintf(stderr, "[CameraController][ERROR] Invalid plane index %u for format %u\n", planeIndex, config_.format);
+//         return false; // 无效平面索引
+//     }
 
-    width  = static_cast<uint32_t>(width  * scales[planeIndex].width_scale);
-    height = static_cast<uint32_t>(height * scales[planeIndex].height_scale);
-    return true;
-}
+//     width  = static_cast<uint32_t>(width  * scales[planeIndex].width_scale);
+//     height = static_cast<uint32_t>(height * scales[planeIndex].height_scale);
+//     return true;
+// }
 
 void CameraController::Impl::setThreadAffinity(int cpu_core)
 {

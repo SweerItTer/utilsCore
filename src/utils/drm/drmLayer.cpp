@@ -5,7 +5,7 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "drm/drmLayer.h"
-#include "rga/rga2drm.h"
+#include "rga/formatTool.h"
 
 DrmLayer::DrmLayer(std::vector<DmaBufferPtr> buffers, size_t cacheSize)
     : cacheSize_(cacheSize) 
