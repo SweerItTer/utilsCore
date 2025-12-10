@@ -46,7 +46,7 @@ void RgaProcessor::initpool() {
             }
             buf.s = std::make_shared<SharedBufferState>(-1, data, buffer_size);
         } else {
-            uint32_t format = convertRGAtoDRMFormat(dstFormat_);
+            uint32_t format = convertRGAtoDrmFormat(dstFormat_);
             // 实际格式是DRM的
             auto dma_buf = DmaBuffer::create(width_, height_, format, 0, 0);
             if (!dma_buf || dma_buf->fd() < 0) {

@@ -82,7 +82,7 @@ inline int convertDRMtoRGAFormat(uint32_t drmFmt) {
 }
 
 // RGA -> DRM 转换函数
-inline uint32_t convertRGAtoDRMFormat(int rgaFmt) {
+inline uint32_t convertRGAtoDrmFormat(int rgaFmt) {
     auto it = rgaToDrmFormat.find(rgaFmt);
     if (it != rgaToDrmFormat.end()) {
         return it->second;

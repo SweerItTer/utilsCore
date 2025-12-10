@@ -10,3 +10,8 @@ target_link_libraries(PipelineTest pipeline utils)
 target_include_directories(PipelineTest PRIVATE)
 install(TARGETS PipelineTest RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/examples)
 
+# ---------PipelineTest---------
+add_executable(SnowflakeTest SnowflakeTest.cpp)
+target_link_libraries(SnowflakeTest pipeline utils)
+target_include_directories(SnowflakeTest PRIVATE)
+install(TARGETS SnowflakeTest RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/examples)

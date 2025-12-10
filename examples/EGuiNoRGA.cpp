@@ -97,8 +97,8 @@ void FrameBufferTest::postRefresh(){
     std::vector<uint32_t> usablePrimaryPlaneIds;
     std::vector<uint32_t> usableOverlayPlaneIds;
     // 获取指定类型并且支持目标格式的 Plane
-    DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_PRIMARY, convertRGAtoDRMFormat(primaryFormat), usablePrimaryPlaneIds);
-    DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_OVERLAY, convertRGAtoDRMFormat(overlayFormat), usableOverlayPlaneIds);
+    DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_PRIMARY, convertRGAtoDrmFormat(primaryFormat), usablePrimaryPlaneIds);
+    DrmDev::fd_ptr->getPossiblePlane(DRM_PLANE_TYPE_OVERLAY, convertRGAtoDrmFormat(overlayFormat), usableOverlayPlaneIds);
     infoPrinter(usablePrimaryPlaneIds);
     infoPrinter(usableOverlayPlaneIds);
     // return -1; // 查询所有格式时用
@@ -214,7 +214,7 @@ void FrameBufferTest::RunUI(int &argc, char *argv[]){
 
     auto updateSlot = [&](){
         auto dmabufTemplate = DmaBuffer::create(	// 创建 dmabuf 模板
-            autoWidth, autoHeight, convertRGAtoDRMFormat(primaryFormat), 0, 0);
+            autoWidth, autoHeight, convertRGAtoDrmFormat(primaryFormat), 0, 0);
         if (!dmabufTemplate){
             std::cout << "Failed to create dmabuf template.\n";
             return;
