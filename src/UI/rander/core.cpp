@@ -159,8 +159,8 @@ bool Core::initializeExtensions() {
 
     if (!eglQueryDmaBufFormatsEXT || !eglQueryDmaBufModifiersEXT) {
         fprintf(stderr, "[Core] Warning: EGL does not support dma-buf format/modifier query\n");
-        // 这里不能直接 return false，因为某些驱动没实现查询接口，但 eglCreateImageKHR 仍然能用
-        // 所以只给出警告，后续 createSlot 时依旧可以尝试
+        // 这里不能直接 return false, 因为某些驱动没实现查询接口, 但 eglCreateImageKHR 仍然能用
+        // 所以只给出警告, 后续 createSlot 时依旧可以尝试
     }
     eglCreateSyncKHR = (PFNEGLCREATESYNCKHRPROC)eglGetProcAddress("eglCreateSyncKHR");
     eglDupNativeFenceFDANDROID = (PFNEGLDUPNATIVEFENCEFDANDROIDPROC)eglGetProcAddress("eglDupNativeFenceFDANDROID");
@@ -285,8 +285,9 @@ bool Core::registerResSlot(const std::string &type, size_t poolSize, DmaBufferPt
                 return std::shared_ptr<resourceSlot>();
             }
             return std::make_shared<resourceSlot>(std::move(createSlot(std::move(newBuf))));
-        }));
-
+        })
+    );
+    fprintf(stdout, "[Core] Successed to create %u slot .\n", slots_.at(type).freeCount());
     return true;
 }
 
@@ -350,10 +351,10 @@ Core::resourceSlot Core::createSlot(DmaBufferPtr&& bufPtr) {
     printGlError("blitfbo create.");
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
-    // 创建 QOpenGLFramebufferObject，指定支持 RGBA
+    // 创建 QOpenGLFramebufferObject, 指定支持 RGBA
     QOpenGLFramebufferObjectFormat fboFormat;
     fboFormat.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil); // 可选深度/模板
-    fboFormat.setInternalTextureFormat(GL_RGBA); // 关键：RGBA 支持透明
+    fboFormat.setInternalTextureFormat(GL_RGBA); // 关键: RGBA 支持透明
     slot.qfbo = std::make_shared<QOpenGLFramebufferObject>(slot.dmabufPtr->width(),
                                                            slot.dmabufPtr->height(),
                                                            fboFormat);
@@ -420,14 +421,14 @@ bool Core::resourceSlot::syncToDmaBuf(int& fence) {
                       GL_COLOR_BUFFER_BIT, GL_NEAREST);
     printGlError("blit framebuffer");
 
-    // 4. 创建 fence
-    EGLSyncKHR sync = core.eglCreateSyncKHR(core.eglDisplay_,
-                                            EGL_SYNC_FENCE_KHR,
-                                            nullptr);
-    glFlush();
-    printGlError("flush");
-    fence = core.eglDupNativeFenceFDANDROID(core.eglDisplay_, sync);
-    core.eglDestroySyncKHR(core.eglDisplay_, sync);
+    // // 4. 创建 fence
+    // EGLSyncKHR sync = core.eglCreateSyncKHR(core.eglDisplay_,
+    //                                         EGL_SYNC_FENCE_KHR,
+    //                                         nullptr);
+    // glFlush();
+    // printGlError("flush");
+    // fence = core.eglDupNativeFenceFDANDROID(core.eglDisplay_, sync);
+    // core.eglDestroySyncKHR(core.eglDisplay_, sync);
 
     // 5. 清理绑定
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);

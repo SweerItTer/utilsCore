@@ -149,8 +149,8 @@ int DmaBuffer::exportFD(drm_mode_create_dumb &create_arg) {
         fprintf(stderr, "[DmaBuffer] drmPrimeHandleToFD failed");
     }
 
-    /* 如果完全依赖 prime fd，可立即销毁 handle。
-    * 如果后续需要 plane attach，必须保留 handle + drm_fd 直到 attach 完成。
+    /* 如果完全依赖 prime fd, 可立即销毁 handle。
+    * 如果后续需要 plane attach, 必须保留 handle + drm_fd 直到 attach 完成。
     * 立即销毁 handle 实现见 DmaBuffer::cleanup()
     */
     return prime_fd;
@@ -268,7 +268,7 @@ DmaBuffer::MappedView& DmaBuffer::MappedView::operator=(MappedView&& other) noex
         }
         ptr_ = other.ptr_;
         other.ptr_ = nullptr;
-        // owner_ 保持引用不变，不赋值
+        // owner_ 保持引用不变, 不赋值
     }
     return *this;
 }

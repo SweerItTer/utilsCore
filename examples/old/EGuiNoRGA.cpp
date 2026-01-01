@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-12-05 21:12:18
- * @FilePath: /EdgeVision/examples/EGuiNoRGA.cpp
+ * @FilePath: /EdgeVision/examples/old/EGuiNoRGA.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "EGui.h"
@@ -296,6 +296,92 @@ void FrameBufferTest::RunUI(int &argc, char *argv[]){
     Draw::instance().shutdown();
     Core::instance().shutdown();
 }
+
+void FrameBufferTest::RunUI(int &argc, char *argv[]){
+    // qt 相关初始化
+    QApplication app(argc, argv);
+    
+    // 使用静态变量接收手动退出 (lambda 转 void* 不能捕获对象)
+    static QApplication* staticApp = &app;
+    std::signal(SIGINT, [](int signal) {
+        if (signal == SIGINT && staticApp) {
+            std::cout << "Ctrl+C received, stopping..." << std::endl;
+            staticApp->quit();
+        }
+    });
+    
+    // UI界面实例化 
+    mainInterface = std::make_shared<MainInterface>();
+    
+    QRect uiRact;           // UI 显示位置
+    DrawRect uiDrawRect;    // UI 实际位置及缩放比例
+
+    auto& core = Core::instance();				// 获取渲染 core
+    auto& draw = Draw::instance();				// 获取绘制 draw
+    bool needUpdate = false;				    // slot 更新标志
+    std::string slotType = "UI&Cursor";			// slot命名
+
+    auto updateSlot = [&](){
+        auto dmabufTemplate = DmaBuffer::create(	// 创建 dmabuf 模板
+            autoWidth, autoHeight, convertRGAtoDrmFormat(primaryFormat), 0, 0);
+        if (!dmabufTemplate){
+            std::cout << "Failed to create dmabuf template.\n";
+            return;
+        }
+        core.registerResSlot(slotType, 2, std::move(dmabufTemplate));   // 注册 slot
+        needUpdate = false;
+    };
+    // 初始化 slot
+    updateSlot();
+    
+    QTimer renderTimer;
+    QObject::connect(&renderTimer, &QTimer::timeout, [&] {
+        // 等待刷新完成
+        if (true == refreshing){
+            needUpdate = true;
+            return;
+        }
+        if (needUpdate) updateSlot();
+        // Fence 状态
+        int DrawFence = -1;
+        auto slot = core.acquireFreeSlot(slotType, 33);	// 取出一个 slot
+        if (nullptr == slot || !slot->qfbo.get()) {
+            std::cout << "Failed to acquire slot.\n";
+            return;
+        }
+        draw.clear(slot->qfbo.get());
+        // 绘制UI界面
+        uiDrawRect = draw.drawWidget(*(slot.get()), mainInterface.get(), uiRact); 
+        if (!uiDrawRect.rect.isEmpty()) mainInterface->setUiDrawRect(uiDrawRect.rect, uiDrawRect.scale);
+        // 同步内容到 dmabuf
+        if (!slot->syncToDmaBuf(DrawFence)) {
+            std::cout << "Failed to sync dmabuf. \n";
+            core.releaseSlot(slotType, slot);
+            return;
+        };
+        if (slot->dmabufPtr == nullptr) {
+            std::cout << "Slot dmabuf is null.\n";
+            core.releaseSlot(slotType, slot);
+            return;
+        }
+        // 等待绘制完成
+        FenceWatcher::instance().watchFence(DrawFence, [&]() {
+            primaryLayer->updateBuffer({slot->dmabufPtr});
+            // 释放 slot
+            core.releaseSlot(slotType, slot);
+        });
+    });
+    // 开启计时器
+    renderTimer.start(33);
+    // 启动主事件循环
+    app.exec();
+    // 关闭计时器
+    renderTimer.stop();
+    // 关闭渲染资源
+    Draw::instance().shutdown();
+    Core::instance().shutdown();
+}
+
 
 void FrameBufferTest::run() {
     ThreadUtils::bindCurrentThreadToCore(0);  // 绑定显示线程到CPU CORE 0

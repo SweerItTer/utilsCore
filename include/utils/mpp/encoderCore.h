@@ -32,7 +32,7 @@
  */
 class MppEncoderCore {
 public:
-    /// Slot 数量，RK356X 实测值
+    /// Slot 数量, RK356X 实测值
     static constexpr size_t SLOT_COUNT = 15;
 
     /**

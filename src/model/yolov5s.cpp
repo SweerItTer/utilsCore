@@ -43,6 +43,15 @@ int Yolov5s::init(rknn_app_context& inCtx, bool isChild) {
     return ret;
 }
 
+void Yolov5s::setThresh(float BOX_THRESH, float NMS_THRESHresh) {
+    if (BOX_THRESH != this->confThres.load()){
+        this->confThres.store(BOX_THRESH);
+    }
+    if (NMS_THRESHresh != this->iouThresh.load()){
+        this->iouThresh.store(NMS_THRESHresh);
+    }
+}
+
 object_detect_result_list Yolov5s::infer(DmaBufferPtr in_dmabuf)
 {
     object_detect_result_list reslut_{};
@@ -94,7 +103,7 @@ object_detect_result_list Yolov5s::infer(DmaBufferPtr in_dmabuf)
     ret = postprocess::post_process_rule( 
         appCtx, mem->output_mems,
         letterbox_, classes, reslut_,
-        confThres, iouThresh, anchorSet_);
+        confThres.load(), iouThresh.load(), anchorSet_);
     if (ret < 0){
         fprintf(stderr, "Post process failed, ret=%d\n", ret);
         return reslut_;

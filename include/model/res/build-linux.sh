@@ -44,9 +44,9 @@ while getopts ":t:a:d:b:m:r:j" opt; do
 done
 
 # 用法:./build-linux.sh -t <target> -a <arch> -d <build_demo_name> [-b <build_type>] [-m]
-# -t : target (rk356x/rk3588) # 平台类型，rk3568/rk3566 都统一为rk356x
+# -t : target (rk356x/rk3588) # 平台类型, rk3568/rk3566 都统一为rk356x
 # -a : arch (aarch64/armhf) # 板端系统架构
-# -d : demo name # 对应 examples 目录下子文件夹的名称，如yolov5、mobilenet
+# -d : demo name # 对应 examples 目录下子文件夹的名称, 如yolov5、mobilenet
 # -b : build_type(Debug/Release)
 # -m : enable address sanitizer, build_type need set to Debug
 # ./build-linux.sh -t rk356x -a aarch64 -d yolov5

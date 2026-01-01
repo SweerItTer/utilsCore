@@ -28,13 +28,14 @@ public:
     DmaBufferPtr infer(DmaBufferPtr inDmabuf, bool drawText);
     object_detect_result_list infer(DmaBufferPtr inDmabuf);
 
+    void setThresh(float BOX_THRESH=0.25, float thNMS_THRESHresh=0.45);
 private:
     int drawBox(const object_detect_result_list &results, DmaBufferPtr outBuf, bool drawText);
 private:
     std::string modelPath_;
     rknn_app_context appCtx;
-    float confThres = 0;
-    float iouThresh = 0;
+    std::atomic<float> confThres{0}; 
+    std::atomic<float> iouThresh{0};
     uint32_t width = 0;
     uint32_t height = 0;
     AnchorSet anchorSet_;

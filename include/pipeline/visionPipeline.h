@@ -24,6 +24,7 @@
 
 class VisionPipeline {
 public:
+    using RGACallBack = std::function<void(DmaBufferPtr, std::shared_ptr<void>)>;
     enum class RecordStatus {
         Start = 0,
         Stop
@@ -49,18 +50,23 @@ public:
     void pause(); // 暂停
     void resume(); // 恢复
 
+// -------------- 摄像头控制 --------------
+    void setMirrorMode(bool horizontal, bool vertical);
+    void setExposurePercentage(float percentage);
+
 // -------------- 编码控制 --------------
     bool tryCapture();    // 拍照
     bool tryRecord(RecordStatus stauts);    // 录像
 
 // -------------- 模型推理控制 --------------
     bool setModelRunningStatus(ModelStatus stauts);
+    void registerOnRGA(RGACallBack cb_);
 
 // -------------- 数据/信息获取 --------------
     bool getCurrentRawFrame(FramePtr& frame);
     bool getCurrentRGAFrame(FramePtr& frame);
     float getFPS();
-
+    int getCameraFd();
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;
@@ -92,7 +98,7 @@ inline CameraController::Config VisionPipeline::defaultCameraConfig(
     }
 
     CameraController::Config dfConfig{
-        .buffer_count = 10,
+        .buffer_count = 4,
         .plane_count  = 1,
         .use_dmabuf   = true,
         .device       = "/dev/video0",

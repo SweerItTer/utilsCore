@@ -66,7 +66,7 @@ private:
         ~Plane() {
             if (state) {
                 state->valid = false; // 主动标记无效
-                state.reset();        // 释放共享对象，触发资源释放
+                state.reset();        // 释放共享对象, 触发资源释放
             }
         }
     };    
@@ -161,7 +161,7 @@ CameraController::Impl::Impl(const Config& config)
         init();
     } catch (const V4L2Exception& ex) {
         fprintf(stderr, "[CameraController][ERROR] Error in Constructor : %s\n", ex.what());
-        throw;  // 也可以选择不向上传递，或者改成其他处理
+        throw;  // 也可以选择不向上传递, 或者改成其他处理
     }
 }
 

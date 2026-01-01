@@ -79,7 +79,7 @@ uint32_t DrmLayer::createFramebuffer() {
     uint32_t height = buffers_[0]->height();
 
     for (size_t i = 0; i < buffers_.size(); ++i) {
-        auto buf = buffers_[i];
+        auto& buf = buffers_[i];
         if (nullptr == buf) {
             fprintf(stderr, "DrmLayer::createFramebuffer: Invalid DmaBuffer\n");
             return -1 ;
@@ -87,12 +87,7 @@ uint32_t DrmLayer::createFramebuffer() {
         handles[i] = buf->handle();
         offsets[i] = buf->offset();
         pitches[i] = buf->pitch();
-        // if (format == DRM_FORMAT_NV12 || format == DRM_FORMAT_NV21) {
-        //     fprintf(stdout, "[NV12]: size=%ux%u - pitches=%u, offset=%u\n", width, height, buf->pitch(), offsets[i]);
-        //     pitches[i] = buf->width();
-        // } else {
-        //     pitches[i] = buf->pitch();
-        // }
+
         // fprintf(stdout, "[plane %u]: size=%ux%u - pitches=%u, offset=%u\n", i, width, height, pitches[i], offsets[i]);
         /* 并非历史问题, 以1280x720 NV12为例子, Y层大小是1280*720字节, UV是1280*360字节
         * 而对齐出来的 pitch 是 1920 

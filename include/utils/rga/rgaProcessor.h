@@ -19,6 +19,7 @@
 #include "asyncThreadPool.h"
 #include "dma/dmaBuffer.h"
 #include "rga/formatTool.h"
+#include "threadPauser.h"
 
 struct RgbaBuffer {
     std::shared_ptr<SharedBufferState> s;
@@ -44,7 +45,7 @@ struct RgbaBuffer {
     {
         // 将被移动对象置于安全状态
         other.in_use = false;  // 标记为不再使用
-        // s 已自动置空，无需额外操作
+        // s 已自动置空, 无需额外操作
     }
 
     // 移动赋值操作符
@@ -56,7 +57,7 @@ struct RgbaBuffer {
             
             // 重置被移动对象状态
             other.in_use = false;  // 标记为不再使用
-            // s 已自动置空，无需额外操作
+            // s 已自动置空, 无需额外操作
         }
         return *this;
     }
@@ -99,7 +100,7 @@ private:
     void run();
 
     std::atomic_bool running_;
-    std::atomic_bool paused;
+    ThreadPauser pauser_;
     std::thread worker_;
 
     std::shared_ptr<FrameQueue> rawQueue_;

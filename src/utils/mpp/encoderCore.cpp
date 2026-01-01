@@ -9,11 +9,11 @@ static size_t calculateBufferSize(uint32_t width, uint32_t height) {
     // 计算YUV420SP(NV12)格式的原始帧大小
     size_t frame_size = width * height * 3 / 2;  // YUV420SP: Y + UV planes
 
-    // 考虑编码后的压缩数据，通常压缩比为10:1到50:1
-    // 对于H.264编码，为安全起见，我们分配原始帧大小的2倍
+    // 考虑编码后的压缩数据, 通常压缩比为10:1到50:1
+    // 对于H.264编码, 为安全起见, 我们分配原始帧大小的2倍
     size_t compressed_size = frame_size * 2;
 
-    // 确保最小缓冲区大小为1MB，最大不超过16MB
+    // 确保最小缓冲区大小为1MB, 最大不超过16MB
     size_t min_buffer = 1 * 1024 * 1024;
     size_t max_buffer = 16 * 1024 * 1024;
 
@@ -433,7 +433,7 @@ bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFram
     mpp_frame_set_width(out_frame,       s.dmabuf->width());
     mpp_frame_set_height(out_frame,      s.dmabuf->height());
     
-    // Rockchip_Developer_Guide_MPP_CN.md: hor_stride	RK_U32	表示垂直方向相邻两行之间的距离，单位为byte数
+    // Rockchip_Developer_Guide_MPP_CN.md: hor_stride	RK_U32	表示垂直方向相邻两行之间的距离, 单位为byte数
     mpp_frame_set_hor_stride(out_frame,  s.dmabuf->pitch());
     mpp_frame_set_ver_stride(out_frame,  s.dmabuf->height());  // 像素单位
     mpp_frame_set_fmt(out_frame,         convertDrmToMppFormat(s.dmabuf->format())); // 2022~2023 版本API

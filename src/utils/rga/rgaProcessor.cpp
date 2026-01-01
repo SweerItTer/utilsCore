@@ -22,7 +22,7 @@ RgaProcessor::RgaProcessor(Config& cfg)
     , srcFormat_(cfg.srcFormat)
     , dstFormat_(cfg.dstFormat)
     , poolSize_(cfg.poolSize)
-    , running_(false), paused(false)
+    , running_(false)
 {
     frameType_ = (true == cfg.usingDMABUF)
             ? Frame::MemoryType::DMABUF
@@ -63,16 +63,14 @@ void RgaProcessor::initpool() {
 RgaProcessor::~RgaProcessor()
 {
     stop();
+    while(!futs.empty()) futs.pop_front();
     std::vector<RgbaBuffer> temp = {};
     bufferPool_.swap(temp);
 }
 
 void RgaProcessor::start()
 {
-    if (true == paused) {
-		paused = false;
-	}
-
+    if(pauser_.is_paused()) pauser_.resume();
     if (running_) return;
 
     running_ = true;
@@ -81,6 +79,7 @@ void RgaProcessor::start()
 
 void RgaProcessor::stop()
 {
+    if (!running_) return;
     running_ = false;
     if (worker_.joinable()) {
         worker_.join();
@@ -88,7 +87,7 @@ void RgaProcessor::stop()
 }
 
 void RgaProcessor::pause(){
-	paused = true;
+	pauser_.pause();
 }
 
 void RgaProcessor::releaseBuffer(int index)
@@ -277,17 +276,17 @@ void RgaProcessor::run()
     std::cout << "RGA main thread TID: " << syscall(SYS_gettid) << "\n";
     int buffer_size = width_ * height_ * 4;
 
-    while (true == running_)
-    {
-        if ( true == paused ) {
-            std::this_thread::yield();
-            if (false == running_) break;
-            continue;
-        }
+    while (true == running_) {
+        pauser_.wait_if_paused();
+        if (!running_) break;
         // 添加异步任务
         auto fut = rgaThreadPool->enqueue([this](){ return infer(); });
         // 只有当 future 有效时才加入
         if (fut.valid()) {
+            std::lock_guard<std::mutex> lk(futsMutex);
+            if (futs.size() > 30) {
+                futs.pop_front(); // 丢弃最旧数据
+            }
             futs.emplace_back(std::move(fut));
         }
     }
@@ -295,6 +294,7 @@ void RgaProcessor::run()
 
 // 取出future
 int RgaProcessor::dump(FramePtr& frame, int64_t timeout) {
+    std::lock_guard<std::mutex> lk(futsMutex);
     frame = nullptr;
     if (futs.empty()) return -1;
 

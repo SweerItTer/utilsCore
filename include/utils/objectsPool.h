@@ -23,7 +23,7 @@ public:
         }
     }
 
-    // 获取一个空闲对象，如果没有则阻塞等待
+    // 获取一个空闲对象, 如果没有则阻塞等待
     T acquire() { // 返回 T 而不是 T&&
         std::unique_lock<std::mutex> lock(mutex_);
         cond_.wait(lock, [this]{ return !free_.empty(); });

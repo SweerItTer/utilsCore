@@ -117,14 +117,14 @@ cv::Mat mapDmaBufferToMat(DmaBufferPtr img, bool copy_data) {
     cv::Mat mat;
 
     if (copy_data) {
-        // 创建新的内存并拷贝数据，然后立即解除映射
+        // 创建新的内存并拷贝数据, 然后立即解除映射
         mat = cv::Mat(img_h, img_w, CV_8UC3);
         
         if (img_pitch == img_w * channels) {
-            // 连续内存，直接拷贝
+            // 连续内存, 直接拷贝
             memcpy(mat.data, img_data, img_h * img_pitch);
         } else {
-            // 非连续内存，逐行拷贝
+            // 非连续内存, 逐行拷贝
             for (int y = 0; y < img_h; y++) {
                 memcpy(mat.ptr(y), img_data + y * img_pitch, img_w * channels);
             }
@@ -133,10 +133,10 @@ cv::Mat mapDmaBufferToMat(DmaBufferPtr img, bool copy_data) {
         // 立即解除映射
         img->unmap();
     } else {
-        // 注意：使用 img_pitch 作为 step，可以处理非连续行
+        // 注意: 使用 img_pitch 作为 step, 可以处理非连续行
         mat = cv::Mat(img_h, img_w, CV_8UC3, img_data, img_pitch);            
         // 返回时不要 unmap！否则 mat 指向的内存会失效
-        // img->unmap(); // 不要在这里 unmap，除非确保 mat 不再使用
+        // img->unmap(); // 不要在这里 unmap, 除非确保 mat 不再使用
     }
     return mat;
 }

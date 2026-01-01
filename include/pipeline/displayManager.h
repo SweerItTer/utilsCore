@@ -69,7 +69,7 @@ public:
     void presentFrame(PlaneHandle plane,
                       std::vector<DmaBufferPtr> buffers,
                       std::shared_ptr<void> holder);
-    PlaneHandle createPlane(const PlaneConfig& config);
+    PlaneHandle createPlane(const PlaneConfig& config) const;
     std::pair<uint32_t, uint32_t> getCurrentScreenSize() const;
 private:
     class Impl;

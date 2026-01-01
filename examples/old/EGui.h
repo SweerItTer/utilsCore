@@ -41,7 +41,7 @@ static auto chooseClosestResolution(int screenW, int screenH) -> std::pair<int, 
     int minDist = std::numeric_limits<int>::max();
 
     for (const auto& res : standardRes) {
-        // 使用平方距离，越小越接近屏幕大小
+        // 使用平方距离, 越小越接近屏幕大小
         int dw = res.first - screenW;
         int dh = res.second - screenH;
         int dist = dw * dw + dh * dh;

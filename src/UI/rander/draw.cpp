@@ -19,14 +19,14 @@ Draw::Draw() {
 }
 
 DrawRect Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget, 
-                     const QRect& targetRect, RenderMode mode)
+                     const QRectF& targetRect, RenderMode mode)
 {
     DrawRect uiDrawRect;
     if (nullptr == widget) {
         qWarning() << "Draw::drawWidget: null widget";
         return uiDrawRect;
     }
-    QVariant v = widget->property("Visable");
+    QVariant v = widget->property("Visible");
     if (v.isValid() && v.toBool() == false) {
         return uiDrawRect;
     }
@@ -61,20 +61,24 @@ DrawRect Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget,
         drawRect = QRectF(0, 0, fbo->width(), fbo->height());
     }
 
-    if (drawRect.isNull()) {
-        drawRect = QRectF(0, 0, fbo->width(), fbo->height());
-    }
-
     // 计算缩放比例
     qreal scaleX = drawRect.width() / widget->width();
     qreal scaleY = drawRect.height() / widget->height();
     qreal scale = std::min(scaleX, scaleY);  // 保持等比例
 
-    // 如果当前 widget 尺寸和目标尺寸不一致，才 resize
-    QSize expectedSize(
-        static_cast<int>(drawRect.width() / scale),
+    QSize logicalSize(
+        static_cast<int>(drawRect.width()  / scale),
         static_cast<int>(drawRect.height() / scale)
     );
+
+    // 修复: 保存 widget 的 逻辑坐标系 和 绘制坐标系 完全一致
+    if (widget->size() != logicalSize) {
+        // 防抖
+        if (abs(widget->width() - logicalSize.width()) > 1 || 
+            abs(widget->height() - logicalSize.height()) > 1) {
+             widget->resize(logicalSize);
+        }
+    }
 
     // 绘制
     painter_->save();
@@ -84,16 +88,18 @@ DrawRect Draw::drawWidget(const Core::resourceSlot& slot, QWidget* widget,
         widget->render(painter_.get(), QPoint(0, 0), QRegion(), QWidget::DrawChildren);
     }
     painter_->restore();
+
     uiDrawRect.rect = drawRect;
     uiDrawRect.scale = scale;
+    
     Core::instance().doneQCurrent();
     return uiDrawRect;
 }
 
-QRectF Draw::calculateAspectRatioRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize)
+QRectF Draw::calculateAspectRatioRect(const QSize& sourceSize, const QRectF& targetRect, const QSize& fboSize)
 {
     if (sourceSize.isEmpty() || targetRect.isEmpty()) {
-        return QRectF(targetRect);
+        return targetRect;
     }
 
     qreal srcW = sourceSize.width();
@@ -115,16 +121,16 @@ QRectF Draw::calculateAspectRatioRect(const QSize& sourceSize, const QRect& targ
     return result.intersected(fboRect);
 }
 
-QRectF Draw::calculateStretchRect(const QSize&, const QRect& targetRect, const QSize& fboSize)
+QRectF Draw::calculateStretchRect(const QSize&, const QRectF& targetRect, const QSize& fboSize)
 {
     QRectF fboRect(0, 0, fboSize.width(), fboSize.height());
-    return QRectF(targetRect).intersected(fboRect);
+    return targetRect.intersected(fboRect);
 }
 
-QRectF Draw::calculateCenterRect(const QSize& sourceSize, const QRect& targetRect, const QSize& fboSize)
+QRectF Draw::calculateCenterRect(const QSize& sourceSize, const QRectF& targetRect, const QSize& fboSize)
 {
     if (sourceSize.isEmpty() || targetRect.isEmpty()) {
-        return QRectF(targetRect);
+        return targetRect;
     }
 
     qreal x = targetRect.x() + (targetRect.width() - sourceSize.width()) / 2.0;
@@ -145,7 +151,7 @@ void Draw::drawText(const Core::resourceSlot &slot, const QString &text,
     Core::instance().makeQCurrent();
     QOpenGLFramebufferObject* fbo = slot.qfbo.get();
     if (!fbo->bind()) { Core::instance().doneQCurrent(); return; }
-
+    GLuint qTextrueID = fbo->texture();
     bindFboAndPreparePainter(fbo);
 
     QFont font = painter_->font();
@@ -173,6 +179,46 @@ void Draw::drawBoxes(const Core::resourceSlot &slot, const std::vector<DrawBox> 
         painter_->drawRect(box.rect);
         painter_->drawText(box.rect.topLeft() + QPointF(2,20), box.label);
     }
+
+    Core::instance().doneQCurrent();
+}
+
+void Draw::drawImage(const Core::resourceSlot& slot, const QImage& img, 
+                     const QPoint& targetPoint, const int size)
+{
+    if (!slot.valid() || !slot.qfbo) return;
+    if (img.isNull()) {
+        qWarning() << "Draw::drawImage: null image";
+        return;
+    }
+
+    Core::instance().makeQCurrent();
+    QOpenGLFramebufferObject* fbo = slot.qfbo.get();
+    if (!fbo->bind()) { 
+        Core::instance().doneQCurrent(); 
+        return; 
+    }
+
+    bindFboAndPreparePainter(fbo);
+
+    painter_->setRenderHint(QPainter::Antialiasing, true);
+    painter_->setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+    // 计算绘制区域
+    QRectF drawRect;
+    if (size > 0) {
+        // 等比例缩放到指定size
+        qreal scale = static_cast<qreal>(size) / qMax(img.width(), img.height());
+        int scaledW = static_cast<int>(img.width() * scale);
+        int scaledH = static_cast<int>(img.height() * scale);
+        drawRect = QRectF(targetPoint.x(), targetPoint.y(), scaledW, scaledH);
+    } else {
+        // 原始大小
+        drawRect = QRectF(targetPoint.x(), targetPoint.y(), img.width(), img.height());
+    }
+
+    // 绘制图像
+    painter_->drawImage(drawRect, img);
 
     Core::instance().doneQCurrent();
 }

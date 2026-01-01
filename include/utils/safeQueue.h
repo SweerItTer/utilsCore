@@ -118,7 +118,7 @@ public:
         std::unique_lock<std::mutex> lock(mutex_);
         
         if (shutdown_.load()) {
-            return false; // 已关闭，不允许入队
+            return false; // 已关闭, 不允许入队
         }
 
         // 检查队列是否已满
@@ -157,7 +157,7 @@ public:
             not_empty_cond_.wait(lock);
         }
         if (0 == size_ && shutdown_.load()) {
-            return nullptr; // 返回空，表示队列关闭
+            return nullptr; // 返回空, 表示队列关闭
         }
 
         Ptr item = std::move(buffer_[head_]);

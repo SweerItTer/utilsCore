@@ -328,7 +328,7 @@ QWidget#widget {
         <item>
          <widget class="QLabel" name="fpsLabel">
           <property name="text">
-           <string>帧率：</string>
+           <string>帧率: </string>
           </property>
          </widget>
         </item>
@@ -374,7 +374,7 @@ QWidget#widget {
         <item>
          <widget class="QLabel" name="CPUpayloadLabel">
           <property name="text">
-           <string>CPU负载：</string>
+           <string>CPU负载: </string>
           </property>
          </widget>
         </item>
@@ -420,7 +420,7 @@ QWidget#widget {
         <item>
          <widget class="QLabel" name="memoryUsageLabel">
           <property name="text">
-           <string>内存使用：</string>
+           <string>内存使用: </string>
           </property>
          </widget>
         </item>
@@ -479,7 +479,7 @@ QWidget#widget {
         <item>
          <widget class="QLabel" name="mirrorLabel">
           <property name="text">
-           <string>镜像模式：</string>
+           <string>镜像模式: </string>
           </property>
          </widget>
         </item>
@@ -568,7 +568,7 @@ QWidget#widget {
           <item>
            <widget class="QLabel" name="exposureLabel">
             <property name="text">
-             <string>曝光度：</string>
+             <string>曝光度: </string>
             </property>
            </widget>
           </item>
@@ -732,7 +732,7 @@ QWidget#widget {
           <item>
            <widget class="QLabel" name="confidenceLabel">
             <property name="text">
-             <string>置信度：</string>
+             <string>置信度: </string>
             </property>
            </widget>
           </item>

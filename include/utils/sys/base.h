@@ -12,6 +12,7 @@
 #include <mutex>
 #include <thread>
 #include <string>
+#include <iomanip>
 
 class ResourceMonitor {
 protected:

@@ -323,7 +323,7 @@ inline static MppEncoderContext::Config defconfig_video_recording(int width, int
     cfg.rc_qp_min_i = 10;  // I帧最小QP (参考第377行)
     cfg.rc_qp_max_i = 51;  // I帧最大QP (参考第377行)
     // QP IP差值 (参考第378行: 2)
-    // 注意: 这个参数在您的Config结构体中缺失，需要手动设置
+    // 注意: 这个参数在您的Config结构体中缺失, 需要手动设置
 
     // H.264配置 (参考MPP测试代码第414-426行)
     cfg.h264_profile = 100;  // High Profile (参考第414行)
@@ -350,7 +350,7 @@ inline static MppEncoderContext::Config defconfig_video_recording(int width, int
     cfg.sei_mode    = MPP_ENC_SEI_MODE_ONE_FRAME;    // SEI插入模式
     cfg.header_mode = MPP_ENC_HEADER_MODE_EACH_IDR;  // SPS/PPS输出策略
 
-    // 色彩范围设置 (参考MPP测试代码无默认设置，使用ffmpeg兼容性)
+    // 色彩范围设置 (参考MPP测试代码无默认设置, 使用ffmpeg兼容性)
     cfg.rc_color_range_override = 1;  // MPEG range (16-235)
 
     // 禁用高级特性以获得稳定性 (参考MPP测试代码默认禁用)

@@ -15,7 +15,7 @@
 
 enum class BufferBacking {
     NONE,
-    MMAP,        // 仅映射到用户态的指针，fd 归外部/驱动管理
+    MMAP,        // 仅映射到用户态的指针, fd 归外部/驱动管理
     DMABUF_FD,   // 由本对象拥有的 dmabuf 裸 fd
     DMABUF_OBJ   // 由本对象拥有的 DmaBufferPtr (包含相关信息)
 };

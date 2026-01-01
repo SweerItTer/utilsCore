@@ -57,7 +57,7 @@ struct drmModeDev {
         : mode(other.mode), width(other.width), height(other.height),
         connector_id(other.connector_id), crtc_id(other.crtc_id), oldCrtc(other.oldCrtc)
     {
-        // 清空源对象，避免重复释放
+        // 清空源对象, 避免重复释放
         other.oldCrtc = nullptr;
     }
     drmModeDev& operator=(drmModeDev&& other) {

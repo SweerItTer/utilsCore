@@ -13,6 +13,7 @@
   - [开启防火墙](#开启防火墙)
 - [外部设备](#外部设备)
   - [挂载文件系统](#挂载文件系统)
+- [adb调试](#adb调试)
 - [测试](#测试)
 - [尾声和补充](#尾声和补充)
 
@@ -161,6 +162,18 @@ sudo mount [Server IP]:[Path to shared] [mount point]
 ```
 ---
 
+# adb调试
+主机端做端口转发
+```zsh
+adb forward tcp:<PORT> tcp:<PORT>
+```
+开发板端启动服务
+```zsh
+gdbserver :<PORT> ./exe
+```
+
+---
+
 # 测试
 - 外部设备
 ```zsh
@@ -194,5 +207,5 @@ Remove-NetFirewallRule -DisplayName "WSL NFS TCP"
 ---
 
 参考资料:
-[WSL2：实现客户端和服务端之间的NFS服务](https://blog.csdn.net/Tea_Char/article/details/130020600)
+[WSL2: 实现客户端和服务端之间的NFS服务](https://blog.csdn.net/Tea_Char/article/details/130020600)
 [WSL 2 网络配置](https://blog.csdn.net/Yiang0/article/details/127780263)

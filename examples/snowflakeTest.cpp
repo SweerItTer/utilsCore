@@ -26,7 +26,7 @@ static void handleSignal(int signal) {
     }
 }
 
-// Buffer 包装器，带状态标识
+// Buffer 包装器, 带状态标识
 struct BufferSlot {
     DmaBufferPtr yPlane;
     DmaBufferPtr uvPlane;
@@ -81,44 +81,6 @@ static void fillRandomNoiseNV12(DmaBufferPtr buf) {
 
     // 不 unmap, 遵从你的规则
 }
-// // 填充随机噪声数据到单平面 NV12 buffer(优化版)
-// static void fillRandomNoiseNV12(DmaBufferPtr buf) {
-//     auto pitch = buf->pitch();
-//     auto height = buf->height();
-//     size_t ySize = pitch * height;
-//     size_t uvSize = pitch * height / 2;
-//     size_t totalSize = ySize + uvSize;
-    
-//     void* mapped = buf->map();
-//     if (!mapped) {
-//         std::cerr << "[Error] Failed to mmap buffer" << std::endl;
-//         return;
-//     }
-
-//     // 使用更快的随机数生成方式
-//     static thread_local std::mt19937 gen(std::random_device{}());
-    
-//     uint8_t* data = static_cast<uint8_t*>(mapped);
-    
-//     // 批量生成随机数，每次生成 4 字节会更快
-//     uint32_t* data32 = reinterpret_cast<uint32_t*>(data);
-//     size_t words = totalSize / 4;
-    
-//     for (size_t i = 0; i < words; ++i) {
-//         data32[i] = gen();
-//     }
-    
-//     // 处理剩余的字节
-//     size_t remaining = totalSize % 4;
-//     if (remaining > 0) {
-//         uint32_t last = gen();
-//         for (size_t i = 0; i < remaining; ++i) {
-//             data[words * 4 + i] = (last >> (i * 8)) & 0xFF;
-//         }
-//     }
-
-//     buf->unmap();
-// }
 
 // 选择最接近屏幕分辨率的标准分辨率
 static auto chooseClosestResolution(int screenW, int screenH) -> std::pair<int, int> {
@@ -176,7 +138,7 @@ int main() {
             .srcWidth = autoWidth,
             .srcHeight = autoHeight,
             .drmFormat = convertV4L2ToDrmFormat(V4L2_PIX_FMT_NV12),
-            .zOrder = 0
+            .zOrder = 1
         };
         overlayPlaneHandle = dm.createPlane(overlayCfg);
         std::cout << "[Main] OverlayPlane valid: " << overlayPlaneHandle.valid() << std::endl;
@@ -244,14 +206,14 @@ int main() {
         DmaBufferPtr yPlane;
         DmaBufferPtr uvPlane;
         
-        // 从队列取出可用 buffer，并复制 shared_ptr
+        // 从队列取出可用 buffer, 并复制 shared_ptr
         {
             std::lock_guard<std::mutex> lock(queueMutex);
             if (!availableQueue.empty() && !refreshing) {
                 bufferIdx = availableQueue.front();
                 availableQueue.pop();
                 
-                // 在锁内复制 shared_ptr，增加引用计数
+                // 在锁内复制 shared_ptr, 增加引用计数
                 if (bufferIdx < bufferPool.size()) {
                     yPlane = bufferPool[bufferIdx].yPlane;
                     uvPlane = bufferPool[bufferIdx].uvPlane;
@@ -279,7 +241,7 @@ int main() {
             buffers.push_back(yPlane);
             buffers.push_back(uvPlane);
             
-            dm.presentFrame(overlayPlaneHandle.get(), buffers, nullptr);
+            dm.presentFrame(overlayPlaneHandle, buffers, nullptr);
             
             frameCount++;
             fpsCounter++;

@@ -1,7 +1,7 @@
-set(pipelineIncludeDir "${CMAKE_SOURCE_DIR}/include/pipeline/")
+set(PIPELINE_INCLUDE_ROOT "${CMAKE_SOURCE_DIR}/include/pipeline/")
 
 file(GLOB_RECURSE SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
-file(GLOB_RECURSE HEADERS "${pipelineIncludeDir}/*.h")
+file(GLOB_RECURSE HEADERS "${PIPELINE_INCLUDE_ROOT}/*.h")
 
 add_library(pipeline STATIC
     ${SOURCES}
@@ -10,9 +10,9 @@ add_library(pipeline STATIC
 
 target_include_directories(pipeline 
     PUBLIC
-        ${pipelineIncludeDir}
+        ${PIPELINE_INCLUDE_ROOT}
 )
 
 target_link_libraries(pipeline 
-    PUBLIC utils
+    PUBLIC utils model UI 
 )

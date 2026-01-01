@@ -11,6 +11,9 @@
 #include <atomic>
 #include <QRectF>
 #include <QMouseEvent>
+#include <QTimer>
+#include <QHash>
+#include <functional>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainInterface; }
@@ -49,8 +52,8 @@ public:
 signals:
     void recordSignal(bool status);       // 录像信号
     void photoSignal();                   // 拍照信号
-    void confidenceChanged(int value);    // 置信度改变
-    void exposureChanged(int value);      // 曝光度改变
+    void confidenceChanged(float value);    // 置信度改变
+    void exposureChanged(float value);      // 曝光度改变
     void captureModeChanged(CaptureMode mode);  // 捕获模式改变
     void mirrorModeChanged(MirrorMode mode);    // 镜像模式改变
 	void modelModeChange(ModelMode mode);	    // 模型开启状态
@@ -71,21 +74,40 @@ private:
     void updateMirrorModeLabel();       // 更新镜像模式标签
     void updateCaptureModeUI();         // 更新捕获模式UI
     void cycleMirrorMode(bool forward); // 循环切换镜像模式
+	float sliderToFloat(int sliderValue, int sliderMax) const;
+	int floatToSlider(float value, int sliderMax) const;
 	// 全局坐标 -> UI本地坐标
-	QPoint mapFromGlobal(const QPoint &pos) const;
+	QPoint mapFromGlobal(const QPoint &pos) const;	// 低精度
+	QPointF mapFromGlobalF(const QPoint& pos) const;// 保留精度
+	
+	// 通用防抖方法: 用于延迟执行滑块回调, 避免高频信号触发
+	void debounceSlider(const QString& key, std::function<void()> callback);
+	// 防抖定时器回调: 检查并执行已等待足够时间的任务
+	void onDebounceTimeout();
+
 private:
 	QRectF uiDrawRect_;		// 离屏渲染中 UI 真实显示的位置
 	qreal uiScale_{1.0};   	// 缩放倍率
 
 	// 状态变量
 	std::atomic_bool visible_{false};
-	std::atomic_int confidence{0};
-	std::atomic_int exposure{0};
+	std::atomic<float> confidence{0};
+	std::atomic<float> exposure{0};
 
 	bool recordingStatus_ = false;      // 录像状态
     CaptureMode captureMode_;           // 捕获模式 (录像/拍照)
     MirrorMode mirrorMode_;             // 镜像模式
 	ModelMode modelMode_;				// 模型推理模式
+
+	// 统一防抖机制: 使用单个定时器管理所有滑块的延迟任务
+	struct DebounceTask {
+		std::function<void()> callback;  // 延迟执行的回调函数
+		qint64 timestamp;                // 任务添加时的时间戳(毫秒)
+	};
+	
+	QTimer* debounceTimer_;              // 单个统一定时器, 定期检查待处理任务
+	QHash<QString, DebounceTask> debounceTasks_;  // 待处理任务映射表: key->任务
+	static constexpr int DEBOUNCE_DELAY_MS = 150; // 防抖延迟时间(毫秒), 用户停止拖动后等待此时间再触发信号
 };
 
 #endif // MAININTERFACE_H

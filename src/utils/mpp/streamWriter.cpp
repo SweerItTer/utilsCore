@@ -30,6 +30,7 @@
 #include <chrono>
 #include <iomanip>
 #include <sstream>
+#include <iostream>
 
 using namespace std::chrono_literals;
 
@@ -100,7 +101,7 @@ void StreamWriter::FILEGuard::reset(FILE *f) {
  * @brief 构造函数: 拆分文件名, 打开第一个分段, 启动线程
  */
 StreamWriter::StreamWriter(const std::string &path)
-    : originalPath_(path), firstIframeNeed(true)
+    : originalPath_(path), firstIframeNeed(true), running_(true)
 {
     // 拆分 baseName_ 与 suffix_
     size_t pos = originalPath_.find_last_of('.');
@@ -144,6 +145,8 @@ StreamWriter::~StreamWriter() {
 }
 
 void StreamWriter::stop() {
+    // 唤醒所有等待写线程
+    if (!running_.exchange(false)) return;
     do{
         // 写完数据        
         writerA_.cv.notify_all();
@@ -153,8 +156,6 @@ void StreamWriter::stop() {
         writerA_.cv.notify_all();
         writerB_.cv.notify_all();
     } while (!dispatchQueue_.empty() && !writerA_.queue.empty() && !writerB_.queue.empty());  
-    // 唤醒所有等待写线程
-    running_ = false;
 
     // join
     if (dispatchThread_.joinable()) dispatchThread_.join();
@@ -224,7 +225,7 @@ bool StreamWriter::pushMeta(const MppEncoderCore::EncodedMeta &meta) {
         std::lock_guard<std::mutex> lk(dispatchMtx_);
         dispatchQueue_.push(meta);
     }
-    dispatchCv_.notify_one();
+    dispatchCv_.notify_all();
     return true;
 }
 
@@ -271,6 +272,7 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
         }
         // 写入文件
         FILE* fp = ctx->fp->get();
+        if (!fp) continue;
         int fd = fileno(fp);
         size_t length = packet->length();
 
@@ -313,9 +315,13 @@ void StreamWriter::dispatchLoop() {
             dispatchCv_.wait(lk, [&] { return !dispatchQueue_.empty() || !running_; });
             if (!running_) break;
             // 取出 meta
-            if (dispatchQueue_.empty()) continue;
+            if (dispatchQueue_.empty()) {
+                std::cout << "dispatchQueue_ EMPTY" << std::endl; 
+                continue;
+            }
             meta = dispatchQueue_.front();
             dispatchQueue_.pop();
+            
         }
         // meta有效时确保后续异常时释放
         SlotGuard guard(meta.core, meta.slot_id);

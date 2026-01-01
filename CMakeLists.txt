@@ -14,17 +14,15 @@ set(CMAKE_CXX_FLAGS_DEBUG  "${CMAKE_CXX_FLAGS_DEBUG} -g")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -ffunction-sections -fdata-sections")
 
 # 是否使用交叉编译工具链的开关
-option(USE_CROSS_COMPILE "Enable cross-compilation for RK3568" OFF)
+option(USE_CROSS_COMPILE "Enable cross-compilation for RK356x" OFF)
 
 if(USE_CROSS_COMPILE)
     # RK3568 宏定义
-    add_definitions(-DRK3568)
-    
-    # 设置工具链文件路径
-    set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/rk3568-toolchain.cmake)
+    # add_definitions(-DRK356x)
+    add_definitions(-D__arm__)
+
     # 设置库路径
     link_directories(${CMAKE_SYSROOT}/usr/lib)
-
 endif()
 
 # 启用 ccache

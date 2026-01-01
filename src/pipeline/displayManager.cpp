@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <atomic>
 
+#include "threadUtils.h"             // 线程绑定
 #include "drm/drmLayer.h"            // layer 管理
 #include "drm/planesCompositor.h"    // plane 管理
 #include "fenceWatcher.h"            // fence 监视
@@ -30,6 +31,10 @@ static void infoPrinter(const std::vector<uint32_t>& ids) {
 
 // ------------------- 内部实现 -------------------
 class DisplayManager::Impl {
+    enum class DisplayerStatus {
+        Free = 0,
+        Busy = 1
+    };
 public:
     Impl();
     ~Impl();
@@ -65,21 +70,48 @@ private:
     void doPreRefresh();
     void doPostRefresh();
 private:
+    struct alignas(64) PendingFrame {
+        std::mutex slotMtx;
+        std::atomic_bool ready{false};
+        std::shared_ptr<DrmLayer> layer;             // layer
+        std::vector<DmaBufferPtr> pendingBuffers;    // present 时只更新buffer
+        std::shared_ptr<void> holder;                // 每一个 planelayer 独立管理生命周期
+        
+        // 默认构造
+        PendingFrame() = default;
+
+        // 禁用拷贝
+        PendingFrame(const PendingFrame&) = delete;
+        PendingFrame& operator=(const PendingFrame&) = delete;
+
+        PendingFrame(PendingFrame&& other) noexcept
+            : PendingFrame{}  // 默认构造
+        { *this = std::move(other); }   // 调用移动赋值
+
+        // 移动赋值
+        PendingFrame& operator=(PendingFrame&& other) noexcept {
+            if (this != &other) {
+                layer = std::move(other.layer);
+                pendingBuffers = std::move(other.pendingBuffers);
+                holder = std::move(other.holder);
+                // mutex 禁止拷贝禁止移动
+            }
+            return *this;
+        }
+    };
     // DRM 资源
     SharedDev* devices{nullptr};
     DevPtr     dev{nullptr};
 
     // plane -> layer 映射
-    std::unordered_map<int32_t, std::shared_ptr<DrmLayer>> planesMap;
-    // plane -> holder 映射 保证dmabuf生命周期
-
-    std::unordered_map<int32_t, std::deque<std::shared_ptr<void>>> lifeHodler;
+    std::vector<PendingFrame> planesVector;
+    
     // 合成器
     std::unique_ptr<PlanesCompositor> compositor;
 
     // 同步
     std::mutex loopMtx;
-    std::mutex mapMtx, hodlerMtx;
+    std::mutex planesMtx;
     std::mutex preVectorMtx, postVectorMtx;
 
     std::condition_variable cv;
@@ -90,8 +122,8 @@ private:
     // 状态
     std::atomic_bool running{false};
     std::atomic_bool refreshing{false};
-    std::atomic_bool hasNewFrame{false};
-
+    std::atomic_uint32_t pendingFrames{0};
+    std::atomic<DisplayerStatus> dispStatus{DisplayerStatus::Free};
 
     // 回调
     std::vector<RefreshCallback> preRefreshCb;
@@ -106,12 +138,14 @@ void DisplayManager::Impl::start() {
     if (running.load()) return;
     running.store(true);
     thread = std::thread(&DisplayManager::Impl::mainLoop, this);
+    ThreadUtils::bindThreadToCore(thread, 3);
+    ThreadUtils::setRealtimeThread(thread.native_handle(), 80); // 设置高优先级
 }
 
 void DisplayManager::Impl::stop(){
     if (false == running.load()) return;
     running.store(false);
-    cv.notify_all();
+    cv.notify_one();
     if (thread.joinable()){
         thread.join();
     }
@@ -145,7 +179,7 @@ void DisplayManager::Impl::doPreRefresh(){
     setRefreshStatus(true);
     {
         std::lock_guard<std::mutex> lock(preVectorMtx);
-        for (auto& cb : preRefreshCb) cb();
+        for (auto& cb : preRefreshCb) cb(); 
     }
     resourcesClean();
 }
@@ -163,9 +197,10 @@ void DisplayManager::Impl::doPostRefresh(){
 // ------------------- 内部资源释放 -------------------
 void DisplayManager::Impl::resourcesClean(){
     {
-        std::lock_guard<std::mutex> lk(mapMtx);
-        planesMap.clear();
+        std::lock_guard<std::mutex> lk(planesMtx);
+        planesVector.clear();
     }
+    handleAlloc.store(0); // 重置起始 id 
     if(compositor) compositor->removeAllLayer(); // 清空所有缓存 plane
     if(devices) devices->clear();                // 清空设备组合
     if(dev) dev.reset();                         // 清空当前设备组合
@@ -192,7 +227,7 @@ bool DisplayManager::Impl::devicesInit() {
 
     std::cout << "Connector ID: " << dev->connector_id << ", CRTC ID: " << dev->crtc_id
               << ", Resolution: " << dev->width << "x" << dev->height << "\n";
-    // 获取所有在指定CRTC上的Plane
+    // 绑定 crtc -> plane
     DrmDev::fd_ptr->refreshPlane(dev->crtc_id);
     return true;
 }
@@ -204,10 +239,11 @@ void DisplayManager::Impl::initLayer(
 
     layer->setProperty(layerProps);
 
+    // update后自动调用
     layer->setUpdateCallback(
         [this](const std::shared_ptr<DrmLayer>& layer, uint32_t fbId) {
             if (nullptr != compositor) {
-                // 提交更新
+                // 更新layer状态
                 compositor->updateLayer(layer, fbId);
             }
         }
@@ -235,9 +271,18 @@ DisplayManager::Impl::createPlane(const PlaneConfig& config) {
                   << srcWidth << "x" << srcHeight << std::endl;
         return planeHandle;
     }
-    if ((srcWidth % 8) != 0 || (srcHeight % 8) != 0) {
-        std::cerr << "[DisplayManager][ERROR] Dimensions must be 8-pixel aligned. "
-                  << "Got: " << srcWidth << "x" << srcHeight << std::endl;
+    // 不需要检查是否对齐, 但需要检查是否出界
+    auto devW = dev->width; auto devH = dev->height;
+    if ((devW <= zero__) || (devH <= zero__)) {
+        std::cerr << "[DisplayManager][ERROR] Device has no space left on, current Resolution: " 
+                  << devW << "x" << devH << std::endl;
+        return planeHandle;
+    }
+    if ((srcWidth > devW) || (srcHeight > devH)) {
+        std::cerr << "[DisplayManager][ERROR] Resolution: " 
+                  << srcWidth << "x" << srcHeight
+                  << "out of range, max size:" << devW << "x" << devH
+                  <<std::endl;
         return planeHandle;
     }
 
@@ -286,8 +331,8 @@ DisplayManager::Impl::createPlane(const PlaneConfig& config) {
     // 显示图像区域(自动缩放)
     props.crtcX_         = 0;
     props.crtcY_         = 0;
-    props.crtcwidth_         = dev->width;
-    props.crtcheight_         = dev->height;
+    props.crtcwidth_     = devW;
+    props.crtcheight_    = devH;
     props.zOrder_        = config.zOrder;
     
     // 配置 layer
@@ -298,12 +343,16 @@ DisplayManager::Impl::createPlane(const PlaneConfig& config) {
         return planeHandle;
     }
 
-    int id = handleAlloc.fetch_add(1);
+    int id = handleAlloc.load();
     planeHandle.reset(id);
+    
+    PendingFrame pf;
+    pf.layer = layer;
     {
-        std::lock_guard<std::mutex> lk(mapMtx);
-        planesMap[id] = layer;
+        std::lock_guard<std::mutex> lk(planesMtx);
+        planesVector.emplace_back(std::move(pf));
     }
+    handleAlloc.fetch_add(1);
     return planeHandle;
 }
 
@@ -313,6 +362,12 @@ void DisplayManager::Impl::presentFrame(
     std::vector<DmaBufferPtr>&& buffers,
     std::shared_ptr<void> holder
 ) {
+    if (!dev || !dev.get()) return;
+    int id = plane.get();
+    if (planesVector.empty() || id >= planesVector.size() || id < 0) {
+        std::cerr << "[DisplayManager][ERROR] PlaneHandle is invalid." << std::endl;
+        return;
+    }
     if (buffers.empty() || nullptr == buffers[0]) {
         std::cerr << "[DisplayManager][ERROR] Frame buffers is empty." << std::endl;
         return;
@@ -321,60 +376,72 @@ void DisplayManager::Impl::presentFrame(
         std::cerr << "[DisplayManager][ERROR] PlaneHandle is invalid in presentFrame()." << std::endl;
         return;
     }
-    auto id = plane.get();
-    if (holder && holder.get()) {
-        std::lock_guard<std::mutex> lock(hodlerMtx);
-        auto& dequeRef = lifeHodler[id];
-        dequeRef.push_back(std::move(holder));
-    }
-    
-    std::shared_ptr<DrmLayer> layer;
-    {
-        std::lock_guard<std::mutex> lock(mapMtx);
-        auto it = planesMap.find(id);
-        if (planesMap.end() == it) {
-            std::cerr << "[DisplayManager][ERROR] plane not found in presentFrame." << std::endl;
-            return;
-        }
-        layer = it->second;
-    }
+    auto& pf = planesVector[id];
 
-    // 更新 layer buffer
-    layer->updateBuffer(std::move(buffers));
-    hasNewFrame.store(true);
-    cv.notify_all();
+    { // 每个slot独立互斥锁
+        std::lock_guard<std::mutex> lock(pf.slotMtx);
+        pf.pendingBuffers = std::move(buffers);
+        pf.holder = std::move(holder);
+    }
+    pf.ready.store(true);
+    pendingFrames.fetch_add(1);
+    cv.notify_one();
 }
 
 // ------------------- mainLoop -------------------
 void DisplayManager::Impl::mainLoop() {
-    while (true == running.load()) {
+    int drmFence{-1};
+    while (running.load()) {
         {
             std::unique_lock<std::mutex> lock(loopMtx);
-                // 继续执行的条件: 线程退出 OR (refreshing == false AND hasNewFrame == true)
+            // 退出条件: 退出线程 或 未刷新 且 有待处理帧 且 显示状态为空闲
             cv.wait(lock, [this] {
-                return (!running.load()) || (!refreshing.load() && hasNewFrame.load());
+                return (!running.load()) ||
+                       (!refreshing.load()
+                        && pendingFrames.load() > 0);
+                        // && dispStatus.load(std::memory_order_acquire)
+                        //     == DisplayerStatus::Free
             });
 
-            if (false == running.load()) break;
+            if (!running.load()) break;
         }
+        // 锁定刷新状态
+        // dispStatus.store(DisplayerStatus::Busy, std::memory_order_release);
 
-        // 执行 commit, 获取 fence
-        int drmFence = -1;
-        if (nullptr != compositor) compositor->commit(drmFence);
+        bool processedFrame = false;
+
+        for (auto& pf : planesVector) {
+            if (!pf.ready.load()) continue;
+            bool exc = true;
+            pf.ready.compare_exchange_weak(exc, false);
+            std::vector<DmaBufferPtr> tmp;
+            {
+                std::lock_guard<std::mutex> lk(pf.slotMtx);
+                if(pf.pendingBuffers.empty() || !pf.pendingBuffers[0]) continue;
+                tmp = std::move(pf.pendingBuffers);
+            }
+            // TODO: 更新 layer 内部实现, 实现fb复用(dmabuf总量固定, 每一帧创建fb存在开销)
+            pf.layer->updateBuffer(std::move(tmp));
+
+            processedFrame = true;
+        }
+        
+        if (!processedFrame) continue; // 没有处理任何帧, 跳过
+
+        pendingFrames.fetch_sub(1);
+
+        drmFence = -1;
+        if (compositor) compositor->commit(drmFence);
 
         FenceWatcher::instance().watchFence(drmFence, [this]() {
-            // fence 信号到达后，对 layer 做后续处理
-            std::lock_guard<std::mutex> lk(mapMtx);
-            std::lock_guard<std::mutex> lk2(hodlerMtx);
-            for (auto& kv : planesMap) {
-                kv.second->onFenceSignaled();
-                auto& dequeRef = lifeHodler[kv.first];
-                while (dequeRef.size() > CACHESIZE){
-                    dequeRef.pop_front();
-                }
+            for (auto& pf : planesVector) {
+                pf.layer->onFenceSignaled();
             }
+            // 更新显示状态
+            // dispStatus.store(DisplayerStatus::Free, std::memory_order_release);
+            // 通知主线程继续处理(无虚假唤醒)
+            cv.notify_one();
         });
-        hasNewFrame.store(false);
     }
 }
 
@@ -420,7 +487,7 @@ std::pair<uint32_t, uint32_t> DisplayManager::getCurrentScreenSize() const {
 }
 
 DisplayManager::PlaneHandle
-DisplayManager::createPlane(const PlaneConfig& config) {
+DisplayManager::createPlane(const PlaneConfig& config) const {
     return impl_->createPlane(config);
 }
 void DisplayManager::start() { impl_->start(); }

@@ -12,18 +12,18 @@
 /*
  * OrderedQueue - 高性能无锁环形缓冲有序队列(模板化)
  *
- * 特点：
+ * 特点: 
  *  - 支持多生产者并发入队(lock-free CAS)
  *  - 支持单消费者或多消费者顺序出队
  *  - 使用环形缓冲 + slot CAS 避免 map 分配开销
- *  - slot 内存由外部管理，入队/出队只操作 slot.data_
- *  - 可选丢弃策略：DISCARD_OLDEST / DISCARD_NEWEST / BLOCK / THROW_EXCEPTION
+ *  - slot 内存由外部管理, 入队/出队只操作 slot.data_
+ *  - 可选丢弃策略: DISCARD_OLDEST / DISCARD_NEWEST / BLOCK / THROW_EXCEPTION
  *  - 支持超时出队
- *  - 提供统计信息：总入队/出队、timeout、slot 冲突、pending
+ *  - 提供统计信息: 总入队/出队、timeout、slot 冲突、pending
  *
- * 注意：
- *  - 容量建议为 2 的幂，方便快速索引计算
- *  - 高乱序入队可能导致 slot 冲突，需要根据 overflow policy 处理
+ * 注意: 
+ *  - 容量建议为 2 的幂, 方便快速索引计算
+ *  - 高乱序入队可能导致 slot 冲突, 需要根据 overflow policy 处理
  */
 
 template <typename T>
@@ -97,7 +97,7 @@ public:
      * frame_id: 当前帧 id
      * data: 帧数据 T(由外部管理)
      * policy: slot 冲突或容量超限时的处理策略
-     * 返回 true 表示成功入队，false 表示被丢弃
+     * 返回 true 表示成功入队, false 表示被丢弃
      */
     bool enqueue(uint64_t frame_id, T&& data, OverflowPolicy policy = OverflowPolicy::DISCARD_NEWEST) {
         size_t idx = frame_id & (capacity_ - 1);  // 环形索引计算
@@ -117,7 +117,7 @@ public:
                 case OverflowPolicy::DISCARD_NEWEST:
                     return false; // 丢弃当前帧
                 case OverflowPolicy::DISCARD_OLDEST:
-                    // 丢弃旧帧，腾出空间
+                    // 丢弃旧帧, 腾出空间
                     ring_buffer_[idx].filled->store(false, std::memory_order_release);
                     expected = false;
                     break;
@@ -140,8 +140,8 @@ public:
 
     /*
      * try_dequeue - 按 expected_id 顺序取出 slot.data_
-     * data_out: 输出参数，成功时为有效 T
-     * timeout_ms: 超时毫秒，0 表示非阻塞立即返回
+     * data_out: 输出参数, 成功时为有效 T
+     * timeout_ms: 超时毫秒, 0 表示非阻塞立即返回
      */
     bool try_dequeue(T& data_out, int64_t timeout_ms = 0) {
         auto start = std::chrono::steady_clock::now();

@@ -21,7 +21,7 @@ public:
 
     // 实现移动构造
     FdWrapper(FdWrapper&& other) noexcept : fd_(other.fd_) {
-        other.fd_ = -1;  // 转移所有权，避免原对象析构时关闭fd
+        other.fd_ = -1;  // 转移所有权, 避免原对象析构时关闭fd
     }
 
     // 实现移动赋值
@@ -29,7 +29,7 @@ public:
         if (this != &other) {
             closeFd();       // 先关闭当前fd(如果有效)
             fd_ = other.fd_; // 接管fd
-            other.fd_ = -1;  // 清空原对象fd，避免重复关闭
+            other.fd_ = -1;  // 清空原对象fd, 避免重复关闭
         }
         return *this;
     }

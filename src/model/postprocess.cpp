@@ -107,7 +107,7 @@ static void process_layer_rule(
 
     // ------------------------------------------------------------
     // NCHW 格式遍历
-    // 对于输出 (1, 255, H, W)：
+    // 对于输出 (1, 255, H, W): 
     // - 前85个通道 (0-84) 是 anchor0 的数据
     // - 接下来85个通道 (85-169) 是 anchor1 的数据  
     // - 最后85个通道 (170-254) 是 anchor2 的数据
@@ -122,8 +122,8 @@ static void process_layer_rule(
                 // 当前网格点在 HW 平面的索引
                 int hw_idx = i * grid_w + j;
                 
-                // 读取 objectness (第4个通道，索引从0开始)
-                int obj_c = anchor_base_c + 4;
+                // 读取 objectness (从第5个通道开始)
+                int obj_c = anchor_base_c + 4; // 前5个通道(值): tx ty tw th objectness
                 int obj_idx = obj_c * grid_len + hw_idx;
                 T box_confidence_quantized = input[obj_idx];
                 
@@ -147,7 +147,7 @@ static void process_layer_rule(
                 float box_w = (tw * 2.0f) * (tw * 2.0f) * static_cast<float>(anchors[a].w);
                 float box_h = (th * 2.0f) * (th * 2.0f) * static_cast<float>(anchors[a].h);
 
-                // 找最大类别概率 (从第5个通道开始，共 num_classes 个)
+                // 找最大类别概率 (从第5个通道开始, 共 num_classes 个)
                 int cls_base_c = anchor_base_c + 5;
                 T max_class_prob_quantized = input[cls_base_c * grid_len + hw_idx];
                 int max_class_id = 0;
