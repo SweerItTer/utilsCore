@@ -318,7 +318,7 @@ void UIRenderer::Impl::updateSlotInfo() {
     }
     
     // 注册渲染槽
-    core_->registerResSlot(slotTypeName_, 4, std::move(dmabufTemplate));
+    core_->registerResSlot(slotTypeName_, 10, std::move(dmabufTemplate));
 
     double dpiScale = MainInterface::computeDPIScale(targetWidth_, targetHeight_);    // DPI缩放
     
@@ -354,7 +354,7 @@ void UIRenderer::Impl::onRenderTick() {
 
     // 获取空闲槽
     auto slot = core_->acquireFreeSlot(slotTypeName_, 33);
-    if (nullptr == slot || !slot->qfbo.get()) {
+    if (nullptr == slot || !slot->valid()) {
         std::cerr << "[UIRenderer][WARN] Failed to acquire slot." << std::endl;
         return;
     }
@@ -374,9 +374,10 @@ void UIRenderer::Impl::onRenderTick() {
             }
         }
     }
+    core_->makeQCurrent();
 
     // 清空画布
-    draw_->clear(slot->qfbo.get());
+    draw_->clear(*slot);
     
     // 绘制UI widget
     if (widget_) {
@@ -400,30 +401,22 @@ void UIRenderer::Impl::onRenderTick() {
     
     // 同步到 dmabuf
     int drawFence = -1;
-    if (!slot->syncToDmaBuf(drawFence) || !slot->dmabufPtr) {
+    if (!slot->getSyncFence(drawFence) || !slot->dmabufPtr) {
         std::cerr << "[UIRenderer][ERROR] Failed to sync dmabuf." << std::endl;
         core_->releaseSlot(slotTypeName_, slot);
         return;
     }
 
-    std::lock_guard<std::mutex> lock(handleMtx);
-        
-    if (currentPlaneHandle_.valid() && displayer_.lock() != nullptr)
-        displayer_.lock()->presentFrame(currentPlaneHandle_, {slot->dmabufPtr}, 
-            std::make_shared<SlotHolder>(core_, slotTypeName_, slot));
-
+    core_->doneQCurrent();
     // 等待绘制完成后显示
-    // FenceWatcher::instance().watchFence(drawFence, [this, slot] () mutable {
-    //     // 获取当前有效的 plane handle
-    //     std::lock_guard<std::mutex> lock(handleMtx);
-        
-    //     if (currentPlaneHandle_.valid() && displayer_) {
-    //         displayer_->presentFrame(currentPlaneHandle_, {slot->dmabufPtr}, 
-    //             std::make_shared<SlotHolder>(slotTypeName_, slot));
-    //         // 使用slotHolder自动析构 (core_->releaseSlot)
-    //         // core_->releaseSlot(slotTypeName_, slot);
-    //     }
-    // });
+    FenceWatcher::instance().watchFence(drawFence, [this, slot] () mutable {
+        std::lock_guard<std::mutex> lock(handleMtx);
+        // 获取当前有效的 plane handle
+        if (currentPlaneHandle_.valid() && displayer_.lock() != nullptr) {
+            displayer_.lock()->presentFrame(currentPlaneHandle_, {slot->dmabufPtr}, 
+                std::make_shared<SlotHolder>(core_, slotTypeName_, slot));
+        }
+    });
 }
 
 // ------------------ 对外接口 ------------------

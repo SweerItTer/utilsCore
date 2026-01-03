@@ -46,14 +46,12 @@ static void saveFBO(GLuint Fbo, uint32_t width, uint32_t height, const QString& 
     }
 }
 
-Core& Core::instance()
-{
+Core& Core::instance() {
     static Core core;
     return core;
 }
 
-Core::Core()
-{
+Core::Core() {
     // 初始化qt上下文
     if (false == initQContext()) {
         fprintf(stderr, "[Core] initContext failed.\n");
@@ -292,19 +290,15 @@ bool Core::registerResSlot(const std::string &type, size_t poolSize, DmaBufferPt
 }
 
 Core::resourceSlot Core::createSlot(DmaBufferPtr&& bufPtr) {
-    if (nullptr == bufPtr) {
-        fprintf(stderr, "[Core] Invalid DmaBuffer\n");
-        return {};
-    }
-    if (eglDisplay_ == EGL_NO_DISPLAY) {
-        fprintf(stderr, "[Core] No valid EGL display\n");
+    if (nullptr == bufPtr || eglDisplay_ == EGL_NO_DISPLAY) {
         return {};
     }
     resourceSlot slot;
     slot.dmabufPtr = std::move(bufPtr);
 
     makeQCurrent();
-    // 创建 EGLImage
+    
+    // 1. 创建 EGLImage
     EGLint attrs[] = {
         EGL_WIDTH, static_cast<EGLint>(slot.dmabufPtr->width()),
         EGL_HEIGHT, static_cast<EGLint>(slot.dmabufPtr->height()),
@@ -326,11 +320,9 @@ Core::resourceSlot Core::createSlot(DmaBufferPtr&& bufPtr) {
         return {};
     }
 
-    // 创建 GL 纹理 (RGBA)
+    // 2. 创建 GL 纹理并绑定 EGLImage
     glGenTextures(1, &slot.textureId);
     glBindTexture(GL_TEXTURE_2D, slot.textureId);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, slot.dmabufPtr->width(),
-                 slot.dmabufPtr->height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -338,11 +330,12 @@ Core::resourceSlot Core::createSlot(DmaBufferPtr&& bufPtr) {
     glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, slot.eglImage);
     printGlError("glEGLImageTargetTexture2DOES");
     glBindTexture(GL_TEXTURE_2D, 0);
-
-    // 创建 blitFbo 用于同步 (RGBA)
+    
+    // 3. 创建原生 FBO 并将纹理附着 (直接绘制目标)
     glGenFramebuffers(1, &slot.blitFbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, slot.blitFbo);
-    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, slot.textureId, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, slot.blitFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, slot.textureId, 0);
+    
     GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     if (status != GL_FRAMEBUFFER_COMPLETE) {
         fprintf(stderr, "[Core] Framebuffer incomplete: 0x%X\n", status);
@@ -350,103 +343,39 @@ Core::resourceSlot Core::createSlot(DmaBufferPtr&& bufPtr) {
     }
     printGlError("blitfbo create.");
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    // [修改] 移除 QOpenGLFramebufferObject 的创建
+    // slot.qfbo = std::make_shared<QOpenGLFramebufferObject>(...);
 
-    // 创建 QOpenGLFramebufferObject, 指定支持 RGBA
-    QOpenGLFramebufferObjectFormat fboFormat;
-    fboFormat.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil); // 可选深度/模板
-    fboFormat.setInternalTextureFormat(GL_RGBA); // 关键: RGBA 支持透明
-    slot.qfbo = std::make_shared<QOpenGLFramebufferObject>(slot.dmabufPtr->width(),
-                                                           slot.dmabufPtr->height(),
-                                                           fboFormat);
 
     doneQCurrent();
-    fprintf(stdout, "[Core] Resource slot (RGBA) created successfully\n");
+    fprintf(stdout, "[Core] Zero-Copy Resource slot created successfully\n");
     return slot;
 }
 
+bool Core::resourceSlot::getSyncFence(int& fence) {
+    if (!valid()) return false;
 
-// 将 QtFBO 的内容同步到 dmabuf
-bool Core::resourceSlot::syncToDmaBuf(int& fence) {
-    if (!valid() || !qfbo) {
-        return false;
-    }
-    fence = 0;
-
+    // [修改] 零拷贝模式下, Draw操作已经直接写到了 blitFbo (即 DMABUF)
+    // 所以不再需要 glBlitFramebuffer。
+    
+    // 1. 提交指令
     auto& core = Core::instance();
-    auto width = dmabufPtr->width();
-    auto height = dmabufPtr->height();
-    core.makeQCurrent();
-    // 确保 blitFbo 存在不存在则重新创建
-    if (0 == blitFbo) {
-        glGenFramebuffers(1, &blitFbo);
-    }
-    // 重新 attach dmabuf 的 texture
-    glBindFramebuffer(GL_FRAMEBUFFER, blitFbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER,
-                           GL_COLOR_ATTACHMENT0,
-                           GL_TEXTURE_2D,
-                           textureId,  // 这里是保存的 dmabuf texture
-                           0);
-    // 检查状态
-    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    if (GL_FRAMEBUFFER_COMPLETE != status) {
-        fprintf(stderr, "[FBO ERROR] blitFbo not complete after reattach: 0x%x\n", status);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        core.doneQCurrent();
-        return false;
-    }
 
-    // // 保存检查
-    // saveFBO(blitFbo, width, height, "/tmp/blitFbo_synccheck.png");
+    // 2. 创建 Fence
+    EGLSyncKHR sync = core.eglCreateSyncKHR(core.eglDisplay_, EGL_SYNC_FENCE_KHR, nullptr);
+    glFlush(); // 确保 fence 创建指令被提交
 
-    // 2. 分别绑定读取和写入的 fbo
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, qfbo->handle());
-    printGlError("bind qfbo");
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, blitFbo);
-    printGlError("bind blitFbo");
-
-    // 检查状态
-    GLenum readStatus = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
-    GLenum drawStatus = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
-    if (GL_FRAMEBUFFER_COMPLETE != readStatus) {
-        fprintf(stderr, "[FBO ERROR] qfbo tmpFbo not complete: 0x%x\n", readStatus);
-    }
-    if (GL_FRAMEBUFFER_COMPLETE != drawStatus) {
-        fprintf(stderr, "[FBO ERROR] blitFbo not complete: 0x%x\n", drawStatus);
-    }
-
-    // 3. 执行 blit
-    glBlitFramebuffer(0, 0, width, height,
-                      0, 0, width, height,
-                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    printGlError("blit framebuffer");
-
-    // // 4. 创建 fence
-    // EGLSyncKHR sync = core.eglCreateSyncKHR(core.eglDisplay_,
-    //                                         EGL_SYNC_FENCE_KHR,
-    //                                         nullptr);
-    // glFlush();
-    // printGlError("flush");
-    // fence = core.eglDupNativeFenceFDANDROID(core.eglDisplay_, sync);
-    // core.eglDestroySyncKHR(core.eglDisplay_, sync);
-
-    // 5. 清理绑定
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-
-    // saveFBO(blitFbo, width, height, "/tmp/blitFbo_copycheck.png");
-
-    core.doneQCurrent();
+    fence = core.eglDupNativeFenceFDANDROID(core.eglDisplay_, sync);
+    core.eglDestroySyncKHR(core.eglDisplay_, sync);
+    
     return true;
 }
 
 void Core::resourceSlot::cleanup() {
     Core::instance().makeQCurrent();
-    // 先释放FBO
-    if (qfbo) {
-        qfbo->release();
-        qfbo.reset();
-    }
+    
+    // [修改] 移除 qfbo 清理
+    // if (qfbo) { qfbo->release(); qfbo.reset(); }
     
     // 释放同步用 FBO
     if (blitFbo != 0) {
@@ -469,7 +398,6 @@ void Core::resourceSlot::cleanup() {
     // 释放DMA缓冲区
     if (nullptr != dmabufPtr) {
         dmabufPtr.reset();
-        dmabufPtr = nullptr;
     }
     Core::instance().doneQCurrent();
 }

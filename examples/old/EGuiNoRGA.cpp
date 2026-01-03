@@ -256,7 +256,7 @@ void FrameBufferTest::RunUI(int &argc, char *argv[]){
        
         draw.drawText(*(slot.get()), cursor, QPointF(x, y), cursorColor, autoCursorSize);	
         // 同步内容到 dmabuf
-        if (!slot->syncToDmaBuf(DrawFence)) {
+        if (!slot->getSyncFence(DrawFence)) {
             std::cout << "Failed to sync dmabuf. \n";
             core.releaseSlot(slotType, slot);
             return;
@@ -354,7 +354,7 @@ void FrameBufferTest::RunUI(int &argc, char *argv[]){
         uiDrawRect = draw.drawWidget(*(slot.get()), mainInterface.get(), uiRact); 
         if (!uiDrawRect.rect.isEmpty()) mainInterface->setUiDrawRect(uiDrawRect.rect, uiDrawRect.scale);
         // 同步内容到 dmabuf
-        if (!slot->syncToDmaBuf(DrawFence)) {
+        if (!slot->getSyncFence(DrawFence)) {
             std::cout << "Failed to sync dmabuf. \n";
             core.releaseSlot(slotType, slot);
             return;

@@ -346,7 +346,7 @@
 
 **数据结构**：
 - `resourceSlot` - 资源槽（dmabufPtr, eglImage, textureId, blitFbo, qfbo）
-  - `syncToDmaBuf(int& fence)` - 同步到 DMA-BUF
+  - `getSyncFence(int& fence)` - 同步到 DMA-BUF
 
 **设计特点**：
 - 单例模式
