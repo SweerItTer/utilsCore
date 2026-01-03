@@ -5,7 +5,7 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "yolov5s.h"
-#include "rga/rga2drm.h"
+#include "rga/formatTool.h"
 #include <iostream>
 
 Yolov5s::Yolov5s(const std::string &modelPath, const std::string &COCOPath,
@@ -43,28 +43,40 @@ int Yolov5s::init(rknn_app_context& inCtx, bool isChild) {
     return ret;
 }
 
+void Yolov5s::setThresh(float BOX_THRESH, float NMS_THRESHresh) {
+    if (BOX_THRESH != this->confThres.load()){
+        this->confThres.store(BOX_THRESH);
+    }
+    if (NMS_THRESHresh != this->iouThresh.load()){
+        this->iouThresh.store(NMS_THRESHresh);
+    }
+}
+
 object_detect_result_list Yolov5s::infer(DmaBufferPtr in_dmabuf)
 {
+    object_detect_result_list reslut_{};
     // 4. 图像预处理
     int bg_color = 114;
     letterbox letterbox_;
     rknn_io_tensor_mem* mem = &appCtx.io_mem;
     DmaBufferPtr dstbuf = DmaBuffer::importFromFD(mem->input_mems[0]->fd,
         appCtx.model_width, appCtx.model_height,
-        formatRGAtoDRM(RK_FORMAT_RGB_888), mem->input_mems[0]->size);
+        convertRGAtoDrmFormat(RK_FORMAT_RGB_888), mem->input_mems[0]->size);
     // 将 in_dmabuf 预处理并输出到 dstbuf
     int ret = preprocess::convert_image_with_letterbox(in_dmabuf, dstbuf, &letterbox_, bg_color);
     if (ret < 0){
         fprintf(stderr, "Pre process failed.\n");
-        return {};
+        return reslut_;
     }
+    // saveImage("converted.jpg", dstbuf);
+    // saveImage("input.jpg", in_dmabuf);
     // fprintf(stdout, "[Preprocess] Success\n");
 
     // 5.1 设置输入 mem (包含 dstbuf)
     ret = rknn_set_io_mem(appCtx.rknn_ctx, mem->input_mems[0], &appCtx.input_attrs[0]);
     if (ret < 0){
         fprintf(stderr, "Set io mem failed.\n");
-        return {};
+        return reslut_;
     }
     // fprintf(stdout, "[SetIO] Success\n");
 
@@ -74,7 +86,7 @@ object_detect_result_list Yolov5s::infer(DmaBufferPtr in_dmabuf)
                                 &appCtx.output_attrs[i]);
         if (ret < 0) {
             fprintf(stderr, "Set output mem[%d] failed, ret=%d\n", i, ret);
-            return {};
+            return reslut_;
         }
     }
     // fprintf(stdout, "[SetOutputMem] Success\n");
@@ -83,19 +95,18 @@ object_detect_result_list Yolov5s::infer(DmaBufferPtr in_dmabuf)
     ret = rknn_run(appCtx.rknn_ctx, nullptr);
     if (ret < 0){
         fprintf(stderr, "rknn run failed, ret=%d\n", ret);
-        return {};
+        return reslut_;
     }
     // fprintf(stdout, "[Inference] Success\n")
     
     // 7. 后处理
-    object_detect_result_list reslut_{};
     ret = postprocess::post_process_rule( 
         appCtx, mem->output_mems,
         letterbox_, classes, reslut_,
-        confThres, iouThresh, anchorSet_);
+        confThres.load(), iouThresh.load(), anchorSet_);
     if (ret < 0){
         fprintf(stderr, "Post process failed, ret=%d\n", ret);
-        return {};
+        return reslut_;
     }
     // fprintf(stdout, "[Inference] Success\n");
     return reslut_;

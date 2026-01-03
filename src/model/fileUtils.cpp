@@ -37,44 +37,68 @@ int read_data_from_file(const char *path, char **out_data)
     return file_size;
 }
 
-DmaBufferPtr readImage(const std::string &image_path) {
-    cv::Mat rawimg = cv::imread(image_path);
+DmaBufferPtr readImage(const std::string &image_path, uint32_t format) {
+    cv::Mat rawimg = cv::imread(image_path, cv::IMREAD_UNCHANGED);
     if (rawimg.empty()) {
         std::cerr << "Failed to read image: " << image_path << std::endl;
         exit(-1);
     }
-    cv::Mat rgbimg;
-    cv::cvtColor(rawimg, rgbimg, cv::COLOR_BGR2RGB);
-    
+    int channels = rawimg.channels();
+    cv::Mat converted;
+
+    switch (format) {
+        case DRM_FORMAT_RGB888:
+            if (channels == 4)
+                cv::cvtColor(rawimg, converted, cv::COLOR_BGRA2RGB);
+            else if (channels == 3)
+                cv::cvtColor(rawimg, converted, cv::COLOR_BGR2RGB);
+            else {
+                std::cerr << "Unsupported channel count for RGB888: " << channels << std::endl;
+                exit(-1);
+            }
+            break;
+
+        case DRM_FORMAT_ABGR8888:
+            if (channels == 4)
+                cv::cvtColor(rawimg, converted, cv::COLOR_BGRA2RGBA);
+            else if (channels == 3)
+                cv::cvtColor(rawimg, converted, cv::COLOR_BGR2RGBA); // 自动补Alpha=255
+            else {
+                std::cerr << "Unsupported channel count for ABGR8888: " << channels << std::endl;
+                exit(-1);
+            }
+            break;
+
+        default:
+            std::cerr << "Unsupported DRM format: 0x" << std::hex << format << std::endl;
+            exit(-1);
+    }
+
     // 创建 DMABUF
-    auto dma_buf = DmaBuffer::create(rgbimg.cols, rgbimg.rows, DRM_FORMAT_RGB888, 0);
+    std::cout << "Try to create DmaBuffer." << std::endl;
+    auto dma_buf = DmaBuffer::create(converted.cols, converted.rows, format, 0);
     if (!dma_buf) {
         std::cerr << "Failed to create DmaBuffer" << std::endl;
         exit(-1);
     }
     
-    // ==================== 关键修复：按行拷贝 ====================
+    // ==================== 按行拷贝: mat->dmabuf ====================
+    uint8_t* src = converted.data;
     uint8_t* dst = (uint8_t*)dma_buf->map();
-    uint8_t* src = rgbimg.data;
     
-    int width = rgbimg.cols;
-    int height = rgbimg.rows;
-    int src_row_bytes = width * 3;  // OpenCV 行字节数（紧密）
-    int dst_stride = dma_buf->pitch();  // DmaBuffer 行字节数（对齐）
-    
-    // fprintf(stdout, "[readImage] Size: %dx%d\n", width, height);
-    // fprintf(stdout, "[readImage] OpenCV row: %d bytes, DmaBuffer stride: %d bytes\n", 
-    //         src_row_bytes, dst_stride);
-    
+    int width = converted.cols;
+    int height = converted.rows;
+    int src_stride = width * converted.channels(); // OpenCV 行字节数(紧密}
+    int dst_stride = dma_buf->pitch();             // DmaBuffer 行字节数(对齐}
+        
     // 逐行拷贝
     for (int y = 0; y < height; y++) {
-        memcpy(dst + y * dst_stride, src + y * src_row_bytes, src_row_bytes);
+        memcpy(dst + y * dst_stride,   // DmaBuffer 的第 y 行起始地址
+            src + y * src_stride,      // OpenCV 的第 y 行起始地址
+            src_stride);               // 只拷贝有效数据, 不拷贝 padding
     }
-    
+
     dma_buf->unmap();
-    rawimg.release();
-    rgbimg.release();
-    // fprintf(stdout, "[readImage] Successfully loaded image with stride alignment\n");
     return dma_buf;
 }
 
@@ -93,14 +117,14 @@ cv::Mat mapDmaBufferToMat(DmaBufferPtr img, bool copy_data) {
     cv::Mat mat;
 
     if (copy_data) {
-        // 创建新的内存并拷贝数据，然后立即解除映射
+        // 创建新的内存并拷贝数据, 然后立即解除映射
         mat = cv::Mat(img_h, img_w, CV_8UC3);
         
         if (img_pitch == img_w * channels) {
-            // 连续内存，直接拷贝
+            // 连续内存, 直接拷贝
             memcpy(mat.data, img_data, img_h * img_pitch);
         } else {
-            // 非连续内存，逐行拷贝
+            // 非连续内存, 逐行拷贝
             for (int y = 0; y < img_h; y++) {
                 memcpy(mat.ptr(y), img_data + y * img_pitch, img_w * channels);
             }
@@ -109,10 +133,10 @@ cv::Mat mapDmaBufferToMat(DmaBufferPtr img, bool copy_data) {
         // 立即解除映射
         img->unmap();
     } else {
-        // 注意：使用 img_pitch 作为 step，可以处理非连续行
+        // 注意: 使用 img_pitch 作为 step, 可以处理非连续行
         mat = cv::Mat(img_h, img_w, CV_8UC3, img_data, img_pitch);            
         // 返回时不要 unmap！否则 mat 指向的内存会失效
-        // img->unmap(); // 不要在这里 unmap，除非确保 mat 不再使用
+        // img->unmap(); // 不要在这里 unmap, 除非确保 mat 不再使用
     }
     return mat;
 }

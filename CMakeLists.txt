@@ -49,7 +49,6 @@ endif()
 
 find_package(Qt5 COMPONENTS Core Quick Widgets Gui OpenGL REQUIRED)
 
-add_subdirectory(src/UI)            # GUI模块
 add_subdirectory(src/model)         # 视觉模型模块
 add_subdirectory(src/utils)         # 工具模块
 

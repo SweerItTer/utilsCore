@@ -28,7 +28,7 @@ int preprocess::convert_image_rga(const DmaBufferPtr& src, const DmaBufferPtr& d
      */
     // pitch = 1472 字节 RGB -> 3字节/像素 --> stride (像素) = pintch / 3
     // 使用 pitch 计算真实的 stride ()
-    int src_wstride = src_pitch / 3;  // 1472 / 3 = 490
+    int src_wstride = src_pitch / src->channel();  // 1472 / 3 = 490
     int dst_wstride = dst_pitch / 3;  // 1920 / 3 = 640
     int src_hstride = src_h;
     int dst_hstride = dst_h;
