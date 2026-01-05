@@ -1,20 +1,32 @@
-set(utilsIncludeDir "${CMAKE_SOURCE_DIR}/include/utils/")
+set(UTILS_INCLUDE_ROOT "${CMAKE_SOURCE_DIR}/include/utils/")
 
-file(GLOB_RECURSE SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
-file(GLOB_RECURSE HEADERS "${utilsIncludeDir}/*.h")
+
+file(GLOB_RECURSE UTILS_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+)
+
+file(GLOB_RECURSE UTILS_HEADERS
+    "${UTILS_INCLUDE_ROOT}/utils/*.h"
+)
 
 add_library(utils STATIC
-    ${SOURCES}
-    ${HEADERS}  # 会在IDE里显示头文件
+    ${UTILS_SOURCES}
+    ${UTILS_HEADERS}
 )
 
-target_include_directories(utils 
+# 对外只暴露 include 根目录
+target_include_directories(utils
     PUBLIC
-        ${utilsIncludeDir}
-        ${CMAKE_SYSROOT}/usr/include/rga
+        ${UTILS_INCLUDE_ROOT}
         ${CMAKE_SYSROOT}/usr/include/drm
+        ${CMAKE_SYSROOT}/usr/include/rga
 )
 
-target_link_libraries(utils 
-    PUBLIC drm rga udev
+# 底层库是 utils 的实现细节
+target_link_libraries(utils
+    PRIVATE
+        drm
+        rga
+        udev
+        rockchip_mpp
 )
