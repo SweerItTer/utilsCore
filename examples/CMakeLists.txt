@@ -1,6 +1,19 @@
-# ---------Diffrerent re --------
-file(GLOB_RECURSE HEADER "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+# ---------GPU/CPU DrawTest--------
+add_executable(RGACVDrawTest RGA_CV_DRAW_test.cpp)
+target_include_directories(RGACVDrawTest
+    PUBLIC
+        ${CMAKE_SYSROOT}/usr/include/opencv4
+        ${CMAKE_SOURCE_DIR}/include/model
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/examples
+)
 
-add_executable(CaptrueTest DIF_RES_CAP.cpp ${HEADER})
-target_include_directories(CaptrueTest PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(CaptrueTest PUBLIC utils pipeline)
+# 连接 OpenCV 库
+target_link_libraries(RGACVDrawTest 
+    PUBLIC
+        utils
+        ${CMAKE_SYSROOT}/usr/lib/libopencv_core.so
+        ${CMAKE_SYSROOT}/usr/lib/libopencv_imgproc.so
+        ${CMAKE_SYSROOT}/usr/lib/libopencv_imgcodecs.so
+        ${CMAKE_SYSROOT}/usr/lib/libopencv_videoio.so
+)
