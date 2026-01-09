@@ -63,7 +63,6 @@ private:
     std::atomic_bool running{true};             // 视频线程运行标志
     // std::atomic_bool refreshing{false};	        // 刷新标志
     ThreadPauser refreshing;
-    std::thread mainLoop;
 
     DisplayManager::PlaneHandle primaryPlaneHandle, overlayPlaneHandle;
     std::atomic<uint32_t> autoWidth, autoHeight;
@@ -75,7 +74,7 @@ public:
     void quit();
 private:
     // 视频线程
-    void loop();
+    void whenFrameReady(FramePtr frame);
     // 热插拔回调 
     void preProcess();
     void postProcess();
@@ -100,7 +99,7 @@ AppContriller::Impl::Impl() {
     uiRenderer->loadCursorIcon("./cursor-64.png");
 
     // YOLO 推理池
-    yoloProcessor = std::make_unique<YoloProcessor>("./yolov5s_relu.rknn", "./coco_80_labels_list.txt", 5);
+    yoloProcessor = std::make_unique<YoloProcessor>("./yolov5s_relu.rknn", "./coco_80_labels_list.txt", 1);
     // 注册回调
     display_->registerPostRefreshCallback(std::bind(&AppContriller::Impl::postProcess, this));
     display_->registerPreRefreshCallback(std::bind(&AppContriller::Impl::preProcess, this));
@@ -259,35 +258,30 @@ void AppContriller::Impl::signalBind() {
     });
 }
 
-void AppContriller::Impl::loop() {
-    std::vector<DmaBufferPtr> buffers;
-    FramePtr frame;
-    while(running){
-        refreshing.wait_if_paused();
-        if(!running) break;
+void AppContriller::Impl::whenFrameReady(FramePtr frame) {
+    static std::vector<DmaBufferPtr> buffers;
+    refreshing.wait_if_paused();
+    if(!running) return;
 
-        frame.reset();
-        if (!vision_ || !vision_->getCurrentRawFrame(frame) || !frame) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            continue;
-        }
-        buffers.clear();
-
-        auto Y = frame->sharedState(0)->dmabuf_ptr;
-        auto UV = DmaBuffer::importFromFD(
-            Y->fd(),
-            Y->width(),
-            Y->height() / 2,
-            Y->format(),
-            Y->pitch() * Y->height() / 2,
-            Y->pitch() * Y->height()
-        );
-        if(!Y || !UV) continue;
-        buffers.emplace_back(std::move(Y));
-        buffers.emplace_back(std::move(UV));
-        if (!overlayPlaneHandle.valid() || !running) continue;
-        display_->presentFrame(overlayPlaneHandle, buffers, frame);
+    if (!vision_ || !frame) {
+        return;
     }
+    buffers.clear();
+
+    auto Y = frame->sharedState(0)->dmabuf_ptr;
+    auto UV = DmaBuffer::importFromFD(
+        Y->fd(),
+        Y->width(),
+        Y->height() / 2,
+        Y->format(),
+        Y->pitch() * Y->height() / 2,
+        Y->pitch() * Y->height()
+    );
+    if(!Y || !UV) return;
+    buffers.emplace_back(std::move(Y));
+    buffers.emplace_back(std::move(UV));
+    if (!overlayPlaneHandle.valid() || !running) return;
+    display_->presentFrame(overlayPlaneHandle, buffers, frame);
 }
 
 // ------------------ 启动 ------------------
@@ -304,8 +298,10 @@ void AppContriller::Impl::start() {
     signalBind();
     // 启动显示线程
     display_->start();
-    // 创建视频显示线程
-    mainLoop = std::thread(std::bind(&Impl::loop, this));
+    // 注册 显示回调
+    vision_->registerOnFrameReady([this](FramePtr frame){
+        whenFrameReady(std::move(frame));
+    });
     uiRenderer->setFPSUpdater([this](void) -> float {
         return vision_->getFPS();
     });
@@ -317,7 +313,7 @@ void AppContriller::Impl::quit() {
     if (!running.exchange(false)) return;
     std::cout << "[AppContriller] stopping..." << std::endl;
     running.store(false);
-    if (mainLoop.joinable()) mainLoop.join();
+    // if (mainLoop.joinable()) mainLoop.join();
     if(yoloProcessor){
         yoloProcessor->pause();
         yoloProcessor->start();

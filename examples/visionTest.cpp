@@ -4,6 +4,7 @@
 
 #include "displayManager.h"
 #include "visionPipeline.h"
+ThreadPauser a;
 
 // 选择最接近屏幕分辨率的标准分辨率
 static auto chooseClosestResolution(int screenW, int screenH) -> std::pair<int, int> {
@@ -75,6 +76,9 @@ void postProcess(){
 }
 
 void quit() {
+    if (a.is_paused()) {
+        a.resume();
+    }
     if (!running.exchange(false)) return;
     std::cout << "stopping..." << std::endl;
     running.store(false);
@@ -103,19 +107,16 @@ void exec() {
     // timerThread.detach();  // 分离线程
 
     std::vector<DmaBufferPtr> buffers;
-    FramePtr frame;
-    while(running){
+    vision_->registerOnFrameReady([&](FramePtr frame){
         if (refreshing || !vision_){
             std::this_thread::yield();
-            if(!running) break;
-            continue;
+            return;
         }
-
-        if (!vision_->getCurrentRawFrame(frame) || !frame) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            continue;
+        if (running == false) return;
+        if (!vision_ || !frame) {
+            return;
         }
-        if (!overlayPlaneHandle.valid()) continue;
+        if (!overlayPlaneHandle.valid()) return;
         buffers.clear();
         auto Y = frame->sharedState(0)->dmabuf_ptr;
         auto UV = DmaBuffer::importFromFD(
@@ -126,11 +127,13 @@ void exec() {
             Y->pitch() * Y->height() / 2,
             Y->pitch() * Y->height()
         );
-        if(!Y || !UV) continue;
+        if(!Y || !UV) return;
         buffers.emplace_back(std::move(Y));
         buffers.emplace_back(std::move(UV));
         display_->presentFrame(overlayPlaneHandle, buffers, frame);
-    }
+    });
+    a.pause();
+    a.wait_if_paused();
 }
 
 int main(int argc, char const *argv[]) {

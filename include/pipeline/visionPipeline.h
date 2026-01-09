@@ -25,6 +25,7 @@
 class VisionPipeline {
 public:
     using RGACallBack = std::function<void(DmaBufferPtr, std::shared_ptr<void>)>;
+    using ShowCallBack = std::function<void(FramePtr frame)>;
     enum class RecordStatus {
         Start = 0,
         Stop
@@ -61,7 +62,7 @@ public:
 // -------------- 模型推理控制 --------------
     bool setModelRunningStatus(ModelStatus stauts);
     void registerOnRGA(RGACallBack cb_);
-
+    void registerOnFrameReady(VisionPipeline::ShowCallBack&& scb_);
 // -------------- 数据/信息获取 --------------
     bool getCurrentRawFrame(FramePtr& frame);
     bool getCurrentRGAFrame(FramePtr& frame);

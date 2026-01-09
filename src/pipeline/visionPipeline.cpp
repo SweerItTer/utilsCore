@@ -101,6 +101,7 @@ public:
     bool tryRecord(RecordStatus status);
     bool setModelRunningStatus(ModelStatus status);
     void registerOnRGA(VisionPipeline::RGACallBack&& cb_);
+    void registerOnFrameReady(VisionPipeline::ShowCallBack&& scb_);
 
     void setMirrorMode(bool horizontal, bool vertical);
     void setExposurePercentage(float percentage);
@@ -165,6 +166,7 @@ private:
 
     // 回调
     VisionPipeline::RGACallBack cb{nullptr};
+    VisionPipeline::ShowCallBack showCb{nullptr};
 private:
     void mainLoop();
     void record();
@@ -325,7 +327,7 @@ FramePtr VisionPipeline::Impl::safetyGetCurrentFrame(){
     int rIdx = readIndex.load(std::memory_order_acquire);
     
     // 获取帧的共享指针副本(增加引用计数)
-    FramePtr frameSnapshot = std::move(frameBuffer[rIdx]);
+    FramePtr frameSnapshot = frameBuffer[rIdx];
 
     // 使用缓存帧
     if (!frameSnapshot) {
@@ -410,7 +412,7 @@ void VisionPipeline::Impl::mainLoop() {
         int rIdx = readIndex.load(std::memory_order_relaxed);
         readIndex.store(wIdx, std::memory_order_release);
         writeIndex.store(rIdx, std::memory_order_relaxed);
-        
+        if (showCb) showCb(safetyGetCurrentFrame());
         // --- 计算平均帧率 ---
         perf.endFrame();
         // RGA图像传递
@@ -562,11 +564,13 @@ bool VisionPipeline::Impl::setModelRunningStatus(ModelStatus status) {
     return true;
 }
 
-// ------------------- 注册RGA处理后回调函数 ------------------- 
+// ------------------- 注册回调函数 ------------------- 
 void VisionPipeline::Impl::registerOnRGA(VisionPipeline::RGACallBack&& cb_) {
     cb = std::move(cb_);
 }
-
+void VisionPipeline::Impl::registerOnFrameReady(VisionPipeline::ShowCallBack&& scb_) {
+    showCb = std::move(scb_);
+}
 // ------------------- 镜像 / 曝光 ------------------- 
 void VisionPipeline::Impl::setMirrorMode(bool horizontal, bool vertical) {
     // 水平镜像
@@ -645,6 +649,9 @@ bool VisionPipeline::tryCapture() { return impl_->tryCapture(); }
 bool VisionPipeline::tryRecord(RecordStatus stauts) { return impl_->tryRecord(stauts); }
 bool VisionPipeline::setModelRunningStatus(ModelStatus stauts) { return impl_->setModelRunningStatus(stauts); }
 void VisionPipeline::registerOnRGA(RGACallBack cb_) { impl_->registerOnRGA(std::move(cb_)); }
+void VisionPipeline::registerOnFrameReady(VisionPipeline::ShowCallBack&& scb_) {
+    impl_->registerOnFrameReady(std::move(scb_));
+}
 void VisionPipeline::resetConfig(const CameraController::Config& newConfig){ impl_->resetConfig(newConfig); }
 bool VisionPipeline::getCurrentRawFrame(FramePtr& frame) { return impl_->getCurrentRawFrame(frame); }
 bool VisionPipeline::getCurrentRGAFrame(FramePtr& frame) { return impl_->getCurrentRGAFrame(frame); }

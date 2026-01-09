@@ -400,7 +400,7 @@ void DisplayManager::Impl::mainLoop() {
                        (!refreshing.load()
                         && pendingFrames.load() > 0);
                         // && dispStatus.load(std::memory_order_acquire)
-                        //     == DisplayerStatus::Free
+                        //     == DisplayerStatus::Free)
             });
 
             if (!running.load()) break;
@@ -428,7 +428,7 @@ void DisplayManager::Impl::mainLoop() {
         
         if (!processedFrame) continue; // 没有处理任何帧, 跳过
 
-        pendingFrames.fetch_sub(1);
+        pendingFrames.store(0);
 
         drmFence = -1;
         if (compositor) compositor->commit(drmFence);

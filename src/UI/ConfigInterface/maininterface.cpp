@@ -370,9 +370,9 @@ QPoint MainInterface::mapFromGlobal(const QPoint& pos) const {
 
 QPointF MainInterface::mapFromGlobalF(const QPoint& pos) const {
     // 精确反推 UI 逻辑坐标, 不做任何取整
-    qDebug() << "pos: ("<< pos.x() << ", " << pos.y() <<")";
-    qDebug() << "drawRect: ("<< uiDrawRect_.x() << ", " << uiDrawRect_.y() <<")";
-    qDebug() << "uiScale: "<< uiScale_;
+    // qDebug() << "pos: ("<< pos.x() << ", " << pos.y() <<")";
+    // qDebug() << "drawRect: ("<< uiDrawRect_.x() << ", " << uiDrawRect_.y() <<")";
+    // qDebug() << "uiScale: "<< uiScale_;
 
     return QPointF(
         (pos.x() - uiDrawRect_.x()) / uiScale_,
@@ -407,7 +407,7 @@ bool MainInterface::event(QEvent* e) {
         static_cast<int>(std::floor(uiPosF.x())),
         static_cast<int>(std::floor(uiPosF.y()))
     );
-    qDebug() << "uiPosI: ("<< uiPosI.x() << ", " << uiPosI.y() <<")";
+    // qDebug() << "uiPosI: ("<< uiPosI.x() << ", " << uiPosI.y() <<")";
 
     // 找目标控件
     QWidget* target = childAt(uiPosI);
@@ -420,9 +420,9 @@ bool MainInterface::event(QEvent* e) {
         // 将坐标映射到目标控件上 
         targetLocalF -= QPointF(target->x(), target->y());
     }
-    qDebug() << "uiPosF: ("<< uiPosF.x() << ", " << uiPosF.y() <<")";
-    qDebug() << "targetLocalF: ("<< targetLocalF.x() << ", " << targetLocalF.y() <<")";
-    qDebug() << "==============";
+    // qDebug() << "uiPosF: ("<< uiPosF.x() << ", " << uiPosF.y() <<")";
+    // qDebug() << "targetLocalF: ("<< targetLocalF.x() << ", " << targetLocalF.y() <<")";
+    // qDebug() << "==============";
 
     // 构造 Qt 鼠标事件
     QEvent::Type qtType =

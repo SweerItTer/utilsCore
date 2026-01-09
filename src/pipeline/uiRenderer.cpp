@@ -59,6 +59,7 @@ private:
     // slot 更新标志(第一次为true)
     std::atomic<bool> needUpdate{true};
     bool inited = false;
+    std::atomic_bool boxUpdated{false};
     // 暂停
     ThreadPauser pauser_;
     std::atomic<bool> running_{false};
@@ -182,7 +183,7 @@ void UIRenderer::Impl::start() {
 
     renderTimer_.setParent(this);
     resourceTimer_.setParent(this);
-    renderTimer_.start(33);  // ~30fps
+    renderTimer_.start(30);  // ~30fps
     resourceTimer_.start(1000); // 1s
 
     std::cout << "[UIRenderer] Started." << std::endl;
@@ -271,6 +272,7 @@ void UIRenderer::Impl::drawText(const QString& text, const QPointF& pos,
 void UIRenderer::Impl::updateBoxs(object_detect_result_list&& ret) {
     std::lock_guard<std::mutex> lk(boxMtx);
     boxs = std::move(ret);
+    boxUpdated = true;
 }
 
 void UIRenderer::Impl::setFPSUpdater(const fpsUpdater& cb){
@@ -362,7 +364,16 @@ void UIRenderer::Impl::onRenderTick() {
     // 转换yolo输出为qt绘制可用box
     {
         std::lock_guard<std::mutex> lk(boxMtx);
-        if (!boxs.empty()){
+        
+        // 添加帧计数器
+        static int emptyFrameCount = 0;
+        constexpr int TIMEOUT_FRAMES = 5;
+        
+        if (!boxs.empty()) {
+            // 有数据时重置计数器
+            emptyFrameCount = 0;
+            
+            // 处理数据
             drawBoxs.clear();
             for (auto& result : boxs){											
                 QRectF boxRect( result.box.x, result.box.y, result.box.w, result.box.h);
@@ -372,6 +383,14 @@ void UIRenderer::Impl::onRenderTick() {
                 DrawBox drawBox(boxRect, boxColor, label);
                 drawBoxs.emplace_back(std::move(drawBox));
             }
+        } 
+        // 超过超时帧数则清空数据
+        if (++emptyFrameCount > TIMEOUT_FRAMES && !drawBoxs.empty()) {
+            drawBoxs.clear();
+            // std::cout << "[UIRenderer] Auto cleared boxes after timeout." << std::endl;
+        } else if (emptyFrameCount >= TIMEOUT_FRAMES) {
+            // 重置计数器避免持续递增
+            emptyFrameCount = TIMEOUT_FRAMES;
         }
     }
     core_->makeQCurrent();

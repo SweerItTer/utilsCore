@@ -109,9 +109,9 @@ DeviceController::DeviceController(int fd) : fd_(fd) {
 }
 
 void DeviceController::handleHotplugEvent() {
-    static std::atomic_bool changing{false};
-
-    if (changing.exchange(true)) return;
+    // static std::atomic_bool changing{false};
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    // if (changing.exchange(true)) return;
     // 通知释放资源 
     notifyPreRefresh();
     // 等待系统稳定(堵塞 UdevMonitor 工作线程)
@@ -121,7 +121,7 @@ void DeviceController::handleHotplugEvent() {
     refreshAllDevices();
     // 重新获取资源
     notifyPostRefresh();
-    changing.store(false);
+    // changing.store(false);
 }
 
 void DeviceController::registerResourceCallback(const ResourceCallback& preRefreshCallback, 
