@@ -109,16 +109,19 @@ DeviceController::DeviceController(int fd) : fd_(fd) {
 }
 
 void DeviceController::handleHotplugEvent() {
+    // static std::atomic_bool changing{false};
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    // if (changing.exchange(true)) return;
     // 通知释放资源 
     notifyPreRefresh();
-
     // 等待系统稳定(堵塞 UdevMonitor 工作线程)
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500)); 
+    // std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     // 更新资源
     refreshResources();
     refreshAllDevices();
     // 重新获取资源
     notifyPostRefresh();
+    // changing.store(false);
 }
 
 void DeviceController::registerResourceCallback(const ResourceCallback& preRefreshCallback, 
@@ -220,7 +223,8 @@ SharedDev& DeviceController::refreshAllDevices()
         // 记录设备信息
         auto devPtr = std::make_shared<drmModeDev>();
         // 初始化 connector
-        if (setUpDevice(connector, *(devPtr.get())) == 0) { 
+        if (setUpDevice(connector, *devPtr) == 0) { 
+            // 将对应的crtc和connector绑定
             if (bindConn2Crtc(fd_.get(), connector->connector_id, devPtr->crtc_id, devPtr->mode) < 0) {
                 fprintf(stderr, "Failed to bind connector %u to crtc %u\n", connector->connector_id, devPtr->crtc_id);
                 devPtr.reset();
@@ -283,6 +287,7 @@ int DeviceController::bindConn2Crtc(int fd, uint32_t conn_id, uint32_t crtc_id, 
     return ret;
 }
 
+// 寻找可以相互组合的 crtc - connector
 int DeviceController::setUpDevice(drmModeConnectorPtr connector, drmModeDev &dev) {
     uint32_t crtc = 0;
     int fd = fd_.get();

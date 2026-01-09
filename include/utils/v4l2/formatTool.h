@@ -1,3 +1,9 @@
+/*
+ * @Author: SweerItTer xxxzhou.xian@gmail.com
+ * @Date: 2025-11-12 13:53:10
+ * @FilePath: /EdgeVision/include/utils/v4l2/formatTool.h
+ * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
+ */
 #pragma once 
 #include <unordered_map>
 #include <vector>
@@ -9,6 +15,7 @@ struct PlaneScale {
     float width_scale;
     float height_scale;
 };
+
 const static std::unordered_map<uint32_t, std::vector<PlaneScale>> formatPlaneMap = {
     // NV12/NV21: 也按双平面处理, 有的驱动只报告单平面
     { V4L2_PIX_FMT_NV12,  { {1.0f, 1.0f}, {1.0f, 0.5f} } },

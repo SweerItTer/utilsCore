@@ -1,100 +1,180 @@
-/*
- * @Author: SweerItTer xxxzhou.xian@gmail.com
- * @Date: 2025-11-03 16:47:57
- * @FilePath: /EdgeVision/include/utils/fixedSizePool.h
- * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
- */
 #pragma once
 #include <atomic>
 #include <vector>
 #include <mutex>
+#include <cstdlib>
+#include <cstddef>
+#include <iostream>
+#include <algorithm>
+#include <memory>
+
+// 根据架构定义对齐大小和缓存参数
+#ifdef __arm__
+    #define ARCH_LINE_SIZE 64
+    #define TLS_CACHE_SIZE 1024
+    #define TLS_BATCH_SIZE 256
+#else
+    #define ARCH_LINE_SIZE 64 // 现代 x86 也是 64 字节缓存行
+    #define TLS_CACHE_SIZE 2048
+    #define TLS_BATCH_SIZE 512
+#endif
+
+// 编译器分支预测优化宏
+#ifdef _MSC_VER
+    #define LIKELY(x)   (x)
+    #define UNLIKELY(x) (x)
+#else
+    #define LIKELY(x)   __builtin_expect(!!(x), 1)
+    #define UNLIKELY(x) __builtin_expect(!!(x), 0)
+#endif
 
 class FixedSizePool {
 public:
-	FixedSizePool(std::size_t blockSize, std::size_t blocksPerPage = 1024) {
-		std::size_t minSize = sizeof(void*);
-		if (blockSize < minSize) {
-			blockSize = minSize;
-		}
-		blockSize_ = align_up(blockSize, alignof(void*));
-		blocksPerPage_ = blocksPerPage;
-	}
-	~FixedSizePool() {
-		for (auto& p : pages_) {
-			::operator delete[] (p);
-		}
-	}
+    struct Node { Node* next; };
 
-    void* allocate() {
-        Node *headNode = nullptr;
-        while (true){
-            // 检查头节点有效性
-            headNode = freelListHeadptr.load(std::memory_order_acquire);
-            if (nullptr == headNode) {
-                expand(); // 内存耗尽时扩容一页
-                continue;
-            }
-            // 获取后一块指针
-            Node* next = headNode->nextNode;
-            // 将头节点往后移动( freelListHeadptr 从期待的 headNode 移动到 headNode->next)
-            if (freelListHeadptr.compare_exchange_weak(headNode, next,
-                    std::memory_order_release, std::memory_order_acquire)) {
-                // 修改成功后返回旧头节点Node*  备份,非原子变量
-                return headNode;
-            }
-            // CAS 失败 node 已被更新, 重新读取
+    // 关键优化: alignas(64) 确保每个线程的缓存独占缓存行, 防止伪共享
+    struct alignas(ARCH_LINE_SIZE) ThreadCache {
+        void* blocks[TLS_CACHE_SIZE];
+        size_t count = 0;
+        FixedSizePool* owner = nullptr;
+
+        // 线程退出时自动回收内存到全局链表
+        ~ThreadCache() {
+            if (owner && count > 0) owner->flush_all(this);
+        }
+    };
+
+    FixedSizePool(size_t blockSize, size_t blocksPerPage = 2048, size_t alignment = 64, size_t prealloc = 0)
+        : alignment_(alignment), blocksPerPage_(blocksPerPage) {
+        size_t minSize = sizeof(Node*);
+        // 确保 blockSize 对齐
+        blockSize_ = (std::max(blockSize, minSize) + alignment - 1) & ~(alignment - 1);
+        if (prealloc > 0) expand(prealloc);
+    }
+
+    ~FixedSizePool() {
+        std::lock_guard<std::mutex> lock(page_mutex_);
+        for (auto& page : pages_) {
+#ifdef _WIN32
+            _aligned_free(page.first);
+#else
+            free(page.first);
+#endif
         }
     }
-    
-	void deallocate(void* p) {
-		if (nullptr == p) return; // 无效内存
-		Node* node = reinterpret_cast<Node*>(p);	// 将归还的p作为Node
-		// 头插法
-        Node* old_head = freelListHeadptr.load(std::memory_order_relaxed);
-        do {
-            // 将Node作为头节点, 下一节点指向原头节点
-            node->nextNode = old_head;
-        } while (!freelListHeadptr.compare_exchange_weak(
-            old_head, node, // 更新头节点指针
-            std::memory_order_release,
-            std::memory_order_relaxed
-        ));		
-	}
+
+    // 分配入口: 极其精简, 适合 inline 展开
+    void* allocate() {
+        ThreadCache* cache = get_fast_thread_cache();
+        if (UNLIKELY(cache->count == 0)) {
+            refill(cache);
+            if (UNLIKELY(cache->count == 0)) return nullptr;
+        }
+        return cache->blocks[--cache->count];
+    }
+
+    // 释放入口
+    void deallocate(void* p) {
+        if (UNLIKELY(!p)) return;
+        ThreadCache* cache = get_fast_thread_cache();
+        if (UNLIKELY(cache->count >= TLS_CACHE_SIZE)) {
+            flush(cache);
+        }
+        cache->blocks[cache->count++] = p;
+    }
+
 private:
-	std::size_t align_up(std::size_t rawSize, std::size_t align) {
-		return (rawSize + (align - 1)) & ~(align - 1);
-	}
+    // 核心优化: 彻底移除 unordered_map, 使用真正的 TLS
+    ThreadCache* get_fast_thread_cache() {
+        static thread_local ThreadCache cache;
+        if (UNLIKELY(cache.owner == nullptr)) {
+            cache.owner = this;
+        }
+        return &cache;
+    }
 
-	void expand() {
-        std::lock_guard<std::mutex> lock(expandMtx);
-        if (freelListHeadptr.load(std::memory_order_acquire) != nullptr) return; // 已经有人扩容了
-		
-        auto pageSize = blockSize_ * blocksPerPage_;    // 分配一页的大小
-		char* page = reinterpret_cast<char*>(::operator new[](pageSize));
-		pages_.push_back(page);
+    void refill(ThreadCache* cache) {
+        std::lock_guard<std::mutex> lock(central_mutex_);
+        if (UNLIKELY(!freelist_head_)) expand_internal();
 
-		for (std::size_t i = 0; i < blocksPerPage_; i++) {
-			char* addr = page + i * blockSize_; // 从page开始偏移 blockSize_ 作为一个分隔点
-			Node* node = reinterpret_cast<Node*>(addr);
-            Node* old_head = freelListHeadptr.load(std::memory_order_relaxed);
-            do {
-                node->nextNode = old_head;  // 将 node 作为头节点, 下一阶段指向原头节点
-            } while (!freelListHeadptr.compare_exchange_weak(
-                old_head, node, // 更新头节点指针
-                std::memory_order_release,
-                std::memory_order_relaxed
-            ));		
-		}
-	}
-private:
-	struct Node {
-		Node* nextNode = nullptr;
-	}; 
-	
-	std::atomic<Node*> freelListHeadptr{nullptr}; // 原子头节点
+        // 尽量填满或拿走一个 Batch
+        size_t take = std::min((size_t)TLS_BATCH_SIZE, (size_t)TLS_CACHE_SIZE - cache->count);
+        for (size_t i = 0; i < take && freelist_head_; ++i) {
+            Node* node = freelist_head_;
+            freelist_head_ = node->next;
+            cache->blocks[cache->count++] = node;
+        }
+    }
 
-	std::size_t blockSize_;	// 单个块的大小
-	std::size_t blocksPerPage_;	// 单分页的块个数
-	std::vector<void*> pages_;	// 页
-    std::mutex expandMtx;       // 分配页时需要避免多线程扩容
+    void flush(ThreadCache* cache) {
+        // 策略: 回冲一半缓存到全局, 保留一半在本地继续使用
+        size_t to_flush = TLS_BATCH_SIZE; 
+        Node* local_head = nullptr;
+        Node* local_tail = nullptr;
+
+        // 优化: 在锁外构造链表结构, 减少锁持有时间
+        for (size_t i = 0; i < to_flush; ++i) {
+            Node* node = (Node*)cache->blocks[--cache->count];
+            node->next = local_head;
+            local_head = node;
+            if (!local_tail) local_tail = node;
+        }
+
+        std::lock_guard<std::mutex> lock(central_mutex_);
+        local_tail->next = freelist_head_;
+        freelist_head_ = local_head;
+    }
+
+    void flush_all(ThreadCache* cache) {
+        if (cache->count == 0) return;
+        Node* local_head = nullptr;
+        Node* local_tail = nullptr;
+        size_t temp_count = cache->count;
+        for (size_t i = 0; i < temp_count; ++i) {
+            Node* node = (Node*)cache->blocks[--cache->count];
+            node->next = local_head;
+            local_head = node;
+            if (!local_tail) local_tail = node;
+        }
+        std::lock_guard<std::mutex> lock(central_mutex_);
+        local_tail->next = freelist_head_;
+        freelist_head_ = local_head;
+    }
+
+    void expand(size_t pages) {
+        std::lock_guard<std::mutex> lock(expand_mutex_);
+        for (size_t i = 0; i < pages; ++i) expand_internal();
+    }
+
+    void expand_internal() {
+        size_t size = blockSize_ * blocksPerPage_;
+        void* page = nullptr;
+#ifdef _WIN32
+        page = _aligned_malloc(size, alignment_);
+#else
+        if (posix_memalign(&page, alignment_, size) != 0) return;
+#endif
+        // 初始化新页面并链接成单向链表
+        Node* local_head = nullptr;
+        for (int i = (int)blocksPerPage_ - 1; i >= 0; --i) {
+            Node* node = (Node*)((char*)page + i * blockSize_);
+            node->next = local_head;
+            local_head = node;
+        }
+
+        // 挂载到全局空闲链表头部
+        Node* last_node = (Node*)((char*)page + (blocksPerPage_ - 1) * blockSize_);
+        last_node->next = freelist_head_;
+        freelist_head_ = (Node*)page;
+
+        std::lock_guard<std::mutex> lock(page_mutex_);
+        pages_.emplace_back(page, size);
+    }
+
+    Node* freelist_head_ = nullptr;
+    std::mutex central_mutex_;
+    std::mutex page_mutex_;
+    std::mutex expand_mutex_;
+    size_t blockSize_, blocksPerPage_, alignment_;
+    std::vector<std::pair<void*, size_t>> pages_;
 };

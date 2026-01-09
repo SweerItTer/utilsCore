@@ -20,7 +20,7 @@
         std::is_same<Ptr, std::unique_ptr<typename Ptr::element_type>>::value
     >::type>
  * 如果 std::enable_if<true> 将通过 ::type 返回 void 类型, 代表匹配成功
- * 若 enable_if<false>::type 匹配失败,被丢弃（SFINAE）
+ * 若 enable_if<false>::type 匹配失败,被丢弃(SFINAE)
  * 所以不会因为我把主模板放在前面就会先去匹配它
  * 不会因为偏特化匹配成功,即:class SafeQueue<Ptr, void> 和 class SafeQueue<T, void>一致而导致使用主模板
  */
@@ -118,7 +118,7 @@ public:
         std::unique_lock<std::mutex> lock(mutex_);
         
         if (shutdown_.load()) {
-            return false; // 已关闭，不允许入队
+            return false; // 已关闭, 不允许入队
         }
 
         // 检查队列是否已满
@@ -157,7 +157,7 @@ public:
             not_empty_cond_.wait(lock);
         }
         if (0 == size_ && shutdown_.load()) {
-            return nullptr; // 返回空，表示队列关闭
+            return nullptr; // 返回空, 表示队列关闭
         }
 
         Ptr item = std::move(buffer_[head_]);

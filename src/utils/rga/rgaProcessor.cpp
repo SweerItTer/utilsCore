@@ -22,7 +22,7 @@ RgaProcessor::RgaProcessor(Config& cfg)
     , srcFormat_(cfg.srcFormat)
     , dstFormat_(cfg.dstFormat)
     , poolSize_(cfg.poolSize)
-    , running_(false), paused(false)
+    , running_(false)
 {
     frameType_ = (true == cfg.usingDMABUF)
             ? Frame::MemoryType::DMABUF
@@ -46,9 +46,9 @@ void RgaProcessor::initpool() {
             }
             buf.s = std::make_shared<SharedBufferState>(-1, data, buffer_size);
         } else {
-            uint32_t format = formatRGAtoDRM(dstFormat_);
+            uint32_t format = convertRGAtoDrmFormat(dstFormat_);
             // 实际格式是DRM的
-            auto dma_buf = DmaBuffer::create(width_, height_, format, 0);
+            auto dma_buf = DmaBuffer::create(width_, height_, format, 0, 0);
             if (!dma_buf || dma_buf->fd() < 0) {
                 throw std::runtime_error("RGA: dmabuf create failed");
             }
@@ -57,21 +57,20 @@ void RgaProcessor::initpool() {
 
         bufferPool_.emplace_back(std::move(buf));
     }
+    std::cout << "RGA: bufferPool size: " << bufferPool_.size() << std::endl;
 }
 
 RgaProcessor::~RgaProcessor()
 {
     stop();
+    while(!futs.empty()) futs.pop_front();
     std::vector<RgbaBuffer> temp = {};
     bufferPool_.swap(temp);
 }
 
 void RgaProcessor::start()
 {
-    if (true == paused) {
-		paused = false;
-	}
-
+    if(pauser_.is_paused()) pauser_.resume();
     if (running_) return;
 
     running_ = true;
@@ -80,6 +79,7 @@ void RgaProcessor::start()
 
 void RgaProcessor::stop()
 {
+    if (!running_) return;
     running_ = false;
     if (worker_.joinable()) {
         worker_.join();
@@ -87,7 +87,7 @@ void RgaProcessor::stop()
 }
 
 void RgaProcessor::pause(){
-	paused = true;
+	pauser_.pause();
 }
 
 void RgaProcessor::releaseBuffer(int index)
@@ -236,7 +236,7 @@ FramePtr RgaProcessor::infer() {
         return dstFrame;
     }
     if (false == state->valid){
-        fprintf(stderr, "[RGAProcesse] Frame is invaild.\n");
+        fprintf(stderr, "[RGAProcesse] Frame is invalid.\n");
         bufferPool_[index].in_use = false;
         return dstFrame;
     }
@@ -276,17 +276,17 @@ void RgaProcessor::run()
     std::cout << "RGA main thread TID: " << syscall(SYS_gettid) << "\n";
     int buffer_size = width_ * height_ * 4;
 
-    while (true == running_)
-    {
-        if ( true == paused ) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            if (false == running_) break;
-            continue;
-        }
+    while (true == running_) {
+        pauser_.wait_if_paused();
+        if (!running_) break;
         // 添加异步任务
         auto fut = rgaThreadPool->enqueue([this](){ return infer(); });
         // 只有当 future 有效时才加入
         if (fut.valid()) {
+            std::lock_guard<std::mutex> lk(futsMutex);
+            if (futs.size() > 30) {
+                futs.pop_front(); // 丢弃最旧数据
+            }
             futs.emplace_back(std::move(fut));
         }
     }
@@ -294,6 +294,7 @@ void RgaProcessor::run()
 
 // 取出future
 int RgaProcessor::dump(FramePtr& frame, int64_t timeout) {
+    std::lock_guard<std::mutex> lk(futsMutex);
     frame = nullptr;
     if (futs.empty()) return -1;
 

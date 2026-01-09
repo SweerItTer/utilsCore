@@ -38,7 +38,7 @@ int preprocess::convert_image_rga(const DmaBufferPtr& src, const DmaBufferPtr& d
     
     // 包装 buffer
     rga_buffer_t src_rgabuf = wrapbuffer_fd(
-        src->fd(), src_w, src_h, RK_FORMAT_RGBA_8888,
+        src->fd(), src_w, src_h, RK_FORMAT_RGB_888,
         src_wstride, src_hstride);
         
     rga_buffer_t dst_rgabuf = wrapbuffer_fd(

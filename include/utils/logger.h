@@ -29,7 +29,7 @@ public:
     
     // 移动构造函数
     FileStream(FileStream&& other) noexcept : fp_(other.fp_) {
-        other.fp_ = nullptr; // 重要：转移后置空原指针
+        other.fp_ = nullptr; // 重要: 转移后置空原指针
     }
     
     // 移动赋值运算符
@@ -62,7 +62,7 @@ public:
         return fp;
     }
     
-    // 重置资源（安全关闭文件）
+    // 重置资源(安全关闭文件)
     void reset() noexcept {
         if (fp_) {
             fclose(fp_);
@@ -87,16 +87,16 @@ private:
 
 /**
  * @class Logger
- * @brief 线程安全的日志记录器，提供静态方法进行日志记录
+ * @brief 线程安全的日志记录器, 提供静态方法进行日志记录
  * 
- * 本日志记录器实现以下功能：
+ * 本日志记录器实现以下功能: 
  * 1. 单例模式(静态方法调用)
  * 2. 线程安全的日志写入
  * 3. 毫秒级时间戳
  * 4. 格式化输出支持
  * 5. 自动管理日志文件描述符
  * 
- * 使用示例：
+ * 使用示例: 
  * @code
  * Logger::initLogger();  // 初始化日志系统
  * Logger::log("Application started");  // 简单日志
@@ -106,9 +106,9 @@ private:
 class Logger
 {
 private:
-    static FileStream logfileFp;      ///< 日志文件描述符包装对象，RAII管理文件资源
-    static std::mutex logMutex;      ///< 互斥锁，确保线程安全的日志写入
-    Logger() = default;             ///< 私有构造函数，防止实例化
+    static FileStream logfileFp;      ///< 日志文件描述符包装对象, RAII管理文件资源
+    static std::mutex logMutex;      ///< 互斥锁, 确保线程安全的日志写入
+    Logger() = default;             ///< 私有构造函数, 防止实例化
     ~Logger() = default;            ///< 私有析构函数
 
 public:
@@ -117,10 +117,10 @@ public:
     /**
      * @brief 初始化日志系统
      * 
-     * 创建按时间命名的日志文件，格式为 YYYY-MM-DD_HH-MM-SS.log
+     * 创建按时间命名的日志文件, 格式为 YYYY-MM-DD_HH-MM-SS.log
      * 初始化必须在其他日志方法前调用(建议在main函数中使用)
      * 
-     * 示例：
+     * 示例: 
      * @code
      * Logger::initLogger();
      * @endcode
@@ -130,13 +130,13 @@ public:
     /**
      * @brief 记录格式化日志
      * 
-     * 线程安全的日志记录方法，支持 printf 风格格式化
-     * 自动添加时间戳格式：[YYYY-MM-DD HH:MM:SS.mmm]
+     * 线程安全的日志记录方法, 支持 printf 风格格式化
+     * 自动添加时间戳格式: [YYYY-MM-DD HH:MM:SS.mmm]
      * 
-     * @param format 格式化字符串，遵循标准 printf 格式规范
-     * @param ... 可变参数，匹配格式化字符串
+     * @param format 格式化字符串, 遵循标准 printf 格式规范
+     * @param ... 可变参数, 匹配格式化字符串
      * 
-     * 示例：
+     * 示例: 
      * @code
      * // 记录简单消息
      * Logger::log(stdout, "Service started");
@@ -150,7 +150,7 @@ public:
      * Logger::log(stdout, "Temperature: %.1f°C, Humidity: %d%%", temp, 45);
      * @endcode
      * 
-     * @note 如果日志系统未初始化，消息将被静默丢弃
+     * @note 如果日志系统未初始化, 消息将被静默丢弃
      */
     static void log(FILE *stream, const char* format, ...);
 };
@@ -194,7 +194,7 @@ namespace mk{
      * @param t1 上一个时间,在调用函数前的某个时间点
      * @param msg 描述时间差的字符串
      * 
-     * 示例：
+     * 示例: 
      * @code
      * mk::timeDiffMs(t, "[Deququ->rga]");
      * @endcode

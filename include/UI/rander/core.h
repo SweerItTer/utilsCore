@@ -8,7 +8,6 @@
 #ifndef CORE_H
 #define CORE_H
 
-// #define EGL_EGLEXT_PROTOTYPES
 #include <cstdint>
 #include <vector>
 #include <functional>
@@ -25,8 +24,8 @@
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLExtraFunctions>    // OpenGL 扩展功能(glEGLImageTargetTexture2DOES)
 
-#include "dma/dmaBuffer.h"  // dmabuf 相关
-#include "objectsPool.h"    // 内存池
+#include "dma/dmaBuffer.h"
+#include "objectsPool.h"
 
 static void printGLESInfo() {
     const GLubyte* renderer = glGetString(GL_RENDERER);
@@ -99,11 +98,10 @@ public:
         uint32_t width, uint32_t height, uint32_t format, uint32_t required_size, uint32_t offset);
         
     // 取出一个 slot
-    std::shared_ptr<resourceSlot> acquireFreeSlot(const std::string& type);
+    std::shared_ptr<resourceSlot> acquireFreeSlot(const std::string &type, int timeout_ms=10);
     // 回收 slot
     void releaseSlot(const std::string& type, std::shared_ptr<resourceSlot>& slot);
 
-    // EGLContext getEglContext() const { return eglCtx_; }
     EGLDisplay getEglDisplay() const { return eglDisplay_; }
         
     // 获取当前OpenGL上下文
@@ -145,38 +143,22 @@ private:
 struct Core::resourceSlot {
     DmaBufferPtr dmabufPtr = nullptr;
     EGLImageKHR eglImage = EGL_NO_IMAGE_KHR;
-    GLuint textureId = 0;   // 存储纹理ID
-    GLuint blitFbo = 0;     // 同步用fbo
+    GLuint textureId = 0;   
+    GLuint blitFbo = 0;     // 直接作为绘制目标
 
-    std::shared_ptr<QOpenGLFramebufferObject> qfbo;  // 使用unique_ptr管理FBO
-    bool syncToDmaBuf(int& fence);    // 读取fbo纹理同步到eglImage(同步到dmabuf)
+    // [修改] 移除了 qfbo
+    // std::shared_ptr<QOpenGLFramebufferObject> qfbo;
+
+    bool getSyncFence(int& fence);    
     uint32_t width() const { return dmabufPtr ? dmabufPtr->width() : 0; }
     uint32_t height() const { return dmabufPtr ? dmabufPtr->height() : 0; }
+    
     bool valid() const { 
-        if (EGL_NO_IMAGE_KHR == eglImage) {
-            fprintf(stderr, "eglImage is invalid (EGL_NO_IMAGE_KHR)\n");
-        }
-        if (blitFbo == 0) {
-            fprintf(stderr, "blitFbo is invalid (0)\n");
-        }
-        if (textureId == 0) {
-            fprintf(stderr, "textureId is invalid (0)\n");
-        }
-        if (qfbo == nullptr) {
-            fprintf(stderr, "qfbo is null\n");
-        } else if (!qfbo->isValid()) {
-            fprintf(stderr, "qfbo object is invalid\n");
-        }
-        return EGL_NO_IMAGE_KHR != eglImage && blitFbo != 0 && textureId != 0 && qfbo &&  qfbo->isValid();
+        return EGL_NO_IMAGE_KHR != eglImage && blitFbo != 0 && textureId != 0;
     }
     
-    ~resourceSlot() {
-        cleanup();
-    }
-    
+    ~resourceSlot() { cleanup(); }
     resourceSlot() = default;
-    
-    // 禁止拷贝,可以允许移动
     resourceSlot(const resourceSlot&) = delete;
     resourceSlot& operator=(const resourceSlot&) = delete;
     
@@ -191,10 +173,11 @@ struct Core::resourceSlot {
             eglImage = other.eglImage;
             textureId = other.textureId;
             blitFbo = other.blitFbo;
-            qfbo = std::move(other.qfbo);
+            // qfbo = std::move(other.qfbo); // 移除
             
             other.eglImage = EGL_NO_IMAGE_KHR;
             other.textureId = 0;
+            other.blitFbo = 0;
         }
         return *this;
     }

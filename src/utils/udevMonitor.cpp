@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cstring>
 #include <errno.h>
+#include <unordered_map>
 
 #include "udevMonitor.h"
 #include "asyncThreadPool.h"
@@ -38,6 +39,7 @@ void UdevMonitor::registerHandler(const std::string& subsystem,
      */
     auto pred = [subsystem, actionSet](const std::string& subs, const std::string& act) -> bool {
         if (subs != subsystem) return false;
+        std::cout << "subs:" << subs << std::endl;
         return (actionSet.find(act) != actionSet.end());
     };
 
@@ -191,7 +193,12 @@ void UdevMonitor::run() {
     constexpr int MAX_EVENTS = 8;
     epoll_event events[MAX_EVENTS];
     asyncThreadPool asyncPool(2);
-
+    
+    // 防抖: 记录最近触发的事件 <subsystem+devpath, 时间戳>
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastTriggerTime;
+    std::mutex debounceMutex;
+    constexpr int DEBOUNCE_MS = 500;  // 500ms 防抖时间
+    
     while (running_) {
         // 轮询 monitor 是否有drm类型的可读事件
         // 并将使用events接收事件
@@ -221,6 +228,51 @@ void UdevMonitor::run() {
                 std::string devpath(devpath_c);
                 std::string subs(subsystem_c);
 
+                // 构造唯一键: subsystem + devpath + action
+                std::string eventKey = subs + ":" + devpath + ":" + action;
+                
+                // 防抖检查
+                bool shouldTrigger = false;
+                {
+                    std::lock_guard<std::mutex> lock(debounceMutex);
+                    auto now = std::chrono::steady_clock::now();
+                    auto it = lastTriggerTime.find(eventKey);
+                    
+                    if (it == lastTriggerTime.end()) {
+                        // 首次触发
+                        shouldTrigger = true;
+                        lastTriggerTime[eventKey] = now;
+                    } else {
+                        // 检查时间间隔
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            now - it->second).count();
+                        
+                        if (elapsed >= DEBOUNCE_MS) {
+                            shouldTrigger = true;
+                            it->second = now;
+                        } else {
+                            std::cout << "[UdevMonitor] Debounce: ignored " << eventKey 
+                                      << " (elapsed: " << elapsed << "ms)" << std::endl;
+                        }
+                    }
+                    
+                    // 清理过期的记录(超过 5 秒未触发)
+                    for (auto iter = lastTriggerTime.begin(); iter != lastTriggerTime.end();) {
+                        auto age = std::chrono::duration_cast<std::chrono::seconds>(
+                            now - iter->second).count();
+                        if (age > 5) {
+                            iter = lastTriggerTime.erase(iter);
+                        } else {
+                            ++iter;
+                        }
+                    }
+                }
+                
+                if (!shouldTrigger) {
+                    udev_device_unref(dev);
+                    continue;
+                }
+                
                 // 拷贝 handler 列表, 避免持锁执行回调
                 std::vector<Handler> snapshot;
                 {

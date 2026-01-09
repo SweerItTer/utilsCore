@@ -15,14 +15,18 @@ RgaConverter &RgaConverter::instance()
 RgaConverter::RgaConverter() {
     // 初始化RGA上下文
     m_rga.RkRgaInit();
-    fprintf(stdout, "%s", querystring(RGA_VERSION));
+    fprintf(stdout, "%s\t", querystring(RGA_VERSION));
     m_initialized = true;
 }
 
 RgaConverter::~RgaConverter() {
+    deinit();
+}
+
+void RgaConverter::deinit() {
     if (m_initialized) {
-        // 清理RGA资源
-        m_rga.RkRgaDeInit();
+        m_rga.RkRgaDeInit(); 
+        m_initialized = false;
     }
 }
 
@@ -53,17 +57,21 @@ IM_STATUS RgaConverter::ImageResize(RgaParams& params){
     if (!m_initialized) {
         return IM_STATUS_NOT_SUPPORTED;
     }
-    if (params.dst.width == params.src.width && params.dst.height == params.src.height){
-        return IM_STATUS_ILLEGAL_PARAM;
-    }
-
+    
     IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
     if (ret != IM_STATUS_NOERROR) {
         fprintf(stderr, "%s", imStrError(ret));
         return ret;
     }
 
-    ret = imresize(params.src, params.dst);
+    if (params.dst.width == params.src.width && params.dst.height == params.src.height){
+        return imcopy(params.src, params.dst);
+    }
+    
+    double scaleX = static_cast<double>(params.dst.width) / static_cast<double>(params.src.width);
+    double scaleY = static_cast<double>(params.dst.height) / static_cast<double>(params.src.height);
+    double scale  = (scaleX < scaleY) ? scaleX : scaleY;   // 取最小, 保证完整显示
+    ret = imresize(params.src, params.dst, scale, scale, INTER_LINEAR, 1);
     if (ret != IM_STATUS_SUCCESS) {
         fprintf(stderr, "%s", imStrError(ret));
     }

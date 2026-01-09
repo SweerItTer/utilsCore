@@ -5,7 +5,7 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "drm/drmLayer.h"
-#include "rga/rga2drm.h"
+#include "rga/formatTool.h"
 
 DrmLayer::DrmLayer(std::vector<DmaBufferPtr> buffers, size_t cacheSize)
     : cacheSize_(cacheSize) 
@@ -45,13 +45,11 @@ DrmLayer::DrmLayer(std::vector<DmaBufferPtr> buffers, size_t cacheSize)
     updateBuffer(std::move(buffers));
 }
 
-DrmLayer::~DrmLayer()
-{
+DrmLayer::~DrmLayer() {
     destroyFramebuffer();
 }
 
-void DrmLayer::updateBuffer(std::vector<DmaBufferPtr>&& buffers)
-{
+void DrmLayer::updateBuffer(std::vector<DmaBufferPtr> buffers) {
     if (buffers.empty() || buffers.size() > 4) {
         fprintf(stderr, "DrmLayer::DrmLayer: Invalid DmaBuffer count\n");
         return;
@@ -72,26 +70,31 @@ void DrmLayer::updateBuffer(std::vector<DmaBufferPtr>&& buffers)
     fbCache_.push_back(newFb);
 }
 
-uint32_t DrmLayer::createFramebuffer()
-{
+uint32_t DrmLayer::createFramebuffer() {
     uint32_t handles[4] = {0};
     uint32_t pitches[4] = {0};  // bytes per line
     uint32_t offsets[4] = {0};
     uint32_t format = buffers_[0]->format();
+    uint32_t width = buffers_[0]->width();
+    uint32_t height = buffers_[0]->height();
+
     for (size_t i = 0; i < buffers_.size(); ++i) {
-        auto buf = buffers_[i];
+        auto& buf = buffers_[i];
         if (nullptr == buf) {
             fprintf(stderr, "DrmLayer::createFramebuffer: Invalid DmaBuffer\n");
             return -1 ;
         }
         handles[i] = buf->handle();
-        if (format == DRM_FORMAT_NV12 || format == DRM_FORMAT_NV21) {
-            // NV12/NV21 格式的 pitch 是宽度 (历史遗留问题)
-            pitches[i] = buf->width();
-        } else {
-            pitches[i] = buf->pitch();
-        }        
         offsets[i] = buf->offset();
+        pitches[i] = buf->pitch();
+
+        // fprintf(stdout, "[plane %u]: size=%ux%u - pitches=%u, offset=%u\n", i, width, height, pitches[i], offsets[i]);
+        /* 并非历史问题, 以1280x720 NV12为例子, Y层大小是1280*720字节, UV是1280*360字节
+        * 而对齐出来的 pitch 是 1920 
+        * 因为 dmabuf 的实现里bpp没有做分层而是直接给出的完整12/8=1.5, 导致w被强制对齐到1920(1280*1.5), 实际上应该根据层数对搞做处理
+        * 比如 Y 是 bpp=8/8 = 1, UV 是 bpp=4/8 = 0.5
+        * 若将错误的 pitch 传入就会出现Y层是1920*720, UV是1920*360字节, 而导致出界 
+        */
     }
 
     uint32_t fbId = -1;
@@ -99,8 +102,8 @@ uint32_t DrmLayer::createFramebuffer()
     // 创建 framebuffer
     int ret = drmModeAddFB2(
         DrmDev::fd_ptr->get(),  /* DRM 设备 fd */
-        buffers_[0]->width(),   /* DmaBufferPtr 参数 */
-        buffers_[0]->height(),
+        width,   /* DmaBufferPtr 参数 */
+        height,
         format,
         handles,
         pitches,
@@ -114,13 +117,12 @@ uint32_t DrmLayer::createFramebuffer()
     return fbId;
 }
 
-void DrmLayer::onFenceSignaled()
-{
+void DrmLayer::onFenceSignaled() {
     // fence 表示上一帧/更老的帧已经 scanout 完毕, 可以回收
     recycleOldFbs(/*keep=*/cacheSize_); // 只保留最新的 cacheSize_ 个
 }
 
-static int fbFree(uint32_t& fbId){
+static int fbFree(uint32_t& fbId) {
     if (fbId == 0 || fbId == (uint32_t)-1){
         return -1;
     }
@@ -149,8 +151,7 @@ void DrmLayer::destroyFramebuffer() {
 }
 
 // 回收旧fb
-void DrmLayer::recycleOldFbs(size_t keep)
-{
+void DrmLayer::recycleOldFbs(size_t keep) {
     std::lock_guard<std::mutex> cacheLock(fbCacheMutex_);
     // 确保至少保留 keep 个最新的 FB
     while (fbCache_.size() > keep) {

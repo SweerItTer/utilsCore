@@ -59,7 +59,12 @@ public:
             fprintf(stderr, "Frame is mutiplane.\n");
             return nullptr;
         }
-        return states_[planeIndex];
+        auto s = states_[planeIndex];
+        if (nullptr == s || false == s->valid) {
+            fprintf(stderr, "Current Plane is invalid.\n");
+            return nullptr;
+        }
+        return s;
     }
     int index() const { return meta.index; }
 
@@ -72,7 +77,7 @@ private:
     std::function<void(int)> bufReleasCallback_;
     std::atomic_bool mutiPlane_;
     MemoryType type_;
-    SharedBufferPtr state_;
+    SharedBufferPtr state_ = nullptr;
     std::vector<SharedBufferPtr> states_;
 };
 

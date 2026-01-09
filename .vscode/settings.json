@@ -1,8 +1,9 @@
 {
     "C_Cpp.errorSquiggles": "disabled",
     "cmake.configureArgs": [
-        "-DUSE_CROSS_COMPILE=TRUE",
-        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/rk3568-toolchain.cmake"
+        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/rk356x-toolchain.cmake",
+        "-DTOOLCHAIN_PATH=${env:HOME}/rk3568/buildroot/output/rockchip_rk3568/host",
+        "-DUSE_CROSS_COMPILE=ON",
     ],
     "files.associations": {
         "*.cpp": "cpp",

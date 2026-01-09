@@ -59,6 +59,7 @@ public:
     RgaConverter(const RgaConverter&) = delete;
     RgaConverter& operator=(const RgaConverter&) = delete;
     ~RgaConverter ();
+    void deinit();
 
     /**
      * @brief 将源格式转换为目标格式

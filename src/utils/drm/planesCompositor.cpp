@@ -75,15 +75,15 @@ void PlanesCompositor::removeAllLayer(){
 }
 
 int PlanesCompositor::commit(int& fence) {
-    if (requires_) {
-        drmModeAtomicFree(requires_); // 释放上次的请求
-        requires_ = nullptr;
-    }
-    requires_ = drmModeAtomicAlloc();
     if (!requires_) {
-        fprintf(stderr, "Failed to allocate atomic request\n");
-        return -ENOMEM;
+        requires_ = drmModeAtomicAlloc(); // 避免出现未知释放
+        if (!requires_) {
+            fprintf(stderr, "Failed to allocate atomic request\n");
+            return -ENOMEM;
+        }
     }
+    // 将游标移至开始, 覆写旧配置(逻辑清空)
+    drmModeAtomicSetCursor(requires_, 0); 
     int ret = 0;
     uint32_t crtc_id = 0;
     {
@@ -92,7 +92,7 @@ int PlanesCompositor::commit(int& fence) {
         auto const& propertyCache = layer.second;
         crtc_id = propertyCache.layerProperty.crtc_id;
         if (propertyCache.layerProperty.fb_id == 0) {
-            fprintf(stderr, "Layer fb_id is 0, skip this layer\n");
+            // fprintf(stderr, "Layer fb_id is 0, skip this layer\n");
             continue;
         }
         // 添加有效layer到预配置

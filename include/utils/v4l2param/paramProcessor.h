@@ -40,11 +40,15 @@ public:
 
     void setTargetControls(const ParamControl::ControlInfos& controlList);
 
-    ParamControl param_;
+    // 获取当前所有参数
+    ParamControl::ControlInfos& getCurrentControls();
+    ParamControl& getCurrentController() { return param_; }
 private:
     void threadLoop();
-    void applyChange(const V4L2ControlInfo& change);
+    bool applyChange(const V4L2ControlInfo& change);
 
+    ParamControl param_;
+    
     std::thread thread_;
     std::mutex mutex_;
     std::atomic<bool> running_ {false};

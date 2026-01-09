@@ -15,7 +15,7 @@
 
 enum class BufferBacking {
     NONE,
-    MMAP,        // 仅映射到用户态的指针，fd 归外部/驱动管理
+    MMAP,        // 仅映射到用户态的指针, fd 归外部/驱动管理
     DMABUF_FD,   // 由本对象拥有的 dmabuf 裸 fd
     DMABUF_OBJ   // 由本对象拥有的 DmaBufferPtr (包含相关信息)
 };
@@ -30,7 +30,7 @@ struct SharedBufferState {
     size_t        length = 0;
 
     // 跨线程可读的有效标志
-    std::atomic<bool> valid;
+    std::atomic<bool> valid{false};
     // 裸指针裸fd的情况
     SharedBufferState(int fd = -1, void* ptr = nullptr, size_t len = 0)
     : rawFd(fd), start(ptr), length(len), valid(true) {
@@ -38,8 +38,9 @@ struct SharedBufferState {
         else if (0 < rawFd && nullptr == start) backing = BufferBacking::DMABUF_FD;
     }
     // 使用智能指针的dmabuf
-    SharedBufferState(DmaBufferPtr dmabuf_ptr_ = nullptr, void* ptr = nullptr)
-    : dmabuf_ptr(dmabuf_ptr_), start(ptr), length(dmabuf_ptr_->size()), valid(true) {
+    SharedBufferState(DmaBufferPtr dmabuf_ptr_ = nullptr, void* ptr = nullptr, size_t len = 0)
+    : dmabuf_ptr(dmabuf_ptr_), start(ptr), length(len), valid(true) {
+        if (length==0) length = dmabuf_ptr_->size();
         if (nullptr != start && nullptr == dmabuf_ptr_) backing = BufferBacking::MMAP;
         else if (nullptr != dmabuf_ptr_ && nullptr == start) backing = BufferBacking::DMABUF_OBJ;
     }

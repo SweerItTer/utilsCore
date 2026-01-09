@@ -6,7 +6,7 @@
  */
 #include "v4l2/frame.h"
 
-FixedSizePool Frame::s_pool_(sizeof(Frame), 1024);
+FixedSizePool Frame::s_pool_(sizeof(Frame), 2048, 64, 32);
 
 Frame::Frame() noexcept 
     : type_(MemoryType::Unknown), state_(nullptr) {

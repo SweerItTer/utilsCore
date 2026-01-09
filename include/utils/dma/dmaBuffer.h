@@ -28,8 +28,8 @@ struct dmaBufferData {
 
 public:
     // ---------- 工厂方法 ----------
-    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size, uint32_t offset);
-    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t offset);
+    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t required_size, uint32_t offset, uint32_t planeIndex);
+    static std::shared_ptr<DmaBuffer> create(uint32_t width, uint32_t height, uint32_t format, uint32_t offset, uint32_t planeIndex=0);
     static std::shared_ptr<DmaBuffer> importFromFD(int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size, uint32_t offset=0);
 
     // ---------- 基本信息 ----------

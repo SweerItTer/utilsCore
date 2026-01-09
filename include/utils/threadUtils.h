@@ -29,7 +29,7 @@ public:
         std::cout << "Failed to bind thread to core " << cpu_core << "\n";
         return false;
     }
-    // 直接在当前线程绑定CPU核心
+    // 绑定当前线程到CPU核心
     static bool bindCurrentThreadToCore(int cpu_core) {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
@@ -41,5 +41,20 @@ public:
             return true;
         } 
         return false;
+    }
+    // 绑定线程到指定CPU核心
+    static void bindThreadToCore(std::thread& thread, int core) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(core, &cpuset);
+        pthread_setaffinity_np(thread.native_handle(), sizeof(cpu_set_t), &cpuset);
+    }
+    // FIFO (数值越大, 优先级越高 1 ~ 99 )
+    static void setRealtimeThread(pthread_t stl_thread_handle, int priority) {
+        sched_param sch{};
+        sch.sched_priority = priority;
+        if (0 != pthread_setschedparam(stl_thread_handle, SCHED_FIFO, &sch)) {
+            perror("pthread_setschedparam");
+        }
     }
 };

@@ -14,17 +14,15 @@ set(CMAKE_CXX_FLAGS_DEBUG  "${CMAKE_CXX_FLAGS_DEBUG} -g")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -ffunction-sections -fdata-sections")
 
 # 是否使用交叉编译工具链的开关
-option(USE_CROSS_COMPILE "Enable cross-compilation for RK3568" OFF)
+option(USE_CROSS_COMPILE "Enable cross-compilation for RK356x" OFF)
 
 if(USE_CROSS_COMPILE)
     # RK3568 宏定义
-    add_definitions(-DRK3568)
-    
-    # 设置工具链文件路径
-    set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/rk3568-toolchain.cmake)
+    # add_definitions(-DRK356x)
+    add_definitions(-D__arm__)
+
     # 设置库路径
     link_directories(${CMAKE_SYSROOT}/usr/lib)
-
 endif()
 
 # 启用 ccache
@@ -36,7 +34,7 @@ endif()
 
 # Release 下额外优化
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    # 仅 Release 构建使用 -march=armv8.2-a（交叉编译或者 native）
+    # 仅 Release 构建使用 -march=armv8.2-a(交叉编译或者 native)
     if(USE_CROSS_COMPILE)
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=armv8.2-a")
     else()
@@ -52,5 +50,5 @@ find_package(Qt5 COMPONENTS Core Quick Widgets Gui OpenGL REQUIRED)
 add_subdirectory(src/UI)            # GUI模块
 add_subdirectory(src/model)         # 视觉模型模块
 add_subdirectory(src/utils)         # 工具模块
-
+add_subdirectory(src/pipeline)      # 流水线
 add_subdirectory(examples)          # 例程

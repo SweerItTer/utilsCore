@@ -17,6 +17,9 @@ private:
     std::string modelPath;      // 模型路径 
     std::string COCOPath;       // 类别文件路径
 
+    std::atomic<float> BOX_THRESH{0.25f};   // 默认BOX阈值
+    std::atomic<float> thNMS_THRESHresh{0.45f};
+
     std::atomic<long long> id;  // 模型标志 id(用与在异步线程池内区分模型结果)
     std::mutex futMtx;          // future 锁
 
@@ -45,6 +48,10 @@ public:
         auto temp = std::queue<std::future<outputType>>();
         futs.swap(temp); // 清空队列
     }
+    void setThresh(float BOX_THRESH_=-1.0f, float thNMS_THRESHresh_=-1.0f) {
+        if (BOX_THRESH_ != BOX_THRESH.load() && BOX_THRESH_ > 0.0f) BOX_THRESH.store(BOX_THRESH_);
+        if (thNMS_THRESHresh_ != thNMS_THRESHresh.load() && thNMS_THRESHresh_ > 0.0f) thNMS_THRESHresh.store(thNMS_THRESHresh_);
+    };
     ~rknnPool();
 };
 
@@ -87,9 +94,12 @@ int rknnPool<rknnModel, inputType, outputType>::put(inputType inputData)
     std::lock_guard<std::mutex> lock(futMtx);
     // 将模型处理函数作为工作内容交由线程池
     std::future<outputType> future = pool->enqueue([this, currentId, inputData = std::move(inputData)](){
-        return models[currentId]->infer(inputData);
+        std::shared_ptr<rknnModel>& model = models[currentId];
+        model->setThresh(BOX_THRESH.load(), thNMS_THRESHresh.load());
+        return model->infer(inputData);
     });
     if (future.valid()){
+        if (futs.size() >= 30) futs.pop();
         futs.emplace(std::move(future)); // 入队当前处理future(这里就保证了顺序)
         return 0;
     }
@@ -109,7 +119,7 @@ int rknnPool<rknnModel, inputType, outputType>::get(outputType &outputData, int 
         while (currentfut.wait_for(std::chrono::milliseconds(10)) != std::future_status::ready);
     } else {
         if (currentfut.wait_for(std::chrono::milliseconds(timeout_ms)) != std::future_status::ready){
-            futs.pop();
+            // futs.pop();
             return -1;
         }
     }

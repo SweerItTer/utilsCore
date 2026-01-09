@@ -10,20 +10,20 @@
 #include <cstdint>
 
 /*
- * OrderedQueue - 高性能无锁环形缓冲有序队列（模板化）
+ * OrderedQueue - 高性能无锁环形缓冲有序队列(模板化)
  *
- * 特点：
- *  - 支持多生产者并发入队（lock-free CAS）
+ * 特点: 
+ *  - 支持多生产者并发入队(lock-free CAS)
  *  - 支持单消费者或多消费者顺序出队
  *  - 使用环形缓冲 + slot CAS 避免 map 分配开销
- *  - slot 内存由外部管理，入队/出队只操作 slot.data_
- *  - 可选丢弃策略：DISCARD_OLDEST / DISCARD_NEWEST / BLOCK / THROW_EXCEPTION
+ *  - slot 内存由外部管理, 入队/出队只操作 slot.data_
+ *  - 可选丢弃策略: DISCARD_OLDEST / DISCARD_NEWEST / BLOCK / THROW_EXCEPTION
  *  - 支持超时出队
- *  - 提供统计信息：总入队/出队、timeout、slot 冲突、pending
+ *  - 提供统计信息: 总入队/出队、timeout、slot 冲突、pending
  *
- * 注意：
- *  - 容量建议为 2 的幂，方便快速索引计算
- *  - 高乱序入队可能导致 slot 冲突，需要根据 overflow policy 处理
+ * 注意: 
+ *  - 容量建议为 2 的幂, 方便快速索引计算
+ *  - 高乱序入队可能导致 slot 冲突, 需要根据 overflow policy 处理
  */
 
 template <typename T>
@@ -54,11 +54,11 @@ private:
         }
     };
 
-    size_t capacity_;                     // 环形缓冲容量（必须为 2 的幂）
+    size_t capacity_;                     // 环形缓冲容量(必须为 2 的幂)
     std::vector<BufferSlot> ring_buffer_; // 环形缓冲存储
     std::atomic<uint64_t> expected_id_{0}; // 消费者期望的下一个 frame_id
 
-    // 统计信息（避免频繁锁操作）
+    // 统计信息(避免频繁锁操作)
     alignas(64) std::atomic<uint64_t> total_enqueued_{0};
     alignas(64) std::atomic<uint64_t> total_dequeued_{0};
     alignas(64) std::atomic<uint64_t> timeout_skip_count_{0};
@@ -81,7 +81,7 @@ private:
 
 public:
     // 构造函数
-    // capacity: 环形缓冲大小（最好大于最大乱序跨度）
+    // capacity: 环形缓冲大小(最好大于最大乱序跨度)
     OrderedQueue(size_t capacity) {
         capacity_ = next_power_of_two(capacity);
         ring_buffer_.resize(capacity_);
@@ -93,11 +93,11 @@ public:
     // ===================== 核心接口 =====================
 
     /*
-     * enqueue - 入队操作（支持多生产者并发）
+     * enqueue - 入队操作(支持多生产者并发)
      * frame_id: 当前帧 id
-     * data: 帧数据 T（由外部管理）
+     * data: 帧数据 T(由外部管理)
      * policy: slot 冲突或容量超限时的处理策略
-     * 返回 true 表示成功入队，false 表示被丢弃
+     * 返回 true 表示成功入队, false 表示被丢弃
      */
     bool enqueue(uint64_t frame_id, T&& data, OverflowPolicy policy = OverflowPolicy::DISCARD_NEWEST) {
         size_t idx = frame_id & (capacity_ - 1);  // 环形索引计算
@@ -117,7 +117,7 @@ public:
                 case OverflowPolicy::DISCARD_NEWEST:
                     return false; // 丢弃当前帧
                 case OverflowPolicy::DISCARD_OLDEST:
-                    // 丢弃旧帧，腾出空间
+                    // 丢弃旧帧, 腾出空间
                     ring_buffer_[idx].filled->store(false, std::memory_order_release);
                     expected = false;
                     break;
@@ -140,8 +140,8 @@ public:
 
     /*
      * try_dequeue - 按 expected_id 顺序取出 slot.data_
-     * data_out: 输出参数，成功时为有效 T
-     * timeout_ms: 超时毫秒，0 表示非阻塞立即返回
+     * data_out: 输出参数, 成功时为有效 T
+     * timeout_ms: 超时毫秒, 0 表示非阻塞立即返回
      */
     bool try_dequeue(T& data_out, int64_t timeout_ms = 0) {
         auto start = std::chrono::steady_clock::now();

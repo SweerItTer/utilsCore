@@ -60,7 +60,7 @@ public:
                     break;
             }
 
-            // 使用 invokeMethod 异步调用 MainWindow 的槽，确保在 GUI 线程执行
+            // 使用 invokeMethod 异步调用 MainWindow 的槽, 确保在 GUI 线程执行
             QMetaObject::invokeMethod(win, [win, x, y, evType, btn]() {
                 // fprintf(stdout, "Position: (%u, %u)\n", x, y);
                 auto* me = new CustomMouseEvent(evType, QPoint(x, y), btn);

@@ -28,7 +28,7 @@
 ```
 
 `&hdmi_in_vp0`:启用 VP0 作为 HDMI 输入。
-`&hdmi_in_vp1`:禁用 VP1，避免冲突。
+`&hdmi_in_vp1`:禁用 VP1, 避免冲突。
 `&route_hdmi`:指定 HDMI 连接到 VP0 输出。
 
 <!-- 
@@ -43,7 +43,7 @@
 ```bash
 #!/bin/bash
 
-INTERVAL=2  # 监控间隔（秒）
+INTERVAL=2  # 监控间隔(秒)
 
 echo "开始监控 DRM 资源使用情况..."
 echo "按 Ctrl+C 停止"
@@ -82,7 +82,7 @@ while true; do
             cat /sys/kernel/debug/dri/0/planes
         fi
     else
-        echo "debugfs 未挂载，无法获取详细 DRM 信息"
+        echo "debugfs 未挂载, 无法获取详细 DRM 信息"
         echo "挂载命令: sudo mount -t debugfs none /sys/kernel/debug"
     fi
     
