@@ -140,17 +140,30 @@ EdgeVision/
 # 1. 克隆项目
 git clone https://github.com/SweerItTer/EdgeVision.git
 
-# 2. 配置交叉编译
-mkdir build && cd build
-cmake -DUSE_CROSS_COMPILE=TRUE \
-	  -DCMAKE_TOOLCHAIN_FILE=../EdgeVision/rk3568-toolchain.cmake \
-	  -DCMAKE_BUILD_TYPE=Release ../EdgeVision/
+# 2. 配置环境变量
+export EDGEVISION_TOP_PATH=$(pwd)
+export SYS_TOOLCHAIN_PATH="YOUR TOOLCHAIN PATH" # e.g ~/rk3568/buildroot/output/rockchip_rk3568/host
 
-# 3. 编译
-make -j$(nproc)
+# 3. 配置CMake
+mkdir $EDGEVISION_TOP_PATH/build
+cmake -DCMAKE_BUILD_TYPE:STRING=Release \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE \
+    -DCMAKE_TOOLCHAIN_FILE=$EDGEVISION_TOP_PATH/EdgeVision/rk356x-toolchain.cmake \
+    -DTOOLCHAIN_PATH=$SYS_TOOLCHAIN_PATH \
+    -DUSE_CROSS_COMPILE=ON \
+    --no-warn-unused-cli -S $EDGEVISION_TOP_PATH/EdgeVision/ -B $EDGEVISION_TOP_PATH/build
 
-# 4. 安装到设备
-make install
+# 4. 编译
+cmake --build $EDGEVISION_TOP_PATH/build --config Release --target all -j $(nproc) --
+
+# 5. 推送
+cd $EDGEVISION_TOP_PATH/build/examples
+export dest_path="/data/"
+find . -type f -executable -print0 | while IFS= read -r -d '' file; do    
+    echo "push: $file -> $dest_path"
+    adb push "$file" "$dest_path"
+    adb shell chmod 755 "$dest_path"
+done
 ```
 
 ### 运行示例
@@ -159,11 +172,11 @@ make install
 # 完整应用（包含 UI 和视觉推理）
 ./EdgeVision
 
-# 仅视觉流水线测试
-./visionTest
-
 # 雪花屏测试
 ./SnowflakeTest
+
+# 仅视觉流水线测试
+./visionTest
 
 # UI 渲染测试
 ./UITest
@@ -192,10 +205,9 @@ make install
   | 90ms  | 3                |
   | 160ms | 3                |
   | 170ms | 4                |
-  | 101ms | 28               |
 - **最大分辨率**：4K (3840×2160@30fps)
 - **推理帧率**：YOLOv5s 15fps
-- **内存占用**：< 300MB (4k 场景)
+- **内存占用**：< 70MB (4k 场景)
 
 ## ⚠️ 已知问题
 
@@ -289,7 +301,9 @@ Apache License 2.0 | 详见 [LICENSE](LICENSE)
 
 ## 👨‍💻 作者
 
-SweerItTer - xxxzhou.xian@gmail.com
+[SweerItTer](https://github.com/SweerItTer)
+
+[xxxzhou.xian@gmail.com](mailto:xxxzhou.xian@gmail.com)
 
 ## 🙏 致谢
 
