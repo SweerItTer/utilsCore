@@ -5,7 +5,7 @@
             "name": "EdgeVision remote debug",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/../build/examples/visionTest",
+            "program": "${workspaceFolder}/../build/examples/EdgeVision",
             "cwd": "${workspaceFolder}",
             "MIMode": "gdb",
             "miDebuggerPath": "/opt/atk-dlrk356x-toolchain/usr/bin/aarch64-buildroot-linux-gnu-gdb",
@@ -15,9 +15,15 @@
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
+                },
+                {
+                    "description": "Set sysroot path on host",
+                    "text": "set sysroot ${env:HOME}/rk3566/buildroot/output/rockchip_rk3566/host/aarch64-buildroot-linux-gnu/sysroot",
+                    "ignoreFailures": false
                 }
             ],
-            "visualizerFile": "/home/mouj/.vscode-server/data/User/workspaceStorage/73c6efc4a866a19b4f9e5b9967043de3/tonka3000.qtvsctools/qt.natvis.xml"
+            // 额外的搜索路径, 确保动态库能被对齐
+            "additionalSOLibSearchPath": "${env:HOME}/rk3566/buildroot/output/rockchip_rk3566/host/aarch64-buildroot-linux-gnu/sysroot/lib;${env:HOME}/rk3566/buildroot/output/rockchip_rk3566/host/aarch64-buildroot-linux-gnu/sysroot/usr/lib",
         }
     ]
 }

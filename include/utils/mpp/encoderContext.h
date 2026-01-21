@@ -378,8 +378,8 @@ inline static MppEncoderContext::Config createJpegConfig(
     cfg.prep_width = width;
     cfg.prep_height = height;
     cfg.prep_format = format;
-    cfg.prep_hor_stride = 0;  // 自动计算
-    cfg.prep_ver_stride = 0;
+    cfg.prep_hor_stride = width;  // 自动计算
+    cfg.prep_ver_stride = height;
     cfg.prep_rotation = MPP_ENC_ROT_0;
     cfg.prep_mirroring = 0;
     

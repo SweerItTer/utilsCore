@@ -47,7 +47,8 @@ struct DrawBox {
 };
 
 class Draw {
-    Draw();    
+    Draw();
+    ~Draw() = default;
 public:
     void shutdown() {
         auto& core = Core::instance();

@@ -16,6 +16,7 @@ Draw::Draw() {
     painter_->translate(0, 1); // 初始翻转占位
     painter_->scale(1, -1);
     Core::instance().doneQCurrent();
+    std::atexit([]() { Draw::instance().shutdown(); });
 }
 
 // 核心辅助函数: 绑定原生FBO, 设置视口, 调整Painter
@@ -24,7 +25,7 @@ void Draw::bindFboAndPreparePainter(const Core::resourceSlot& slot) {
     glBindFramebuffer(GL_FRAMEBUFFER, slot.blitFbo);
 
     // 2. 关键: 手动设置 Viewport！
-    // QOpenGLFramebufferObject 会自动设置, 但原生 FBO 不会。必须设置, 否则可能画不出来。
+    // QOpenGLFramebufferObject 会自动设置, 但原生 FBO 不会, 需要手动设置
     glViewport(0, 0, slot.width(), slot.height());
 
     // 3. 检查并调整 PaintDevice 大小

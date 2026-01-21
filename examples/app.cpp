@@ -11,10 +11,41 @@
 #include <chrono>
 #include <thread>
 #include "appController.h"
+#include "displayManager.h" // 确保包含 DisplayManager
+
+// 一个简单的等待函数，不依赖 Qt
+void waitForScreenReady() {
+    std::cout << "[Main] Waiting for HDMI/Screen connection..." << std::endl;
+    
+    // 创建一个临时的 DisplayManager 来检测
+    auto tempDm = std::make_shared<DisplayManager>();
+    tempDm->start(); 
+
+    while (true) {
+        // 检查是否有有效平面/连接
+        if (tempDm->valid()) {
+            auto size = tempDm->getCurrentScreenSize();
+            if (size.first > 0 && size.second > 0) {
+                std::cout << "[Main] Screen detected: " 
+                          << size.first << "x" << size.second << std::endl;
+                break;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::cout << "." << std::flush;
+    }
+    tempDm->stop();
+    // 释放资源, 让后续 AppContriller 重新接管
+    tempDm.reset(); 
+}
 
 int main(int argc, char *argv[]) {
-    // 创建全局唯一fd_ptr
+    // 初始化 DRM fd
     DrmDev::fd_ptr = DeviceController::create();
+    
+    // 在启动 Qt 之前, 先堵塞等待屏幕就绪
+    waitForScreenReady();
+
     QApplication app(argc, argv);
     AppContriller contriller;
     

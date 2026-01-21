@@ -38,11 +38,14 @@ public:
     void resume();
 
     // 重置屏幕区域
-    void resetTargetSize(const std::pair<uint32_t, uint32_t>& size);
+    void resetScreenSize(const std::pair<uint32_t, uint32_t>& size);
     // 重置planeHandle
     void resetPlaneHandle(const DisplayManager::PlaneHandle& handle);
     // 重置Widget绘制位置
     void resetWidgetTargetRect(const DrawRect& targetRect);
+
+    // 实际绘制Size
+    void setMaxTargeSize(const std::pair<uint32_t, uint32_t> tgSize);
 
     // 绑定显示器
     void bindDisplayer(std::weak_ptr<DisplayManager> displayer);

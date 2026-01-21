@@ -7,7 +7,7 @@
 #ifndef TYPES_H
 #define TYPES_H
 
-#include "safeQueue.h"
+// #include "safeQueue.h"
 #include "concurrentqueue.h"
 #include "v4l2/frame.h"
 

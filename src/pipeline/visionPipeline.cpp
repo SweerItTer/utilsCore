@@ -5,7 +5,6 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include <chrono>
-#include <iomanip>
 #include <sstream>
 #include <sys/syscall.h>
 #include <sys/stat.h> // POSIX 文件操作
@@ -61,31 +60,6 @@ private:
     std::chrono::steady_clock::time_point lastTime_;
 };
 
-// --------------- 构造录像文件名 --------------- 
-static std::string makeTimestampFilename(const std::string& dir, const std::string& suffix) {
-    using namespace std::chrono;
-
-    auto now = system_clock::now();
-    auto t = system_clock::to_time_t(now);
-    auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
-
-    std::tm tm_time;
-    localtime_r(&t, &tm_time);
-
-    std::ostringstream oss;
-    if (false == dir.empty()) {
-        mkdir(dir.c_str(), 0755);
-        oss << dir;
-        if ('/' != dir.back()) oss << "/";
-    }
-
-    oss << std::put_time(&tm_time, "%Y%m%d_%H%M%S")
-        << "_" << std::setw(3) << std::setfill('0') << ms.count()
-        << suffix;
-
-    return oss.str();
-}
-
 // --------------- 流水线Impl --------------- 
 class VisionPipeline::Impl {
 public:
@@ -120,7 +94,7 @@ private:
 
     // 摄像头
     CameraController::Config cameraConfig;
-    std::shared_ptr<CameraController> camera;
+    std::unique_ptr<CameraController> camera;
     FpsPref perf;
     
     // RGA
@@ -128,9 +102,8 @@ private:
     std::unique_ptr<RgaProcessor> rgaProcessor;
 
     // MPP
-    MppEncoderCorePtr videoRecorder;
+    std::unique_ptr<RecordPipeline> recorder;
     std::unique_ptr<JpegEncoder> pictureCapturer;
-    std::unique_ptr<StreamWriter> writer;
     
     // 参数控制
     std::unique_ptr<ParamControl> v4l2Controller;
@@ -138,14 +111,13 @@ private:
     int exposureIdInControls{-1};
 
     // 线程控制
-    std::thread thread, recordThread;
+    std::thread thread;
     std::atomic<bool> running{false};
     std::atomic<bool> paused{false};
 
-    ThreadPauser record_pauser;
+    asyncThreadPool pool;
 
     // 锁
-    std::mutex MppMutex;
     std::mutex WriterMutex;
     std::mutex CameraMutex;
     std::mutex RGAMutex;
@@ -169,7 +141,6 @@ private:
     VisionPipeline::ShowCallBack showCb{nullptr};
 private:
     void mainLoop();
-    void record();
     
     void init();
     void v4l2CameraInit();
@@ -183,8 +154,7 @@ private:
 // ------------------- 开启/关闭/暂停/唤醒 -------------------  
 void VisionPipeline::Impl::start(){
     resume();
-    if (running.load()) return;
-    running.store(true);
+    if (running.exchange(true)) return;
 
     camera->start();
     camera->setThreadAffinity(2);
@@ -192,49 +162,33 @@ void VisionPipeline::Impl::start(){
     thread = std::thread(&VisionPipeline::Impl::mainLoop, this);
     ThreadUtils::bindThreadToCore(thread, 1);  // 绑定显示线程到CPU CORE 0
     ThreadUtils::setRealtimeThread(thread.native_handle(), 81); // 设置高优先级
-    recordThread = std::thread([this]{
-        record_pauser.pause();
-        while (running){
-            record_pauser.wait_if_paused();
-            if (!running) break;
-            if (RecordStatus::Stop == recordStatus) {
-                // 析构时关闭 writer
-                if (writer) writer.reset(nullptr);
-                std::cout << "[VisionPipeline][DEBUG] RecordStatus -> Stop" << std::endl;
-                continue;
-            }
-            record();
-        }
-    });
-    ThreadUtils::bindThreadToCore(recordThread, 2);  // 绑定解码线程到CPU CORE 0
 }
 
 void VisionPipeline::Impl::stop(){
     if (!running.exchange(false)) return;
     resume();
 
-    videoRecorder->endOfthisEncode();
+    recorder->stop();
     rgaProcessor->stop();
     camera->stop();
-
-    record_pauser.resume();
-    if (recordThread.joinable()) recordThread.join();
-    if (writer) writer->stop();
-
+    loopCv.notify_all();
     if (thread.joinable()) thread.join();
+    pool.stop();
 }
 
 void VisionPipeline::Impl::pause(){
     if (paused.exchange(true)) return;
+    loopCv.notify_all();
 }
 
 void VisionPipeline::Impl::resume(){
     if (!paused.exchange(false)) return;
+    loopCv.notify_all();
 }
 
 // ------------------- 构造/析构 -------------------
 VisionPipeline::Impl::Impl(const CameraController::Config& cfg)
-    : cameraConfig(cfg)
+    : cameraConfig(cfg), pool(2, 2)// 固定长度的线程池
 {
     rawFrameQueue = std::make_shared<FrameQueue>(10);
     rgaFrameQueue = std::make_shared<FrameQueue>(10);
@@ -242,6 +196,10 @@ VisionPipeline::Impl::Impl(const CameraController::Config& cfg)
     frameBuffer[0] = nullptr;
     frameBuffer[1] = nullptr;
     init();
+
+    recorder = std::make_unique<RecordPipeline>();
+    recorder->start();
+    // recorder->setSavePath("/tmp/video/");
 }
 VisionPipeline::Impl::~Impl() { stop(); }
 
@@ -257,7 +215,7 @@ void VisionPipeline::Impl::v4l2CameraInit() {
     std::lock_guard<std::mutex> lk(CameraMutex);
 
     if (nullptr == camera) {    // 初始化
-        camera = std::make_shared<CameraController>(cameraConfig);
+        camera = std::make_unique<CameraController>(cameraConfig);
     } else {    // 重置
         camera.reset( new CameraController(cameraConfig) );
     }
@@ -301,7 +259,6 @@ void VisionPipeline::Impl::v4l2ControllerInit(){
 // ------------------- RGA处理单元初始化 -------------------  
 void VisionPipeline::Impl::rgaProcessorInit(){
     rgaConfig = RgaProcessor::Config {
-        .cctr = camera,
         .rawQueue = rgaFrameQueue,
         .width = cameraConfig.width,
         .height = cameraConfig.height,
@@ -343,31 +300,24 @@ FramePtr VisionPipeline::Impl::safetyGetCurrentFrame(){
     return frameSnapshot;
 }
 
-// ------------------- Mpp编码相关初始化(录像/拍照) -------------------  
+// ------------------- Mpp编码相关初始化(拍照) -------------------  
 void VisionPipeline::Impl::MppEncoderInit() {
-    auto cameraW = cameraConfig.width;
-    auto cameraH = cameraConfig.height;
-    MppEncoderContext::Config videoRecorderConfig = DefaultConfigs::defconfig_1080p_video(30);
-    if (cameraW == videoRecorderConfig.prep_width && cameraH == videoRecorderConfig.prep_height)
-        sameResolution.store(true); // 系统分辨率标志
-
+    // 配置
     JpegEncoder::Config pictureCapturerConfig {
-        .width = cameraW,
-        .height = cameraH,
+        .width = cameraConfig.width,
+        .height = cameraConfig.height,
         .format = MPP_FMT_YUV420SP,
         .quality = 8,
-        .save_dir = "/tmp/photos"
+        .save_dir = "/mnt/sdcard"
     };
-    std::lock_guard<std::mutex> lk(MppMutex);
-    if (nullptr == videoRecorder || nullptr == pictureCapturer) { // 第一次调用需要使用 make_
-        videoRecorder = std::make_shared<MppEncoderCore>(videoRecorderConfig, 1);
-        pictureCapturer = std::make_unique<JpegEncoder>(pictureCapturerConfig);
-    } else {    // 重置配置
-        videoRecorder->resetConfig(videoRecorderConfig);
-        pictureCapturer->resetConfig(pictureCapturerConfig);
-    }
 
-    if (!videoRecorder || !pictureCapturer) {
+    // 首次初始化
+    if (nullptr == pictureCapturer) pictureCapturer = std::make_unique<JpegEncoder>(pictureCapturerConfig);
+    // 重置配置
+    else pictureCapturer->resetConfig(pictureCapturerConfig); 
+
+    // 二次检查
+    if (!pictureCapturer) {
         std::cerr << "[VisionPipeline][ERROR] Failed to initialize Mpp Encoder." << std::endl;
         return;
     }
@@ -404,7 +354,7 @@ void VisionPipeline::Impl::mainLoop() {
         if (false == rawFrameQueue->try_dequeue(rawFrame) || !rawFrame){
             continue;
         }
-        
+
         // 内存屏障: 确保帧数据写入完成
         std::atomic_thread_fence(std::memory_order_release);
         
@@ -412,112 +362,46 @@ void VisionPipeline::Impl::mainLoop() {
         int rIdx = readIndex.load(std::memory_order_relaxed);
         readIndex.store(wIdx, std::memory_order_release);
         writeIndex.store(rIdx, std::memory_order_relaxed);
-        if (showCb) showCb(safetyGetCurrentFrame());
-        // --- 计算平均帧率 ---
-        perf.endFrame();
-        // RGA图像传递
-        if (cb && ModelStatus::Start == modelStatus){
-            FramePtr frame{nullptr};
-            if (getCurrentRGAFrame(frame) && frame){
-                cb(frame->sharedState(0)->dmabuf_ptr, frame);
+        
+        pool.enqueue([this]{
+            // --- 计算平均帧率 ---
+            perf.endFrame(); 
+            if (showCb) showCb(safetyGetCurrentFrame());
+            // RGA图像传递
+            if (cb && ModelStatus::Start == modelStatus){
+                FramePtr frame{nullptr};
+                if (getCurrentRGAFrame(frame) && frame){
+                    cb(frame->sharedState(0)->dmabuf_ptr, frame);
+                }
             }
-        }
+        });
     }
 }
 
 // ------------------- 拍照实现 -------------------  
 bool VisionPipeline::Impl::tryCapture(){
+    pause();
     // 获取可用frame
     auto frame = safetyGetCurrentFrame();
-    if (!frame) return false;
+    if (!frame) {
+        resume();
+        return false;
+    }
     // 拍照
-    return pictureCapturer->captureFromDmabuf(frame->sharedState(0)->dmabuf_ptr);
+    bool ret = pictureCapturer->captureFromDmabuf(frame->sharedState(0)->dmabuf_ptr);
+    resume();
+    return ret;
 }
 
 // ------------------- 更新录像状态标志 -------------------  
 bool VisionPipeline::Impl::tryRecord(RecordStatus status) {
     if (status == recordStatus.exchange(status)) return false;
-    // std::lock_guard<std::mutex> lk(WriterMutex);
     if (RecordStatus::Start == status) {
-        // 生成带时间戳的文件名
-        std::string filename = makeTimestampFilename("/tmp/videos", ".h264");
-        // 重新创建 writer
-        if (nullptr == writer) writer = std::make_unique<StreamWriter>(filename);
-        else                   writer.reset(new StreamWriter(filename));     
-        if (nullptr == writer) {
-            std::cerr << "[VisionPipeline][ERROR] Failed to create StreamWriter Object." << std::endl;
-            return false;
-        }
-        record_pauser.resume();
+        recorder->resume();
     } else {
-        record_pauser.pause();
+        recorder->pause();
     }
     return true;
-}
-
-// ------------------- 录像功能实现 -------------------  
-void VisionPipeline::Impl::record() {
-    // 获取可用frame
-    FramePtr frameSnapshot = safetyGetCurrentFrame();
-    if (!frameSnapshot) return;
-    
-    // 获取待编码数据 meta
-    MppEncoderCore::EncodedMeta meta;
-    std::lock_guard<std::mutex> lk(MppMutex);
-    // 获取可用slot
-    auto _ = videoRecorder->acquireWritableSlot();
-    auto slotDma = _.first;
-    auto slot_id = _.second;
-
-    if (!slotDma || slot_id < 0){
-        return;
-    }
-    // RAII自动releaseSlot
-    SlotGuard guard(videoRecorder.get(), slot_id);
-    // 获取原始NV12数据
-    auto dmaSrc = frameSnapshot->sharedState(0)->dmabuf_ptr;
-    if (!dmaSrc) return;
-
-// TODO: 修复使用现成DMABUF时死机问题
-    if (false ){ //&& sameResolution.load()) {
-        std::cout << "[VisionPipeline][DEBUG] Use submitFilledSlot() " << std::endl;
-        meta = videoRecorder->submitFilledSlotWithExternal(slot_id, dmaSrc, frameSnapshot);
-    } else {
-        // std::cout << "[VisionPipeline][DEBUG] Use submitFilledSlotWithExternal() " << std::endl;
-        rga_buffer_t src = wrapbuffer_fd(dmaSrc->fd(), dmaSrc->width(), 
-                                    dmaSrc->height(), convertDRMtoRGAFormat(dmaSrc->format()));
-        src.wstride = dmaSrc->pitch();
-        src.hstride = dmaSrc->height();
-        im_rect srcR{0, 0, static_cast<int>(dmaSrc->width()), static_cast<int>(dmaSrc->height())};
-
-        rga_buffer_t dst = wrapbuffer_fd(slotDma->fd(), slotDma->width(), 
-                                        slotDma->height(), convertDRMtoRGAFormat(slotDma->format()));
-        dst.wstride = slotDma->pitch();
-        dst.hstride = slotDma->height();
-        im_rect dstR{0, 0, static_cast<int>(slotDma->pitch()), static_cast<int>(slotDma->height())};
-        
-        RgaConverter::RgaParams param{
-            .src = src,
-            .src_rect = srcR,
-            .dst = dst,
-            .dst_rect = dstR
-        };
-        // 拷贝数据到 slot 内部 DMABUF
-        if(RgaConverter::instance().ImageResize(param) != IM_STATUS_SUCCESS){
-            std::cerr << "[VisionPipeline][ERROR] RGA-copy failed.\n";
-            return;
-        }
-        meta = videoRecorder->submitFilledSlot(slot_id);
-    }
-
-    if (meta.core_id == -1 || meta.slot_id != slot_id) {
-        std::cerr << "[VisionPipeline][ERROR] Get invalid mete of MppEncoderCore" << std::endl;
-        return;
-    }
-    // 释放RAII的管理避免提前释放
-    guard.release();
-    // 提交给写线程
-    if (writer && running) writer->pushMeta(meta);
 }
 
 // ------------------- 获取当前可用帧 -------------------  
@@ -546,9 +430,6 @@ int VisionPipeline::Impl::getCameraFd() {
 
 // ------------------- 开启RGA图像格式转换 ------------------- 
 bool VisionPipeline::Impl::setModelRunningStatus(ModelStatus status) {
-    // 清空缓存帧
-    FramePtr oldFrame;
-    while(rgaFrameQueue->try_dequeue(oldFrame));
     // 加锁
     {
         std::lock_guard<std::mutex> lk(RGAMutex);
@@ -561,6 +442,13 @@ bool VisionPipeline::Impl::setModelRunningStatus(ModelStatus status) {
         }
     }
     modelStatus.store(status);
+    if (status == ModelStatus::Stop) {
+        // 清空RGA队列
+        while (rgaFrameQueue->size_approx() > 0) {
+            FramePtr tmp;
+            rgaFrameQueue->try_dequeue(tmp);
+        }
+    }
     return true;
 }
 

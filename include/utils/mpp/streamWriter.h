@@ -91,7 +91,7 @@ private:
         std::mutex mtx;                                ///< 队列保护锁
         std::condition_variable cv;                    ///< 唤醒条件
         std::unique_ptr<FILEGuard> fp;                 ///< 当前写入段的文件指针
-        // std::atomic<bool> iscurrent{false};            ///< 是否为当前写入线程
+        int fd = -1;                                   ///< 当前流对应的文件描述符
     };
 
 private:

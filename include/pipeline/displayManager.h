@@ -52,6 +52,8 @@ public:
         PlaneType type{PlaneType::INVALID};
         uint32_t  srcWidth{0};
         uint32_t  srcHeight{0};
+        uint32_t  dstWidth{0};
+        uint32_t  dstHeight{0};
         uint32_t  drmFormat{0};
         uint32_t  zOrder{0};
     };
@@ -60,6 +62,8 @@ public:
     DisplayManager();
     ~DisplayManager();
 
+    const bool valid() const;
+    
     void start();
     void stop();
 

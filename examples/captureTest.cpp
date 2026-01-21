@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-12-07 00:18:54
- * @FilePath: /EdgeVision/examples/pipelineTest.cpp
+ * @FilePath: /EdgeVision/examples/captureTest.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "visionPipeline.h"

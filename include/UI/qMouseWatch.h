@@ -11,6 +11,7 @@
 #include <QEvent>
 #include <QPoint>
 #include <QMouseEvent>
+#include <QDebug>
 
 #include "mouse/watcher.h"
 
@@ -36,23 +37,25 @@ public:
         };
 
         // 注册左右键事件回调
-        this->registerHandler({ BTN_LEFT, BTN_RIGHT, BTN_SIDE, BTN_EXTRA }, [this, win, toCustomType](uint16_t btnType, uint8_t value) {
+        this->registerHandler(
+            { MouseEventType::ButtonLeft, MouseEventType::ButtonRight, MouseEventType::ButtonSide, MouseEventType::ButtonExtra },
+            [this, win, toCustomType] (MouseEventType btnType, uint8_t value) {
             int x = 0, y = 0;
-            this->getPosition(x, y);
+            if (!this->getMappedPosition(x, y)) return;
             Qt::MouseButton btn = Qt::NoButton;
 
             CustomMouseEvent::TypeId evType = toCustomType(value);
             switch (btnType) {
-                case BTN_LEFT:
+                case MouseEventType::ButtonLeft:
                     btn = Qt::LeftButton;
                     break;
-                case BTN_RIGHT:
+                case MouseEventType::ButtonRight:
                     btn = Qt::RightButton;
                     break;
-                case BTN_SIDE:
+                case MouseEventType::ButtonSide:
                     btn = Qt::BackButton;        // 后侧键
                     break;
-                case BTN_EXTRA:
+                case MouseEventType::ButtonExtra:
                     btn = Qt::ForwardButton;     // 前侧键
                     break;
                 default:
@@ -62,7 +65,6 @@ public:
 
             // 使用 invokeMethod 异步调用 MainWindow 的槽, 确保在 GUI 线程执行
             QMetaObject::invokeMethod(win, [win, x, y, evType, btn]() {
-                // fprintf(stdout, "Position: (%u, %u)\n", x, y);
                 auto* me = new CustomMouseEvent(evType, QPoint(x, y), btn);
                 QCoreApplication::postEvent(win, me);
             }, Qt::QueuedConnection);

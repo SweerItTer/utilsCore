@@ -60,6 +60,7 @@ Core::Core() {
     if (initializeExtensions()) {
         // queryAllFormats();
     }
+    std::atexit([]() { Core::instance().shutdown(); });
 }
 
 void Core::shutdown() {
@@ -70,16 +71,13 @@ void Core::shutdown() {
     // 清理所有依赖 Qt/EGL 的资源
     glContext_.reset();
     offscreenSurface_.reset();
-    fprintf(stderr, "[Core] shutdown complete\n");
-}
 
-
-Core::~Core() {
     // 覆盖上下文和display(qt回收)
     if (eglDisplay_ != EGL_NO_DISPLAY) {
         eglCtx_ = EGL_NO_CONTEXT;
         eglDisplay_ = EGL_NO_DISPLAY;
     }
+    fprintf(stderr, "[Core] shutdown complete\n");
 }
 
 bool Core::initQContext() {
@@ -356,7 +354,7 @@ bool Core::resourceSlot::getSyncFence(int& fence) {
     if (!valid()) return false;
 
     // [修改] 零拷贝模式下, Draw操作已经直接写到了 blitFbo (即 DMABUF)
-    // 所以不再需要 glBlitFramebuffer。
+    // 不再需要 glBlitFramebuffer。
     
     // 1. 提交指令
     auto& core = Core::instance();

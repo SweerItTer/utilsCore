@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-12-09 17:41:22
- * @FilePath: /EdgeVision/examples/UITest.cpp
+ * @FilePath: /EdgeVision/examples/uiTest.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "displayManager.h"
@@ -37,12 +37,10 @@ int main(int argc, char *argv[]) {
     // ui renderer 实例
     std::shared_ptr<UIRenderer> uir = std::make_shared<UIRenderer>();
 
-    static UIRenderer* uir_s = uir.get(); 
     std::signal(SIGINT, [] (int signal) {
         if (signal == SIGINT) {
             std::cout << "Ctrl+C received, stopping..." << std::endl;
             running.store(false);
-            uir_s->stop();
             app_->quit();
         }
     });
@@ -57,8 +55,10 @@ int main(int argc, char *argv[]) {
         
         DisplayManager::PlaneConfig primaryCfg {
             .type = DisplayManager::PlaneType::PRIMARY,
-            .srcWidth = screenWidth,
-            .srcHeight = screenHeight,
+            .srcWidth = std::min<uint32_t>(screenWidth, 1920),
+            .srcHeight = std::min<uint32_t>(screenHeight, 1080),
+            .dstWidth = screenWidth,
+            .dstHeight = screenHeight,
             .drmFormat = DRM_FORMAT_ABGR8888, /// RGBA
             .zOrder = 1
         };
@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
         std::cout << "[Main] primaryPlaneHandle valid: " << primaryPlaneHandle.valid() << std::endl;
         std::cout << "[Main] Resolution: " << screenWidth << "x" << screenHeight << std::endl;
 
-        uir->resetTargetSize(screenSize);
+        uir->resetScreenSize(screenSize);
         uir->resetPlaneHandle(primaryPlaneHandle);
         uir->resume();
     };
@@ -87,16 +87,19 @@ int main(int argc, char *argv[]) {
     // QTimer::singleShot(4000, [&]() {
     //     std::cout << "4-second timeout reached, exiting..." << std::endl;
     //     running.store(false);
-    //     uir_s->stop();
     //     app_->quit();
     // });
 
     // 主线程堵塞
     app.exec();
     
-    dm->stop();
-    // uir = nullptr;
+    uir->stop();
+    uir.reset();
 
+    dm->stop();
+    dm.reset();
+
+    // std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     std::cout << "[Main] Program Exit." << std::endl;
     return 0;
 }

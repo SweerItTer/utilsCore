@@ -93,7 +93,7 @@ int rknnPool<rknnModel, inputType, outputType>::put(inputType inputData)
     int currentId = getModelId();
     std::lock_guard<std::mutex> lock(futMtx);
     // 将模型处理函数作为工作内容交由线程池
-    std::future<outputType> future = pool->enqueue([this, currentId, inputData = std::move(inputData)](){
+    std::future<outputType> future = pool->try_enqueue([this, currentId, inputData = std::move(inputData)](){
         std::shared_ptr<rknnModel>& model = models[currentId];
         model->setThresh(BOX_THRESH.load(), thNMS_THRESHresh.load());
         return model->infer(inputData);

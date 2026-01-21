@@ -24,6 +24,7 @@
 #include "mpp/encoderContext.h"
 #include "mpp/mppResourceGuard.h"
 #include "mpp/formatTool.h"
+#include "mpp/fileTools.h"
 
 #include "types.h"
 

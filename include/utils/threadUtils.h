@@ -4,20 +4,22 @@
  * @FilePath: /EdgeVision/include/utils/threadUtils.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
+#pragma once
+
 class ThreadUtils {
 public:
     // 尝试绑定指定线程到指定 CPU 核心, 最多重试 retries 次  
-    static bool safeBindThread(std::thread& thread, int cpu_core, int retries = 3) {
+    static bool safeBindThread(std::thread& thread, int cpuCore, int retries = 3) {
         for (int i = 0; i < retries; ++i) {
             if (thread.joinable()) {
                 cpu_set_t cpuset;
                 CPU_ZERO(&cpuset);
-                CPU_SET(cpu_core, &cpuset);
+                CPU_SET(cpuCore, &cpuset);
                 
                 int result = pthread_setaffinity_np(thread.native_handle(), 
                                                     sizeof(cpu_set_t), &cpuset);
                 if (result == 0) {
-                    std::cout << "Successfully bound thread to core " << cpu_core << "\n";
+                    std::cout << "Successfully bound thread to core " << cpuCore << "\n";
                     return true;
                 } else {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -26,18 +28,18 @@ public:
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
-        std::cout << "Failed to bind thread to core " << cpu_core << "\n";
+        std::cout << "Failed to bind thread to core " << cpuCore << "\n";
         return false;
     }
     // 绑定当前线程到CPU核心
-    static bool bindCurrentThreadToCore(int cpu_core) {
+    static bool bindCurrentThreadToCore(int cpuCore) {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
-        CPU_SET(cpu_core, &cpuset);
+        CPU_SET(cpuCore, &cpuset);
         int result = pthread_setaffinity_np(pthread_self(), 
                                 sizeof(cpu_set_t), &cpuset);
         if (result == 0) {
-            std::cout << "Successfully bound current thread to core " << cpu_core << "\n";
+            std::cout << "Successfully bound current thread to core " << cpuCore << "\n";
             return true;
         } 
         return false;

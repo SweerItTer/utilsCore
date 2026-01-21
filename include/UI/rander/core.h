@@ -119,8 +119,7 @@ public:
 
 private:
     Core();
-    ~Core();
-    
+    ~Core() = default;
     bool initQContext();
     bool initializeExtensions();
     resourceSlot createSlot(DmaBufferPtr&& bufPtr);

@@ -31,34 +31,35 @@ static void infoPrinter(const std::vector<uint32_t>& ids) {
 
 // ------------------- 内部实现 -------------------
 class DisplayManager::Impl {
-    enum class DisplayerStatus {
-        Free = 0,
-        Busy = 1
-    };
+    // enum class DisplayerStatus {
+    //     Free = 0,
+    //     Busy = 1
+    // };
 public:
     Impl();
     ~Impl();
 
     void start();
     void stop();
-    
+
     void registerPreRefreshCallback(RefreshCallback cb);
     void registerPostRefreshCallback(RefreshCallback cb);
 
     void presentFrame(PlaneHandle plane,
-                      std::vector<DmaBufferPtr>&& buffers, 
+                      std::vector<DmaBufferPtr>&& buffers,
                       std::shared_ptr<void> holder);
     PlaneHandle createPlane(const PlaneConfig& config);
     std::pair<uint32_t, uint32_t> getCurrentScreenSize() const;
+
+    // 有效状态
+    bool valid{false};
 private:
     void mainLoop();
 
     uint32_t fx(uint32_t v) { return v << 16; }
     void setRefreshStatus(bool status) {
-        {
-            std::unique_lock<std::mutex> lock(loopMtx);
-            refreshing = status;
-        }
+        if (!running) status=false;
+        refreshing = status;
         cv.notify_one();
     }
     void initLayer(const std::shared_ptr<DrmLayer>& layer,
@@ -72,11 +73,11 @@ private:
 private:
     struct alignas(64) PendingFrame {
         std::mutex slotMtx;
-        std::atomic_bool ready{false};
+        std::atomic_bool ready{ false };
         std::shared_ptr<DrmLayer> layer;             // layer
         std::vector<DmaBufferPtr> pendingBuffers;    // present 时只更新buffer
         std::shared_ptr<void> holder;                // 每一个 planelayer 独立管理生命周期
-        
+
         // 默认构造
         PendingFrame() = default;
 
@@ -86,9 +87,11 @@ private:
 
         PendingFrame(PendingFrame&& other) noexcept
             : PendingFrame{}  // 默认构造
-        { *this = std::move(other); }   // 调用移动赋值
+        {
+            *this = std::move(other);
+        }   // 调用移动赋值
 
-        // 移动赋值
+// 移动赋值
         PendingFrame& operator=(PendingFrame&& other) noexcept {
             if (this != &other) {
                 layer = std::move(other.layer);
@@ -100,12 +103,11 @@ private:
         }
     };
     // DRM 资源
-    SharedDev* devices{nullptr};
-    DevPtr     dev{nullptr};
+    std::weak_ptr<drmModeDev> dev;
 
     // plane -> layer 映射
     std::vector<PendingFrame> planesVector;
-    
+
     // 合成器
     std::unique_ptr<PlanesCompositor> compositor;
 
@@ -123,33 +125,32 @@ private:
     std::atomic_bool running{false};
     std::atomic_bool refreshing{false};
     std::atomic_uint32_t pendingFrames{0};
-    std::atomic<DisplayerStatus> dispStatus{DisplayerStatus::Free};
+    // std::atomic<DisplayerStatus> dispStatus{DisplayerStatus::Free};
 
     // 回调
     std::vector<RefreshCallback> preRefreshCb;
     std::vector<RefreshCallback> postRefreshCb;
 
     // handle 分配器
-    std::atomic_int32_t handleAlloc{0};
+    std::atomic_int32_t handleAlloc{ 0 };
 };
 
 // ------------------- 启动 / 停止 -------------------
 void DisplayManager::Impl::start() {
-    if (running.load()) return;
-    running.store(true);
+    if (running.exchange(true)) return;
     thread = std::thread(&DisplayManager::Impl::mainLoop, this);
     ThreadUtils::bindThreadToCore(thread, 3);
     ThreadUtils::setRealtimeThread(thread.native_handle(), 80); // 设置高优先级
 }
 
 void DisplayManager::Impl::stop(){
-    if (false == running.load()) return;
-    running.store(false);
-    cv.notify_one();
+    if (!running.exchange(false)) return;
+    setRefreshStatus(false);
+    cv.notify_all();
     if (thread.joinable()){
         thread.join();
     }
-    // doPreRefresh();
+    doPreRefresh();
 }
 
 // ------------------- 构造 / 析构 -------------------
@@ -162,7 +163,7 @@ DisplayManager::Impl::Impl() {
         std::bind(&DisplayManager::Impl::doPreRefresh, this),
         std::bind(&DisplayManager::Impl::doPostRefresh, this)
     );
-    if (true == devicesInit()) {
+    if (devicesInit() == true) {
         std::cout << "[DisplayManager] Init succeeded." << std::endl;
     } else {
         std::cerr << "[DisplayManager][ERROR] Failed to get Devices combine." << std::endl;
@@ -171,22 +172,21 @@ DisplayManager::Impl::Impl() {
 
 DisplayManager::Impl::~Impl() {
     stop();
-    doPreRefresh();
 }
 
 // ------------------- 释放资源 -------------------
-void DisplayManager::Impl::doPreRefresh(){
+void DisplayManager::Impl::doPreRefresh() {
     setRefreshStatus(true);
     {
         std::lock_guard<std::mutex> lock(preVectorMtx);
-        for (auto& cb : preRefreshCb) cb(); 
+        for (auto& cb : preRefreshCb) cb();
     }
     resourcesClean();
 }
 
 // ------------------- 获取资源 -------------------
-void DisplayManager::Impl::doPostRefresh(){
-    if(!devicesInit()) return; // 获取资源成功才允许继续
+void DisplayManager::Impl::doPostRefresh() {
+    if (!devicesInit()) return; // 获取资源成功才允许继续
     {
         std::lock_guard<std::mutex> lock(postVectorMtx);
         for (auto& cb : postRefreshCb) cb();
@@ -195,41 +195,42 @@ void DisplayManager::Impl::doPostRefresh(){
 }
 
 // ------------------- 内部资源释放 -------------------
-void DisplayManager::Impl::resourcesClean(){
+void DisplayManager::Impl::resourcesClean() {
     {
         std::lock_guard<std::mutex> lk(planesMtx);
         planesVector.clear();
     }
     handleAlloc.store(0); // 重置起始 id 
-    if(compositor) compositor->removeAllLayer(); // 清空所有缓存 plane
-    if(devices) devices->clear();                // 清空设备组合
-    if(dev) dev.reset();                         // 清空当前设备组合
+    if (compositor) compositor->removeAllLayer(); // 清空所有缓存 plane
+    dev.reset();                                  // 释放当前设备组合的观察
 }
 
 // ------------------- 获取设备 -------------------
 bool DisplayManager::Impl::devicesInit() {
+    valid = false;
     // 获取设备组合
     auto& deviceList = DrmDev::fd_ptr->getDevices();
     if (deviceList.empty()) {
         std::cerr << "[DisplayManager] No devices available." << std::endl;
         setRefreshStatus(true);
-        return false;
+        return valid;
     }
     // 取出第一个可用设备组合
     auto firstDev = deviceList[0];
     if (!firstDev) {
         std::cerr << "[DisplayManager] Failed to get usable device." << std::endl;
         setRefreshStatus(true);
-        return false;
+        return valid;
     }
-    devices = &deviceList;
-    dev = firstDev;
 
-    std::cout << "Connector ID: " << dev->connector_id << ", CRTC ID: " << dev->crtc_id
-              << ", Resolution: " << dev->width << "x" << dev->height << "\n";
+    std::cout << "Connector ID: " << firstDev->connector_id << ", CRTC ID: " << firstDev->crtc_id
+              << ", Resolution: " << firstDev->width << "x" << firstDev->height << "\n";
     // 绑定 crtc -> plane
-    DrmDev::fd_ptr->refreshPlane(dev->crtc_id);
-    return true;
+    DrmDev::fd_ptr->refreshPlane(firstDev->crtc_id);
+
+    dev = firstDev;
+    
+    return (valid=true);
 }
 
 // ------------------- layer 初始化 -------------------
@@ -255,34 +256,46 @@ DisplayManager::PlaneHandle
 DisplayManager::Impl::createPlane(const PlaneConfig& config) {
     // 构造无效 handle
     PlaneHandle planeHandle;
-
+    std::shared_ptr<drmModeDev> dev_sptr{nullptr};
     // 检测资源
-    if (nullptr == dev || !DrmDev::fd_ptr || DrmDev::fd_ptr->get() < 0) {
+    if (nullptr == (dev_sptr = dev.lock()) || !DrmDev::fd_ptr || DrmDev::fd_ptr->get() < 0) {
         std::cerr << "[DisplayManager][ERROR] Invalid DRM device or file descriptor" << std::endl;
         return planeHandle;
     }
     // size 检测
-    uint32_t srcWidth  = config.srcWidth;
+    uint32_t srcWidth = config.srcWidth;
     uint32_t srcHeight = config.srcHeight; // fix spelling
+
+    uint32_t dstWidth = config.dstWidth;
+    uint32_t dstHeight = config.dstHeight;
+
     const uint32_t zero__ = static_cast<uint32_t>(0);
 
     if ((srcWidth <= zero__) || (srcHeight <= zero__)) {
-        std::cerr << "[DisplayManager][ERROR] Invalid dimensions: " 
-                  << srcWidth << "x" << srcHeight << std::endl;
+        std::cerr << "[DisplayManager][ERROR] Invalid dimensions: "
+            << srcWidth << "x" << srcHeight << std::endl;
         return planeHandle;
     }
     // 不需要检查是否对齐, 但需要检查是否出界
-    auto devW = dev->width; auto devH = dev->height;
+    auto devW = dev_sptr->width; auto devH = dev_sptr->height;
     if ((devW <= zero__) || (devH <= zero__)) {
-        std::cerr << "[DisplayManager][ERROR] Device has no space left on, current Resolution: " 
-                  << devW << "x" << devH << std::endl;
+        std::cerr << "[DisplayManager][ERROR] Device has no space left on, current Resolution: "
+            << devW << "x" << devH << std::endl;
         return planeHandle;
     }
     if ((srcWidth > devW) || (srcHeight > devH)) {
-        std::cerr << "[DisplayManager][ERROR] Resolution: " 
-                  << srcWidth << "x" << srcHeight
-                  << "out of range, max size:" << devW << "x" << devH
-                  <<std::endl;
+        std::cerr << "[DisplayManager][ERROR] Sourece resolution: "
+            << srcWidth << "x" << srcHeight
+            << "out of range, max size:" << devW << "x" << devH
+            << std::endl;
+        return planeHandle;
+    }
+    // 输出范围修正
+    if ((dstWidth > devW) || (dstHeight > devH)) {
+        std::cerr << "[DisplayManager][ERROR] D resolution: "
+            << srcWidth << "x" << srcHeight
+            << "out of range, max size:" << devW << "x" << devH
+            << std::endl;
         return planeHandle;
     }
 
@@ -293,14 +306,14 @@ DisplayManager::Impl::createPlane(const PlaneConfig& config) {
     switch (pt) {
     case DisplayManager::PlaneType::OVERLAY:
         DrmDev::fd_ptr->getPossiblePlane(
-            DRM_PLANE_TYPE_OVERLAY, 
+            DRM_PLANE_TYPE_OVERLAY,
             config.drmFormat,
             usablePlaneIds
         );
         break;
     case DisplayManager::PlaneType::PRIMARY:
         DrmDev::fd_ptr->getPossiblePlane(
-            DRM_PLANE_TYPE_PRIMARY, 
+            DRM_PLANE_TYPE_PRIMARY,
             config.drmFormat,
             usablePlaneIds
         );
@@ -312,40 +325,42 @@ DisplayManager::Impl::createPlane(const PlaneConfig& config) {
 
     // 检测匹配结果
     infoPrinter(usablePlaneIds);
-    if (usablePlaneIds.empty()) { 
+    if (usablePlaneIds.empty()) {
         std::cerr << "[DisplayManager][ERROR] No matched plane on createPlane." << std::endl;
         return planeHandle;
     }
 
-	// 创建 layer
+    // 创建 layer
     std::shared_ptr<DrmLayer> layer = std::make_shared<DrmLayer>(std::vector<DmaBufferPtr>(), CACHESIZE);
 
     DrmLayer::LayerProperties props{};
     props.plane_id_      = usablePlaneIds[0];
-    props.crtc_id_       = dev->crtc_id;
+    props.crtc_id_       = dev_sptr->crtc_id;
     // 源图像区域
-    props.srcX_          = fx(0);
-    props.srcY_          = fx(0);
-    props.srcwidth_      = fx(srcWidth);
-    props.srcheight_     = fx(srcHeight);
+    props.srcX_ = fx(0);
+    props.srcY_ = fx(0);
+    props.srcwidth_ = fx(srcWidth);
+    props.srcheight_ = fx(srcHeight);
     // 显示图像区域(自动缩放)
-    props.crtcX_         = 0;
-    props.crtcY_         = 0;
-    props.crtcwidth_     = devW;
-    props.crtcheight_    = devH;
-    props.zOrder_        = config.zOrder;
-    
+    props.crtcX_ = 0;
+    props.crtcY_ = 0;
+    // props.crtcwidth_ = devW;
+    // props.crtcheight_ = devH;
+    props.crtcwidth_ = dstWidth ? dstWidth : devW;
+    props.crtcheight_ = dstHeight ? dstHeight : devH;
+    props.zOrder_ = config.zOrder;
+
     // 配置 layer
     initLayer(layer, props);
-    
-    if (!compositor || !compositor->addLayer(layer)){
+
+    if (!compositor || !compositor->addLayer(layer)) {
         std::cerr << "[DisplayManager][ERROR] Failed to add layer into compositor." << std::endl;
         return planeHandle;
     }
 
     int id = handleAlloc.load();
     planeHandle.reset(id);
-    
+
     PendingFrame pf;
     pf.layer = layer;
     {
@@ -362,7 +377,7 @@ void DisplayManager::Impl::presentFrame(
     std::vector<DmaBufferPtr>&& buffers,
     std::shared_ptr<void> holder
 ) {
-    if (!dev || !dev.get()) return;
+    if (!dev.lock() || !dev.lock().get()) return;
     int id = plane.get();
     if (planesVector.empty() || id >= planesVector.size() || id < 0) {
         std::cerr << "[DisplayManager][ERROR] PlaneHandle is invalid." << std::endl;
@@ -390,17 +405,17 @@ void DisplayManager::Impl::presentFrame(
 
 // ------------------- mainLoop -------------------
 void DisplayManager::Impl::mainLoop() {
-    int drmFence{-1};
+    int drmFence{ -1 };
     while (running.load()) {
         {
             std::unique_lock<std::mutex> lock(loopMtx);
             // 退出条件: 退出线程 或 未刷新 且 有待处理帧 且 显示状态为空闲
             cv.wait(lock, [this] {
                 return (!running.load()) ||
-                       (!refreshing.load()
-                        && pendingFrames.load() > 0);
-                        // && dispStatus.load(std::memory_order_acquire)
-                        //     == DisplayerStatus::Free)
+                    (!refreshing.load()
+                     && pendingFrames.load() > 0);
+                // && dispStatus.load(std::memory_order_acquire)
+                //     == DisplayerStatus::Free)
             });
 
             if (!running.load()) break;
@@ -417,7 +432,7 @@ void DisplayManager::Impl::mainLoop() {
             std::vector<DmaBufferPtr> tmp;
             {
                 std::lock_guard<std::mutex> lk(pf.slotMtx);
-                if(pf.pendingBuffers.empty() || !pf.pendingBuffers[0]) continue;
+                if (pf.pendingBuffers.empty() || !pf.pendingBuffers[0]) continue;
                 tmp = std::move(pf.pendingBuffers);
             }
             // TODO: 更新 layer 内部实现, 实现fb复用(dmabuf总量固定, 每一帧创建fb存在开销)
@@ -425,7 +440,7 @@ void DisplayManager::Impl::mainLoop() {
 
             processedFrame = true;
         }
-        
+
         if (!processedFrame) continue; // 没有处理任何帧, 跳过
 
         pendingFrames.store(0);
@@ -447,8 +462,9 @@ void DisplayManager::Impl::mainLoop() {
 
 // ------------------- 获取当前DRM设备分辨率(最大) -------------------
 std::pair<uint32_t, uint32_t> DisplayManager::Impl::getCurrentScreenSize() const {
-    if (nullptr != dev) {
-        return std::pair<uint32_t, uint32_t>(dev->width, dev->height);
+    auto dev_sptr = dev.lock();
+    if (nullptr != dev_sptr) {
+        return std::pair<uint32_t, uint32_t>(dev_sptr->width, dev_sptr->height);
     }
     return std::pair<uint32_t, uint32_t>(0, 0);
 }
@@ -469,6 +485,10 @@ DisplayManager::DisplayManager() {
     impl_ = std::make_unique<Impl>();
 }
 DisplayManager::~DisplayManager() = default;
+
+const bool DisplayManager::valid() const {
+    return impl_->valid;
+}
 
 void DisplayManager::registerPreRefreshCallback(RefreshCallback cb) {
     impl_->registerPreRefreshCallback(std::move(cb));

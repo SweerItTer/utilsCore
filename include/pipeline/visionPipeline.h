@@ -14,9 +14,8 @@
 #include "v4l2/cameraController.h"  // 摄像头捕获
 
 // 录像拍照
-#include "mpp/encoderCore.h"
+#include "recordPipeline.h"
 #include "mpp/jpegEncoder.h"
-#include "mpp/streamWriter.h"
 
 // 工具类
 #include "types.h"                  // 帧包装

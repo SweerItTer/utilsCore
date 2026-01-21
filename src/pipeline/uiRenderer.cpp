@@ -31,7 +31,7 @@ public:
     void pause(bool refreshing=false);
     void resume();
 
-    void resetTargetSize(const std::pair<uint32_t, uint32_t>& size);
+    void resetScreenSize(const std::pair<uint32_t, uint32_t>& size);
     void resetPlaneHandle(const DisplayManager::PlaneHandle& handle);
     void resetWidgetTargetRect(const DrawRect& targetRect);
 
@@ -45,6 +45,9 @@ public:
     // TODO: 加上双缓冲 / 
     void updateBoxs(object_detect_result_list&& ret);
     void setFPSUpdater(const fpsUpdater& cb);
+
+    // 最大绘制范围
+    uint32_t maxTargetWidth{1920}, maxTargetHeight{1080};
 private:
     void updateSlotInfo();
     // 渲染
@@ -73,9 +76,8 @@ private:
     // yoloBoxs
     std::mutex boxMtx;
     object_detect_result_list boxs;
-    // 屏幕范围
-    uint32_t targetWidth_{0};
-    uint32_t targetHeight_{0};
+    // 绘制区域大小(fbo size)
+    uint32_t targetWidth_{0}, targetHeight_{0};
     // 绘制区域
     DrawRect targetRect_;
     struct RectWithVerifiy{
@@ -190,15 +192,14 @@ void UIRenderer::Impl::start() {
 }
 
 void UIRenderer::Impl::stop() {
-    if (!running_.load()) return;
+    if (!running_.exchange(false)) return;
     resume();
-    running_.store(false);
     renderTimer_.stop();
     resourceTimer_.stop();
     // 取消槽函数绑定(若重启则会反复绑定)
     renderTimer_.disconnect();
     resourceTimer_.disconnect();
-
+    mouseWatcher_.stop();
     std::cout << "[UIRenderer] Stopped." << std::endl;
 }
 
@@ -215,26 +216,37 @@ void UIRenderer::Impl::pause(bool refreshing) {
 void UIRenderer::Impl::resume(){
     if (pauser_.is_paused()) pauser_.resume();
     if (!refreshing_.exchange(false)) return;
-    mouseWatcher_.start();
+    if( running_ ) mouseWatcher_.resume();
 }
 
 // ------------------ 资源重置 ------------------
-void UIRenderer::Impl::resetTargetSize(const std::pair<uint32_t, uint32_t>& size) {
-    if (targetWidth_ == size.first ||
-        targetHeight_ == size.second){
+void UIRenderer::Impl::resetScreenSize(const std::pair<uint32_t, uint32_t>& size) {
+    auto screenWidth = size.first; auto screenHeight = size.second;
+    // 无效大小
+    if (screenWidth <= 0 || screenHeight <= 0) return;
+    // 无变化
+    if (targetWidth_ == screenWidth &&
+        targetHeight_ == screenHeight){
         return;
     }
-    needUpdate = true;
-    // draw_->shutdown();
-    // core_->shutdown();
-    // 存储屏幕大小
-    targetWidth_ = size.first;
-    targetHeight_ = size.second;
     // 重置屏幕范围
-    mouseWatcher_.setScreenSize(targetWidth_, targetHeight_);
+    mouseWatcher_.setScreenSize(screenWidth, screenHeight);
+    std::cout << "[UIRenderer] Scree size reset to " 
+              << screenWidth << "x" << screenHeight << std::endl;
+    // slot 更新标志
+    needUpdate = true;
     
-    std::cout << "[UIRenderer] Target size reset to " 
-              << targetWidth_ << "x" << targetHeight_ << std::endl;
+    // [修正] 避免过度绘制, 将UI元素绘制到固定大小 // 4K -> 1k, 720p -> 720p
+    auto targetWidth = std::min<uint32_t>(screenWidth, maxTargetWidth);
+    auto targetHeight = std::min<uint32_t>(screenHeight, maxTargetHeight);
+    if (targetWidth != targetWidth_ || targetHeight != targetWidth_) {
+        targetWidth_ = targetWidth;
+        targetHeight_ = targetHeight;  
+        mouseWatcher_.setTargetSize(targetWidth, targetHeight);
+        
+        std::cout << "[UIRenderer] Target size reset to " 
+                  << targetWidth << "x" << targetHeight << std::endl;
+    }    
 }
 
 void UIRenderer::Impl::resetWidgetTargetRect(const DrawRect& targetRect) {
@@ -306,7 +318,7 @@ void UIRenderer::Impl::setupRenderTimer() {
 }
 
 void UIRenderer::Impl::updateSlotInfo() {
-    // 重新创建 dmabuf 模板
+    // 重建基于 实际目标大小(而非屏幕大小) 的 DMABUF
     auto dmabufTemplate = DmaBuffer::create(
         targetWidth_, 
         targetHeight_, 
@@ -331,7 +343,13 @@ void UIRenderer::Impl::updateSlotInfo() {
     int windowWidth  = static_cast<int>(widget_->width() * dpiScale);
     int windowHeight = static_cast<int>(widget_->height() * dpiScale);
 
-    targetRect_.rect = QRectF(0.0, targetHeight_ - windowHeight, windowWidth, windowHeight);
+    // 左上
+    // targetRect_.rect = QRectF(0.0, 0.0, windowWidth, windowHeight);
+    // 左下
+    // targetRect_.rect = QRectF(0.0, targetHeight_ - windowHeight, windowWidth, windowHeight);
+    // 左中
+    targetRect_.rect = QRectF(0.0, 0.0, windowWidth, targetHeight_);
+
     autoCursorSize = 32 * dpiScale;
 
     mouseWatcher_.start();
@@ -346,7 +364,7 @@ void UIRenderer::Impl::onRenderTick() {
     static int x{10}, y{10};   // 鼠标坐标
     
     // 检查状态
-    if (refreshing_.load() || pauser_.is_paused()) {
+    if (pauser_.is_paused() || refreshing_.load()) {
         return;
     }
     // 线程安全的单次更新
@@ -413,8 +431,8 @@ void UIRenderer::Impl::onRenderTick() {
 
     // 绘制光标
     if (!cursor.isNull()) {
-        // 获取鼠标坐标
-        mouseWatcher_.getPosition(x, y);
+        // 获取映射后鼠标坐标
+        mouseWatcher_.getMappedPosition(x, y);
         draw_->drawImage(*slot, cursor, QPoint(x, y), autoCursorSize);
     }
     
@@ -429,12 +447,19 @@ void UIRenderer::Impl::onRenderTick() {
     core_->doneQCurrent();
     // 等待绘制完成后显示
     FenceWatcher::instance().watchFence(drawFence, [this, slot] () mutable {
+        if (!running_.load()) {
+            core_->releaseSlot(slotTypeName_, slot);
+            return;
+        }
+        auto hdPtr = std::make_shared<SlotHolder>(core_, slotTypeName_, slot);
         std::lock_guard<std::mutex> lock(handleMtx);
         // 获取当前有效的 plane handle
-        if (currentPlaneHandle_.valid() && displayer_.lock() != nullptr) {
-            displayer_.lock()->presentFrame(currentPlaneHandle_, {slot->dmabufPtr}, 
-                std::make_shared<SlotHolder>(core_, slotTypeName_, slot));
-        }
+        if (!currentPlaneHandle_.valid() || displayer_.lock() == nullptr) return;
+        displayer_.lock()->presentFrame(
+            currentPlaneHandle_,
+            {slot->dmabufPtr}, 
+            hdPtr
+        );
     });
 }
 
@@ -449,14 +474,18 @@ void UIRenderer::stop() { impl_->stop(); }
 void UIRenderer::pause(bool refreshing) { impl_->pause(refreshing); }
 void UIRenderer::resume() { impl_->resume(); }
 
-void UIRenderer::resetTargetSize(const std::pair<uint32_t, uint32_t>& size) {
-    impl_->resetTargetSize(size);
+void UIRenderer::resetScreenSize(const std::pair<uint32_t, uint32_t>& size) {
+    impl_->resetScreenSize(size);
 }
 void UIRenderer::resetPlaneHandle(const DisplayManager::PlaneHandle& handle) {
     impl_->resetPlaneHandle(handle);
 }
 void UIRenderer::resetWidgetTargetRect(const DrawRect& targetRect) {
     impl_->resetWidgetTargetRect(targetRect);
+}
+void UIRenderer::setMaxTargeSize(const std::pair<uint32_t, uint32_t> tgSize) {
+    impl_->maxTargetHeight = tgSize.first;
+    impl_->maxTargetWidth = tgSize.second;
 }
 void UIRenderer::bindDisplayer(std::weak_ptr<DisplayManager> displayer) {
     impl_->bindDisplayer(displayer);

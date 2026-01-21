@@ -4,12 +4,6 @@
  * @FilePath: /EdgeVision/src/pipeline/appController.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
-/*
- * @Author: SweerItTer xxxzhou.xian@gmail.com
- * @Date: 2025-12-05 21:58:03
- * @FilePath: /EdgeVision/src/pipeline/appController.cpp
- * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
- */
 #include "appController.h"
 #include "threadUtils.h"
 #include "threadPauser.h"
@@ -27,7 +21,7 @@
 static auto chooseClosestResolution(int screenW, int screenH) -> std::pair<int, int> {
     static const std::vector<std::pair<int, int>> standardRes = {
         {640, 480}, {720, 480}, {720, 576}, {1280, 720},
-        {1920, 1080}, {2560, 1440}, {3840, 2160}, {4096, 2160}
+        {1920, 1080}, {2560, 1440}, {3840, 2160}
     };
 
     std::pair<int, int> bestRes;
@@ -86,6 +80,9 @@ private:
 AppContriller::Impl::Impl() {
     // DisplayManager 管理 HDMI / DRM planes
     display_  = std::make_shared<DisplayManager>();
+    while (!display_->valid()){ std::this_thread::sleep_for(std::chrono::milliseconds(1000)); }
+    std::cerr << "[AppContriller][DEBUG] DisplayManager inited." << std::endl;
+
     // UIrenderer 管理qt渲染和绘制
     uiRenderer = std::make_unique<UIRenderer>();
 
@@ -107,16 +104,18 @@ AppContriller::Impl::Impl() {
 
 AppContriller::Impl::~Impl() {
     quit();
-    // 若 throw 异常, 不会析构, 但是静态局部变量在函数作用域内, 只有函数被调用时才初始化
-    // 清理渲染资源(只在程序退出时析构)
-    if (uiRenderer) {
-        Draw::instance().shutdown();
-        Core::instance().shutdown();
-    }
+    display_.reset();
+    uiRenderer.reset();
+    vision_.reset();
+    /* Draw 和 Core 的 shutdown 将会在exit时自动调用
+     * 顺序: 由于Draw必然使用Core, 因此Core的回调更早注册, 也就更晚调用
+     */
 };
 
 // ------------------ 资源回收 / 重置资源 ------------------
 void AppContriller::Impl::preProcess(){
+    if (!running.load()) return;    // 程序退出中
+    // 暂停数据流
     refreshing.pause();
     if (yoloProcessor) yoloProcessor->pause();
 
@@ -146,8 +145,11 @@ void AppContriller::Impl::postProcess(){
     };
     DisplayManager::PlaneConfig primaryCfg = {
         .type = DisplayManager::PlaneType::PRIMARY,
-        .srcWidth = autoWidth,
-        .srcHeight = autoHeight,
+        .srcWidth = std::min<uint32_t>(autoWidth, 1920),
+        .srcHeight = std::min<uint32_t>(autoHeight, 1080),
+        .dstWidth = autoWidth,
+        .dstHeight = autoHeight,
+        .drmFormat = DRM_FORMAT_ABGR8888, /// RGBA
         .zOrder = 1
     };
     overlayPlaneHandle = display_->createPlane(overlayCfg);
@@ -155,7 +157,7 @@ void AppContriller::Impl::postProcess(){
     
     // 重置 planeHandle / 屏幕范围
     uiRenderer->resetPlaneHandle(primaryPlaneHandle);
-    uiRenderer->resetTargetSize(screenSize); // 屏幕原始范围
+    uiRenderer->resetScreenSize(screenSize); // 屏幕原始范围
 
     // 重置视频采集
     auto ccfg = VisionPipeline::defaultCameraConfig(autoWidth, autoHeight);
@@ -188,12 +190,20 @@ void AppContriller::Impl::signalBind() {
     });
     // 录像
     QObject::connect(ui_, &MainInterface::recordSignal, [this](bool status){
+        if (!dirExists("/mnt/sdcard")) {
+            std::cerr << "[AppContriller][Warning] No sdcard, skip save." << std::endl;
+            return;
+        }
         if (refreshing.is_paused()) return;
         if (status) vision_->tryRecord(VisionPipeline::RecordStatus::Start);
         else        vision_->tryRecord(VisionPipeline::RecordStatus::Stop);
     });
     // 拍照
     QObject::connect(ui_, &MainInterface::photoSignal, [this] {
+        if (!dirExists("/mnt/sdcard")) {
+            std::cerr << "[AppContriller][Warning] No sdcard, skip save." << std::endl;
+            return;
+        }
         if (refreshing.is_paused()) return;
         if (!vision_->tryCapture()){
             std::cerr << "[AppContriller][ERROR] Failed to capture photo." << std::endl;
@@ -286,8 +296,12 @@ void AppContriller::Impl::whenFrameReady(FramePtr frame) {
 
 // ------------------ 启动 ------------------
 void AppContriller::Impl::start() {
-    // 初始化时调用一次
-    postProcess();
+    static bool inited{false};
+    if (!inited) {
+        // 初始化时调用一次
+        postProcess();
+        inited = true;
+    }
     // 重置标志位
     running.store(true);
     refreshing.resume();
@@ -312,20 +326,18 @@ void AppContriller::Impl::start() {
 void AppContriller::Impl::quit() {
     if (!running.exchange(false)) return;
     std::cout << "[AppContriller] stopping..." << std::endl;
-    running.store(false);
-    // if (mainLoop.joinable()) mainLoop.join();
+
     if(yoloProcessor){
-        yoloProcessor->pause();
-        yoloProcessor->start();
+        yoloProcessor->stop();
     }
 
-    vision_->stop();
     display_->stop();
+    vision_->stop();
     uiRenderer->stop();
 }
 
 // ------------------ 对外接口 ------------------
 AppContriller::AppContriller() : impl_(std::make_unique<Impl>() ){ }
-AppContriller::~AppContriller(){ }
+AppContriller::~AppContriller() = default;
 void AppContriller::start() { impl_->start(); }
 void AppContriller::quit() { return impl_->quit(); }
