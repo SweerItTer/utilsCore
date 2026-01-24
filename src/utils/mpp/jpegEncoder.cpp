@@ -13,15 +13,15 @@ JpegEncoder::JpegEncoder(const Config& cfg)
     if (!encoder_ctx_->ctx() || !encoder_ctx_->api()) {
         fprintf(stderr, "[JpegEncoder] Initialization failed!\n");
         throw std::runtime_error("[JpegEncoder] Initialization failed!");
-    } else {
-        initialized_.store(true);
-        ctx = encoder_ctx_->ctx();
-        mpi = encoder_ctx_->api();
-    
-        mkdir(config_.save_dir.c_str(), 0755);
-        fprintf(stdout, "[JpegEncoder] Initialized: %ux%u, quality=%d\n",
-                config_.width, config_.height, config_.quality);
     }
+
+    initialized_.store(true);
+    ctx = encoder_ctx_->ctx();
+    mpi = encoder_ctx_->api();
+
+    mkdir(config_.save_dir.c_str(), 0755);
+    fprintf(stdout, "[JpegEncoder] Initialized: %ux%u, quality=%d\n",
+            config_.width, config_.height, config_.quality);
 }
 
 bool JpegEncoder::resetConfig(const Config& cfg) {

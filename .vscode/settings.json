@@ -4,6 +4,7 @@
         "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/rk356x-toolchain.cmake",
         "-DTOOLCHAIN_PATH=${env:HOME}/rk3568/buildroot/output/rockchip_rk3568/host",
         "-DUSE_CROSS_COMPILE=ON",
+        "-DBUILD_STATIC_UTILS=ON",
     ],
     "files.associations": {
         "*.cpp": "cpp",

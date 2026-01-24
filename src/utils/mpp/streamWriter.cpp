@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-11-21 20:04:56
- * @FilePath: /EdgeVision/src/utils/mpp/streamWriter.cpp
+ * @FilePath: /src/utils/mpp/streamWriter.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 
@@ -180,12 +180,19 @@ bool StreamWriter::openNewSegmentFor(WriterCtx* ctx) {
         return false;
     }
 
-    // 给 writer 设置新的 FILEGuard(旧fp自动关闭)
-    if (ctx->fp == nullptr) {
+    if (ctx->fp == nullptr) { // 第一次需要构造
         ctx->fp = std::make_unique<FILEGuard>(fp);
-        return true;
+    } else { // 给 writer 设置新的 FILEGuard(旧fp自动关闭)
+        ctx->fp->reset(fp);
     }
-    ctx->fp->reset(fp);
+
+    // 获取对应 fd
+    if ((ctx->fd = fileno(fp)) < 0){
+        fprintf(stderr, "[StreamWriter] Failed to get [%s] file descriptor.\n", filename.c_str());
+        return false;
+    }
+    // 顺序访问优化
+    posix_fadvise(ctx->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
     return true;
 }
 
@@ -273,13 +280,11 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
         // 写入文件
         FILE* fp = ctx->fp->get();
         if (!fp) continue;
-        int fd = fileno(fp);
         size_t length = packet->length();
 
-        // 顺序访问优化
-        posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+        // 写入到缓冲区
         size_t written = fwrite(data, 1, length, fp);
-             
+        
         if (written != length) {
             fprintf(stderr, "[StreamWriter] Insufficient actual data written: %zu/%zu\n", written, length);
         }
@@ -291,8 +296,9 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
         if (accumulatedSize < FLUSH_THRESHOLD) {
             continue;
         }
-        if (fflush(fp) < 0) {
-            // 将缓冲数据推到内核缓冲区(需要马上可读才需要这一步)
+        
+        if (!fflush(fp)) {
+            // 将缓冲数据推到内核缓冲区
             fprintf(stderr, "[StreamWriter] Flush STREAM error:%s\n", std::strerror(errno));
         }
         accumulatedSize = 0;
@@ -348,20 +354,24 @@ void StreamWriter::dispatchLoop() {
         if (cutSigment){
             ++segmentIndex_;
             fprintf(stdout, "[StreamWriter] Switching to segment index: %zu\n", segmentIndex_);
-            // 为新的 currentWriter_ 打开分段文件(若打开失败, 继续使用旧文件)
+            // 对休眠中 writer 打开新的分段文件 (若打开失败, 继续使用旧文件)
             if (!openNewSegmentFor(idleWriter_)) {
                 fprintf(stderr, "[StreamWriter] Failed to open on dispatch segment: %zu\n", segmentIndex_);
             }
             // 交换 writer
             {
                 std::lock_guard<std::mutex> lk2(currentWriter_->mtx);
-                // currentWriter_->fp->reset(nullptr);
                 std::swap(currentWriter_, idleWriter_);
             }
             
             // 重置计数
-            currentPacketCount_.store(0,  std::memory_order_relaxed); 
+            currentPacketCount_.store(0,  std::memory_order_relaxed);
+            // 将旧 writer 的数据sync到磁盘
+            if (idleWriter_->fd < 0 || !fsync(idleWriter_->fd)){
+                fprintf(stderr, "[StreamWriter] Failed to sync segment[%u] to disk: %d\n", segmentIndex_, errno);
+            }
         }
+        // 等待第一个I帧
         if (firstIframeNeed) continue;
         guard.release(); // 交给写线程释放
         // 分发到 currentWriter_

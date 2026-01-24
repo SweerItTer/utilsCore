@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-12-01 16:34:58
- * @FilePath: /EdgeVision/include/utils/mpp/jpegEncoder.h
+ * @FilePath: /include/utils/mpp/jpegEncoder.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #pragma once

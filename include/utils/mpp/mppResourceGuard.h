@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-11-18 19:07:25
- * @FilePath: /EdgeVision/include/utils/mpp/mppResourceGuard.h
+ * @FilePath: /include/utils/mpp/mppResourceGuard.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #pragma once

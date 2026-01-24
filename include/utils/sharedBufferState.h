@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-08-13 05:50:44
- * @FilePath: /EdgeVision/include/utils/sharedBufferState.h
+ * @FilePath: /include/utils/sharedBufferState.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #ifndef SHARED_BUFFER_STATE_H

@@ -1,5 +1,5 @@
 /*
- * @FilePath: /EdgeVision/include/utils/rga/rgaProcessor.h
+ * @FilePath: /include/utils/rga/rgaProcessor.h
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-17 22:51:16
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
@@ -65,10 +65,8 @@ struct RgbaBuffer {
 
 class RgaProcessor {
 public:
-    struct Config
-    {
-        std::shared_ptr<CameraController> cctr = nullptr;
-        std::shared_ptr<FrameQueue> rawQueue = nullptr;
+    struct Config {
+        std::weak_ptr<FrameQueue> rawQueue;
         uint32_t width = 0;
         uint32_t height = 0;
         bool usingDMABUF = false;
@@ -92,9 +90,9 @@ public:
 private:
     void initpool();
     int getAvailableBufferIndex();
-    int dmabufFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, int dmabuf_fd);
+    int dmabufFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, DmaBufferPtr srcDmabufPtr);
     int mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void* data);
-    int getIndex_auto(rga_buffer_t& src, rga_buffer_t& dst, Frame* frame);
+    int getIndex_auto(rga_buffer_t& src, rga_buffer_t& dst, std::weak_ptr<Frame> frame);
 private:
     FramePtr infer();
     void run();
@@ -103,8 +101,7 @@ private:
     ThreadPauser pauser_;
     std::thread worker_;
 
-    std::shared_ptr<FrameQueue> rawQueue_;
-    std::shared_ptr<CameraController> cctr_;
+    std::weak_ptr<FrameQueue> rawQueue_;
 
     std::unique_ptr<asyncThreadPool> rgaThreadPool;
     std::deque<std::future<FramePtr>> futs;

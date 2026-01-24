@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-09-19 03:31:36
- * @FilePath: /EdgeVision/src/utils/v4l2/frame.cpp
+ * @FilePath: /src/utils/v4l2/frame.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "v4l2/frame.h"

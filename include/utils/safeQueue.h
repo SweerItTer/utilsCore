@@ -1,5 +1,5 @@
 /*
- * @FilePath: /EdgeVision/include/utils/safeQueue.h
+ * @FilePath: /include/utils/safeQueue.h
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-05-18 19:49:05
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com

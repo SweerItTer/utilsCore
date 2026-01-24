@@ -1,5 +1,5 @@
 <!--
- * @FilePath: /EdgeVision/include/utils/drm/dtsi_path.md
+ * @FilePath: /include/utils/drm/dtsi_path.md
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-11 18:23:55
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com

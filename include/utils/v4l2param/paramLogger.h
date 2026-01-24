@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-31 19:37:23
- * @FilePath: /EdgeVision/include/utils/v4l2param/paramLogger.h
+ * @FilePath: /include/utils/v4l2param/paramLogger.h
  */
 #ifndef PARAM_LOGGER_H
 #define PARAM_LOGGER_H

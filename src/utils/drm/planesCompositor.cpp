@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-08-25 23:32:28
- * @FilePath: /EdgeVision/src/utils/drm/planesCompositor.cpp
+ * @FilePath: /src/utils/drm/planesCompositor.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "drm/planesCompositor.h"

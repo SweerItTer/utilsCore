@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-11-19
- * @FilePath: /EdgeVision/include/utils/drm/drmBpp.h
+ * @FilePath: /include/utils/drm/drmBpp.h
  * @Description: 支持多平面格式的 bpp 计算和索引访问
  */
 #ifndef DRM_BPP_H

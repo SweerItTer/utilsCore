@@ -1,11 +1,7 @@
 ﻿cmake_minimum_required(VERSION 3.14)
-project(EdgeVision VERSION 1.0)
+project(utilsCore VERSION 1.0)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
-
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,8 +13,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -ffunction-sections 
 option(USE_CROSS_COMPILE "Enable cross-compilation for RK356x" OFF)
 
 if(USE_CROSS_COMPILE)
-    # RK3568 宏定义
-    # add_definitions(-DRK356x)
+    # ARM 宏定义
     add_definitions(-D__arm__)
 
     # 设置库路径
@@ -45,10 +40,4 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_link_options(-Wl,--gc-sections)
 endif()
 
-find_package(Qt5 COMPONENTS Core Quick Widgets Gui OpenGL REQUIRED)
-
-add_subdirectory(src/UI)            # GUI模块
-add_subdirectory(src/model)         # 视觉模型模块
 add_subdirectory(src/utils)         # 工具模块
-add_subdirectory(src/pipeline)      # 流水线
-add_subdirectory(examples)          # 例程

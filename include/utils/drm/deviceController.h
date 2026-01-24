@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-08-25 19:18:18
- * @FilePath: /EdgeVision/include/utils/drm/deviceController.h
+ * @FilePath: /include/utils/drm/deviceController.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #ifndef DEVICE_CONTROLLER_H

@@ -1,5 +1,5 @@
 /*
- * @FilePath: /EdgeVision/src/utils/rga/rgaProcessor.cpp
+ * @FilePath: /src/utils/rga/rgaProcessor.cpp
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-17 22:51:38
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
@@ -15,8 +15,7 @@
 #include "threadUtils.h"
 
 RgaProcessor::RgaProcessor(Config& cfg)
-    : cctr_(std::move(cfg.cctr))
-    , rawQueue_(std::move(cfg.rawQueue))
+    : rawQueue_(cfg.rawQueue)
     , width_(cfg.width)
     , height_(cfg.height)
     , srcFormat_(cfg.srcFormat)
@@ -60,16 +59,14 @@ void RgaProcessor::initpool() {
     std::cout << "RGA: bufferPool size: " << bufferPool_.size() << std::endl;
 }
 
-RgaProcessor::~RgaProcessor()
-{
+RgaProcessor::~RgaProcessor() {
     stop();
     while(!futs.empty()) futs.pop_front();
     std::vector<RgbaBuffer> temp = {};
     bufferPool_.swap(temp);
 }
 
-void RgaProcessor::start()
-{
+void RgaProcessor::start() {
     if(pauser_.is_paused()) pauser_.resume();
     if (running_) return;
 
@@ -130,33 +127,24 @@ int RgaProcessor::getAvailableBufferIndex()
     return -1; // 无可用缓冲
 }
 
-int RgaProcessor::dmabufFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, int dmabuf_fd)
-{
+int RgaProcessor::dmabufFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, DmaBufferPtr srcDmabufPtr) {
     int index = getAvailableBufferIndex();
     if (0 > index){
         // 无可用buff
         return -1;
     }
     // 数据无效
-    if (0 > dmabuf_fd) return -1;
+    if (!srcDmabufPtr) return -1;
+   
+    auto& dstDmabufPtr = bufferPool_[index].s->dmabuf_ptr;
 
-    src.width = width_;
-    src.height = height_;
-    src.wstride = width_;
-    src.hstride = height_;
-    src.format = srcFormat_;
-    
-    dst = src;
-    
-    src.fd = dmabuf_fd;
-    dst.fd = bufferPool_[index].s->dmabuf_ptr->fd();
-    
-    dst.format = dstFormat_;
+    src = wrapbuffer_fd(srcDmabufPtr->fd(), srcDmabufPtr->width(), srcDmabufPtr->height(), srcFormat_);
+    dst = wrapbuffer_fd(dstDmabufPtr->fd(), dstDmabufPtr->width(), dstDmabufPtr->height(), dstFormat_);
+
     return index;
 }
 
-int RgaProcessor::mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void* data)
-{
+int RgaProcessor::mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void* data) {
     int index = getAvailableBufferIndex();
     if (0 > index){
         // 无可用buff
@@ -180,14 +168,17 @@ int RgaProcessor::mmapPtrFrameProcess(rga_buffer_t& src, rga_buffer_t& dst, void
     return index;
 }
 
-int RgaProcessor::getIndex_auto(rga_buffer_t& src, rga_buffer_t& dst, Frame* frame){
+int RgaProcessor::getIndex_auto(rga_buffer_t& src, rga_buffer_t& dst, std::weak_ptr<Frame> frame){
     int index = -1;
+    auto frame_s_ptr = frame.lock();
+    if (!frame_s_ptr) return -1;
+    
     switch (frameType_) {
         case Frame::MemoryType::MMAP:
-            index = mmapPtrFrameProcess(src, dst, frame->data());
+            index = mmapPtrFrameProcess(src, dst, frame_s_ptr->data());
             break;
         case Frame::MemoryType::DMABUF:
-            index = dmabufFrameProcess(src, dst, frame->dmabuf_fd(0));
+            index = dmabufFrameProcess(src, dst,  frame_s_ptr->sharedState(0)->dmabuf_ptr);
             break;
         default:
             std::cerr << "Unsupported frame type.\n";
@@ -209,17 +200,18 @@ FramePtr RgaProcessor::infer() {
     rga_buffer_t dst {};// 输出图像参数
     FramePtr rawFrame = nullptr;
     FramePtr dstFrame = nullptr;
-    int retry = 3;
+    
     // 等待帧
-    do {
-        if (retry--) {
+    for (int retry = 3; retry > 0; --retry){
+        if (!rawQueue_.lock()->try_dequeue(rawFrame) || !rawFrame) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
-        return dstFrame;
-    } while (!rawQueue_->try_dequeue(rawFrame));
+    }
+    if (!rawFrame) return dstFrame;
     if (!running_) return dstFrame;
-    int index = getIndex_auto(src, dst, rawFrame.get());
+
+    int index = getIndex_auto(src, dst, rawFrame);
 
     if (0 > index) {
         // 无可用 buffer(或格式错误)
@@ -252,7 +244,6 @@ FramePtr RgaProcessor::infer() {
     
     // 不管是否转换成功都归还
     rawFrame.reset();
-    // cctr_->returnBuffer(rawFrame->index());
     
     if (IM_STATUS_SUCCESS != status) {
         fprintf(stderr, "RGA convert failed: %d\n", status);
@@ -280,7 +271,7 @@ void RgaProcessor::run()
         pauser_.wait_if_paused();
         if (!running_) break;
         // 添加异步任务
-        auto fut = rgaThreadPool->enqueue([this](){ return infer(); });
+        auto fut = rgaThreadPool->try_enqueue([this](){ return infer(); });
         // 只有当 future 有效时才加入
         if (fut.valid()) {
             std::lock_guard<std::mutex> lk(futsMutex);

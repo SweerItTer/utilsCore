@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-31 19:30:53
- * @FilePath: /EdgeVision/include/utils/v4l2param/paramProcessor.h
+ * @FilePath: /include/utils/v4l2param/paramProcessor.h
  */
 #ifndef PARAM_PROCESSOR_H
 #define PARAM_PROCESSOR_H

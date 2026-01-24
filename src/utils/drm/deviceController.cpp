@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-08-25 19:18:18
- * @FilePath: /EdgeVision/src/utils/drm/deviceController.cpp
+ * @FilePath: /src/utils/drm/deviceController.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include <cstring>

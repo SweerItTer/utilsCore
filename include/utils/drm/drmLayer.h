@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-08-26 23:18:51
- * @FilePath: /EdgeVision/include/utils/drm/drmLayer.h
+ * @FilePath: /include/utils/drm/drmLayer.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 

@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-09-15 00:32:44
- * @FilePath: /EdgeVision/include/utils/udevMonitor.h
+ * @FilePath: /include/utils/udevMonitor.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #ifndef UDEV_MONITOR_H

@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-11-17 18:59:52
- * @FilePath: /EdgeVision/include/utils/mpp/encoderCore.h
+ * @FilePath: /include/utils/mpp/encoderCore.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #pragma once
@@ -24,6 +24,7 @@
 #include "mpp/encoderContext.h"
 #include "mpp/mppResourceGuard.h"
 #include "mpp/formatTool.h"
+#include "mpp/fileTools.h"
 
 #include "types.h"
 

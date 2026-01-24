@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-10-19 21:37:59
- * @FilePath: /EdgeVision/include/utils/progressBar.h
+ * @FilePath: /include/utils/progressBar.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #pragma once

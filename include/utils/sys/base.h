@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-11-17 02:50:41
- * @FilePath: /EdgeVision/include/utils/sys/base.h
+ * @FilePath: /include/utils/sys/base.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #pragma once

@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-30 21:50:28
- * @FilePath: /EdgeVision/include/utils/v4l2param/paramControl.h
+ * @FilePath: /include/utils/v4l2param/paramControl.h
  */
 #ifndef PARAM_CONTROL_H
 #define PARAM_CONTROL_H

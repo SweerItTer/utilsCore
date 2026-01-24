@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-12-04 19:08:10
- * @FilePath: /EdgeVision/include/utils/sys/cpuMonitor.h
+ * @FilePath: /include/utils/sys/cpuMonitor.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #pragma once

@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-11-17 18:59:39
- * @FilePath: /EdgeVision/include/utils/mpp/encoderContext.h
+ * @FilePath: /include/utils/mpp/encoderContext.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #pragma once
@@ -378,8 +378,8 @@ inline static MppEncoderContext::Config createJpegConfig(
     cfg.prep_width = width;
     cfg.prep_height = height;
     cfg.prep_format = format;
-    cfg.prep_hor_stride = 0;  // 自动计算
-    cfg.prep_ver_stride = 0;
+    cfg.prep_hor_stride = width;  // 自动计算
+    cfg.prep_ver_stride = height;
     cfg.prep_rotation = MPP_ENC_ROT_0;
     cfg.prep_mirroring = 0;
     

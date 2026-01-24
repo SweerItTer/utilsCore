@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-08-09 16:56:24
- * @FilePath: /EdgeVision/include/utils/logger.h
+ * @FilePath: /include/utils/logger.h
  */
 #ifndef LOGGER_H
 #define LOGGER_H

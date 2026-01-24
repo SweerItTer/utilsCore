@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-08-27 02:35:47
- * @FilePath: /EdgeVision/include/utils/objectsPool.h
+ * @FilePath: /include/utils/objectsPool.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #ifndef OBJECT_POOL_H
