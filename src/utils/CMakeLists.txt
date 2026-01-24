@@ -1,4 +1,4 @@
-set(UTILS_INCLUDE_ROOT "${CMAKE_SOURCE_DIR}/include/utils/")
+set(UTILS_INCLUDE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../include/utils/")
 
 # 收集所有源文件
 file(GLOB_RECURSE UTILS_SOURCES
