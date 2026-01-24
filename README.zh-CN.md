@@ -157,7 +157,6 @@ export TOOLCHAIN_PATH=YOUR_TOOLCHAIN_PATH # e.g:~/rk3568/buildroot/output/rockch
 
 # 3. 配置并构建
 mkdir -p build_utilsCore && cd build_utilsCore
-mkdir -p build_utilsCore && cd build_utilsCore
 
 cmake -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE \
