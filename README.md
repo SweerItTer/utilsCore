@@ -1,16 +1,16 @@
-# 🎯 EdgeVision
+# 🎯 utilsCore
 
-> 基于 RK356x 平台的高分辨率低延迟视觉处理流水线
+> 面向嵌入式平台的高性能工具库
 
 ## 📖 项目简介
 
-EdgeVision 是一个面向资源受限嵌入式平台的高性能视觉处理系统，旨在提供**高分辨率低延迟传输链路**的完整实现方案。项目通过软硬件协同设计，在 RK356x 平台上实现了从摄像头采集到显示输出的全流程优化，适用于医疗影像、工业质检、智能监控、智能驾驶、机器人视觉等对实时性要求极高的场景。
+utilsCore 是一个面向嵌入式平台（特别是 Rockchip RK356x）的高性能通用工具库，专注于视觉处理和多媒体应用。项目提供了从底层硬件访问到高层应用接口的完整工具链，特别强调性能优化和资源管理，适用于需要高效处理多媒体数据的各种嵌入式应用场景。
 
 ### 🎯 核心目标
 
-- ✅ **低延迟传输链路**：通过零拷贝设计和硬件加速，实现毫秒级端到端延迟
-- ✅ **高分辨率支持**：支持 4K 分辨率的实时处理和显示
-- ✅ **资源优化**：充分利用 RK356x 的硬件加速能力（RGA、MPP、NPU）
+- ✅ **高性能设计**：通过零拷贝、无锁数据结构、内存池等技术，实现最佳性能
+- ✅ **硬件加速集成**：充分利用 RK356x 的硬件加速能力（RGA、MPP、DRM、V4L2）
+- ✅ **资源优化**：高效的内存管理、线程池和设备资源管理
 - ✅ **模块化设计**：各功能模块解耦，便于灵活组合和扩展
 
 ## 🏗️ 系统架构
@@ -128,45 +128,128 @@ EdgeVision/
 - **编译环境**：Ubuntu 20.04+ (x86_64)
 - **工具链**：GCC 9.0+ (支持 C++14)
 - **依赖库**：
-  - Qt5 (≥5.12)
-  - OpenCV (≥4.5)
-  - RKNN-Toolkit (≥1.7.1)
   - Rockchip MPP SDK
   - Rockchip RGA SDK
+  - libdrm
+  - libudev
+  - pthread
+  - epoll
 
-### 编译步骤
+### 方式一：作为静态库使用
+
+#### 独立构建库文件
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/SweerItTer/EdgeVision.git
+git clone https://github.com/SweerItTer/utilsCore.git
 
-# 2. 配置交叉编译
-mkdir build && cd build
-cmake -DUSE_CROSS_COMPILE=TRUE \
-	  -DCMAKE_TOOLCHAIN_FILE=../EdgeVision/rk3568-toolchain.cmake \
-	  -DCMAKE_BUILD_TYPE=Release ../EdgeVision/
+# 2. 配置变量
+export TOOLCHAIN_PATH=YOUR_TOOLCHAIN_PATH # e.g:~/rk3568/buildroot/output/rockchip_rk3568/host
 
-# 3. 编译
-make -j$(nproc)
+# 3. 配置并构建
+mkdir -p build_utilsCore && cd build_utilsCore
+cmake -DCMAKE_BUILD_TYPE:STRING=Release \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE \
+    -DCMAKE_TOOLCHAIN_FILE=../utilsCore/rk356x-toolchain.cmake \
+    -DTOOLCHAIN_PATH=$TOOLCHAIN_PATH \
+    -DUSE_CROSS_COMPILE=ON \
+    --no-warn-unused-cli -S ../utilsCore -B .
 
-# 4. 安装到设备
-make install
+cmake --build . --target utils -j$(nproc)
+
+# 输出：build/src/utils/libutils.a
 ```
 
-### 运行示例
+#### 集成到项目
+
+```cmake
+cmake_minimum_required(VERSION 3.14)
+project(MyApp)
+
+# 添加头文件路径
+include_directories(/path/to/utilsCore/include)
+
+# 链接静态库
+link_directories(/path/to/utilsCore/build/src/utils)
+
+add_executable(my_app src/main.cpp)
+
+# 链接库（需要显式添加 pthread）
+target_link_libraries(my_app utils pthread)
+```
+
+### 方式二：作为 Git 子模块（推荐）
+
+这是最简单、最灵活的方式。源文件就像项目原生文件一样，编译器自动处理依赖。
 
 ```bash
-# 完整应用（包含 UI 和视觉推理）
-./EdgeVision
+# 添加子模块
+git submodule add https://github.com/SweerItTer/utilsCore.git third_party/utilsCore
+git submodule update --init --recursive
+```
 
-# 仅视觉流水线测试
-./visionTest
+**CMakeLists.txt**:
+```cmake
+cmake_minimum_required(VERSION 3.14)
+project(MyApp)
 
-# 雪花屏测试
-./SnowflakeTest
+# 添加 utilsCore 子目录
+add_subdirectory(third_party/utilsCore)
 
-# UI 渲染测试
-./UITest
+# 创建可执行文件
+add_executable(my_app 
+    src/main.cpp
+    # 编译器会自动处理依赖
+    # 只用到的文件才会被编译
+)
+
+# 链接库（需要显式添加 pthread）
+target_link_libraries(my_app utils pthread)
+```
+
+**优点**：
+- ✅ 版本锁定，离线可用
+- ✅ 编译器自动处理依赖，只用到的文件才会编译
+- ✅ 无需手动选择模块
+- ✅ 调试时可以单步进入库代码
+
+### 使用示例
+
+```cpp
+#include <utils/v4l2/cameraController.h>
+#include <utils/mpp/encoderCore.h>
+
+int main() {
+    // 使用V4L2摄像头
+    CameraController camera("/dev/video0");
+    camera.startCapture();
+    
+    // 使用MPP编码
+    MppEncoderCore encoder;
+    encoder.init(1920, 1080);
+    
+    return 0;
+}
+```
+
+**编译器行为**：
+- 只编译 `cameraController.cpp` 和 `encoderCore.cpp` 及其依赖
+- 不会编译其他未使用的源文件（如 `rgaProcessor.cpp` 等）
+- 链接时只包含用到的符号，二进制体积自动优化
+
+### 交叉编译
+
+```bash
+# 配置环境变量
+export SYS_TOOLCHAIN_PATH="/path/to/rk3568/toolchain"
+
+# 配置CMake
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_TOOLCHAIN_FILE=../rk356x-toolchain.cmake \
+      -DTOOLCHAIN_PATH=$SYS_TOOLCHAIN_PATH \
+      ..
+cmake --build . --target utils -j$(nproc)
 ```
 
 ## ⚙️ 功能特性
@@ -192,11 +275,9 @@ make install
   | 90ms  | 3                |
   | 160ms | 3                |
   | 170ms | 4                |
-  | 101ms | 28               |
 - **最大分辨率**：4K (3840×2160@30fps)
 - **推理帧率**：YOLOv5s 15fps
-- **内存占用**：< 50MB (4k 场景)
-- **测试时长**：473'44"
+- **内存占用**：< 70MB (4k 场景)
 
 ## ⚠️ 已知问题
 
@@ -290,7 +371,9 @@ Apache License 2.0 | 详见 [LICENSE](LICENSE)
 
 ## 👨‍💻 作者
 
-SweerItTer - xxxzhou.xian@gmail.com
+[SweerItTer](https://github.com/SweerItTer)
+
+[xxxzhou.xian@gmail.com](mailto:xxxzhou.xian@gmail.com)
 
 ## 🙏 致谢
 

@@ -1,14 +1,15 @@
 set(UTILS_INCLUDE_ROOT "${CMAKE_SOURCE_DIR}/include/utils/")
 
-
+# 收集所有源文件
 file(GLOB_RECURSE UTILS_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
 )
 
 file(GLOB_RECURSE UTILS_HEADERS
-    "${UTILS_INCLUDE_ROOT}/utils/*.h"
+    "${UTILS_INCLUDE_ROOT}/*.h"
 )
 
+# 构建静态库
 add_library(utils STATIC
     ${UTILS_SOURCES}
     ${UTILS_HEADERS}
@@ -22,11 +23,15 @@ target_include_directories(utils
         ${CMAKE_SYSROOT}/usr/include/rga
 )
 
-# 底层库是 utils 的实现细节
+# 链接系统库
 target_link_libraries(utils
     PRIVATE
         drm
         rga
         udev
         rockchip_mpp
+        pthread
 )
+
+# 提供别名
+add_library(utilsCore::utils ALIAS utils)
