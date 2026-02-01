@@ -261,7 +261,7 @@ target_link_libraries(my_app utils pthread)
 ### Minimal Usage Example
 
 ```cpp
-#include <utils/v4l2/cameraController.h>
+#include <v4l2/cameraController.h>
 
 int main() {
     CameraController::Config cfg{};
