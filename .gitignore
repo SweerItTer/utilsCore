@@ -1,4 +1,5 @@
 build
+.worktree
 *.code-workspace
 log
 
