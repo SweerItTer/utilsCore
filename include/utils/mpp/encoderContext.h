@@ -5,6 +5,7 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #pragma once
+#include <cstdio>
 #include <rockchip/rk_type.h>
 #include <rockchip/mpp_frame.h>
 #include <rockchip/mpp_buffer.h>
@@ -158,7 +159,7 @@ public:
      * 
      * @param cfg 用户定义的编码配置
      */
-    explicit MppEncoderContext(const Config &cfg);
+    explicit MppEncoderContext(const Config& cfg);
 
     /**
      * @brief 析构函数, 自动释放 MPP 上下文与资源
@@ -174,7 +175,7 @@ public:
      * @return true 重置成功
      * @return false 重置失败
      */
-    bool resetConfig(const Config &cfg);
+    bool resetConfig(const Config& cfg);
 
     /** 获取 MPP 上下文指针 */
     MppCtx ctx() const { return mCtx; }

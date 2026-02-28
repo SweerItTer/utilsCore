@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-10-05 19:23:07
- * @FilePath: /include/utils/asyncThreadPool.h
+ * @FilePath: /utilsCore/include/utils/asyncThreadPool.h
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #ifndef ASYNC_THREAD_POOL_H
@@ -47,7 +47,7 @@ public:
     ~asyncThreadPool();
 
     /**
-     * @brief 阻塞入队任务（如果队列满, 会等待）
+     * @brief 阻塞入队任务(如果队列满, 会等待)
      * 
      * @tparam F 可调用对象类型
      * @tparam Args 参数类型
@@ -73,14 +73,13 @@ public:
         if(!running_) return std::future<resultType>();
 
         tasks_.enqueue([taskPtr]{ (*taskPtr)(); });
-        condition_.notify_one();
+        workerCv_.notify_one();
 
-        managerCv_.notify_one();
         return res;
     }
 
     /**
-     * @brief 非阻塞入队任务（如果队列满, 会直接返回空 future）
+     * @brief 非阻塞入队任务(如果队列满, 会直接返回空 future)
      * 
      * @tparam F 可调用对象类型
      * @tparam Args 参数类型
@@ -104,9 +103,8 @@ public:
             return std::future<resultType>(); // 队列满直接返回空 future
 
         tasks_.enqueue([taskPtr]{ (*taskPtr)(); });
-        condition_.notify_one();
+        workerCv_.notify_one();
 
-        managerCv_.notify_one();
         return res;
     }
 
@@ -115,12 +113,17 @@ public:
      */
     void stop();
 
+    /**
+     * @brief 获取当前工作线程数量(不含已标记停止的线程)
+     */
+    size_t aliveThreadCount() const;
+
 private:
     // ----------------- 内部类型 -----------------
     struct WorkerWrapper; // 工作线程封装, 记录活跃时间与停止标志
 
     // ----------------- 内部函数 -----------------
-    void worker(std::shared_ptr<WorkerWrapper> wrapper);      // 工作线程函数
+    void worker(std::weak_ptr<WorkerWrapper> wrapper);      // 工作线程函数
     void managerThreadFunc();                                 // 管理线程函数
     void adjustThreads();                                     // 动态扩缩容逻辑
 
@@ -128,10 +131,9 @@ private:
     std::atomic<bool> running_;
     std::atomic<size_t> activeTasks_{0};                      // 当前活跃任务数
 
-    std::mutex queueMtx_;
-    std::condition_variable condition_;
+    mutable std::mutex queueMtx_;
+    std::condition_variable workerCv_;
     std::condition_variable queueNotFullCv_;
-    std::condition_variable managerCv_;                       // 管理线程条件变量
 
     moodycamel::ConcurrentQueue<std::function<void()>> tasks_;                 // 任务队列
     std::size_t maxQueueSize_;
