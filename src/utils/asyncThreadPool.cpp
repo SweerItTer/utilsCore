@@ -51,7 +51,7 @@ void asyncThreadPool::worker(std::weak_ptr<WorkerWrapper> wrapperWeak) {
     }
 
     while (running_.load(std::memory_order_relaxed) && !wrapper->stopFlag.load(std::memory_order_relaxed)) {
-        std::function<void ()> task;
+        TaskCallback task;
         {
             std::unique_lock<std::mutex> lock(queueMtx_);
             workerCv_.wait(lock, [this, &wrapper] {

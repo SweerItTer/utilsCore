@@ -19,6 +19,8 @@
 #include <memory>
 #include <stdexcept>
 #include "concurrentqueue.h"
+#include "internal/callbackTraits.h"
+#include "internal/staticCallback.h"
 
 // 管理线程检查间隔
 static constexpr std::chrono::milliseconds MANAGERINTERVAL = std::chrono::milliseconds(5000);
@@ -31,6 +33,9 @@ static constexpr std::chrono::milliseconds MANAGERINTERVAL = std::chrono::millis
  */
 class asyncThreadPool {
 public:
+    // 线程池内部任务队列改成静态回调槽。
+    // 目标是保留原有 enqueue/try_enqueue 用法，同时让热点任务避免落到 std::function<void()>。
+    using TaskCallback = utils::internal::StaticCallback<void()>;
 
     /**
      * @brief 构造线程池
@@ -59,8 +64,14 @@ public:
     auto enqueue(F&& f, Args&&... args)
         -> std::future<typename std::result_of<F(Args...)>::type>
     {
+        using callableType = typename std::decay<F>::type;
+        static_assert(
+            utils::internal::is_invocable<callableType&, Args...>::value,
+            "ThreadPool task must be invocable with the supplied argument types");
         using resultType = typename std::result_of<F(Args...)>::type;
-        auto taskPtr = std::make_shared<std::packaged_task<resultType()>>(
+        // 仍然使用 packaged_task 保留 future 语义，但真正入队的是静态绑定后的 TaskCallback。
+        using taskType = std::packaged_task<resultType()>;
+        auto taskPtr = std::make_shared<taskType>(
             std::bind(std::forward<F>(f), std::forward<Args>(args)...)
         );
 
@@ -72,10 +83,30 @@ public:
 
         if(!running_) return std::future<resultType>();
 
-        tasks_.enqueue([taskPtr]{ (*taskPtr)(); });
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
         workerCv_.notify_one();
 
         return res;
+    }
+
+    template<class R, class Owner>
+    auto enqueue(Owner* owner, R (Owner::*method)())
+        -> std::future<R>
+    {
+        static_assert(std::is_same<typename std::remove_reference<Owner>::type, Owner>::value,
+                      "Owner type must not be a reference");
+        // 这个重载是给热点成员函数路径用的。
+        // 调用点可以显式写 this + 成员函数指针，避免再包一层捕获 lambda。
+        return enqueue(std::bind(method, owner));
+    }
+
+    template<class R, class Owner>
+    auto enqueue(const Owner* owner, R (Owner::*method)() const)
+        -> std::future<R>
+    {
+        static_assert(std::is_same<typename std::remove_reference<Owner>::type, Owner>::value,
+                      "Owner type must not be a reference");
+        return enqueue(std::bind(method, owner));
     }
 
     /**
@@ -91,8 +122,13 @@ public:
     auto try_enqueue(F&& f, Args&&... args)
         -> std::future<typename std::result_of<F(Args...)>::type>
     {
+        using callableType = typename std::decay<F>::type;
+        static_assert(
+            utils::internal::is_invocable<callableType&, Args...>::value,
+            "ThreadPool task must be invocable with the supplied argument types");
         using resultType = typename std::result_of<F(Args...)>::type;
-        auto taskPtr = std::make_shared<std::packaged_task<resultType()>>(
+        using taskType = std::packaged_task<resultType()>;
+        auto taskPtr = std::make_shared<taskType>(
             std::bind(std::forward<F>(f), std::forward<Args>(args)...)
         );
 
@@ -102,10 +138,29 @@ public:
         if(tasks_.size_approx() >= maxQueueSize_ || !running_)
             return std::future<resultType>(); // 队列满直接返回空 future
 
-        tasks_.enqueue([taskPtr]{ (*taskPtr)(); });
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
         workerCv_.notify_one();
 
         return res;
+    }
+
+    template<class R, class Owner>
+    auto try_enqueue(Owner* owner, R (Owner::*method)())
+        -> std::future<R>
+    {
+        static_assert(std::is_same<typename std::remove_reference<Owner>::type, Owner>::value,
+                      "Owner type must not be a reference");
+        // RGA 这类循环调度路径优先走这个入口，减少热点 lambda 包装。
+        return try_enqueue(std::bind(method, owner));
+    }
+
+    template<class R, class Owner>
+    auto try_enqueue(const Owner* owner, R (Owner::*method)() const)
+        -> std::future<R>
+    {
+        static_assert(std::is_same<typename std::remove_reference<Owner>::type, Owner>::value,
+                      "Owner type must not be a reference");
+        return try_enqueue(std::bind(method, owner));
     }
 
     /**
@@ -135,7 +190,7 @@ private:
     std::condition_variable workerCv_;
     std::condition_variable queueNotFullCv_;
 
-    moodycamel::ConcurrentQueue<std::function<void()>> tasks_;                 // 任务队列
+    moodycamel::ConcurrentQueue<TaskCallback> tasks_;                          // 任务队列
     std::size_t maxQueueSize_;
 
     std::thread managerThread_;                               // 管理线程

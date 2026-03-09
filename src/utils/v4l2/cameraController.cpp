@@ -42,6 +42,7 @@ public:
     void setThreadAffinity(int cpu_core);
     void setFrameCallback(FrameCallback&& enqueueCallback_);
     int returnBuffer(int index);
+    void releaseFrameBuffer(int index);
 
     int getDeviceFd() const;
 
@@ -644,6 +645,11 @@ void CameraController::Impl::setFrameCallback(FrameCallback &&enqueueCallback)
     enqueueCallback_ = std::move(enqueueCallback);
 }
 
+void CameraController::Impl::releaseFrameBuffer(int index)
+{
+    (void)returnBuffer(index);
+}
+
 // False:next loop | True:keep on
 bool CameraController::Impl::waitForFrameReady() {
     fd_set fds;
@@ -749,9 +755,7 @@ FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t time
     if (frame_id == UINT64_MAX) {
         frame_id = 0;
     }
-    frame_opt->setReleaseCallback([this](int index){
-        (void)this->returnBuffer(index); // 忽略返回值
-    });
+    frame_opt->setReleaseCallback<Impl, &Impl::releaseFrameBuffer>(this);
     return std::move(frame_opt);
 }
 
