@@ -11,11 +11,14 @@
 #include <iostream>
 #include <cstring>
 
+#include "noDestroySingleton.h"
+
 class FenceWatcher {
 public:
     static FenceWatcher& instance() {
-        static FenceWatcher* watcher = new FenceWatcher();
-        return *watcher;
+        return utils::noDestroySingleton([]() {
+            return new FenceWatcher();
+        });
     }
 
     // 异步等待 fence_fd, timeout_ms 可选, callback 超时或完成都会调用

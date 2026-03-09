@@ -6,11 +6,13 @@
 
 #include "udevMonitor.h"
 #include "asyncThreadPool.h"
+#include "noDestroySingleton.h"
 
 // 获取单例实例
 UdevMonitor& UdevMonitor::instance() {
-    static UdevMonitor* inst = new UdevMonitor();
-    return *inst;
+    return utils::noDestroySingleton([]() {
+        return new UdevMonitor();
+    });
 }
 
 UdevMonitor::UdevMonitor() {
