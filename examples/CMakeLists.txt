@@ -24,3 +24,7 @@ target_compile_features(ThreadPool_Scale_Demo PRIVATE cxx_std_14)
 add_executable(RGA_DmaBuf_Demo rga_dmabuf_demo.cpp)
 target_link_libraries(RGA_DmaBuf_Demo utils)
 target_compile_features(RGA_DmaBuf_Demo PRIVATE cxx_std_14)
+
+add_executable(StaticCallback_Compile_Demo static_callback_compile_demo.cpp)
+target_link_libraries(StaticCallback_Compile_Demo utils)
+target_compile_features(StaticCallback_Compile_Demo PRIVATE cxx_std_14)

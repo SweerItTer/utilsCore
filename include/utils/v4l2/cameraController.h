@@ -12,18 +12,18 @@
 #ifndef CAMERA_CONTROLLER_H
 #define CAMERA_CONTROLLER_H
 
-#include <functional>
 #include <memory>
 #include <string>
 #include <linux/videodev2.h>
 
+#include "internal/staticCallback.h"
 #include "types.h"
 
 class CameraController {
 public:
     // 定义 FrameCallback 类型(更简洁,简化std::function<void(Frame)>声明)
     // 接受的参数是 Frame,返回类型为 void
-    using FrameCallback = std::function<void(FramePtr)>;
+    using FrameCallback = utils::internal::StaticCallback<void(FramePtr)>;
     
     struct Config {
         // 默认配置

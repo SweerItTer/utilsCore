@@ -531,9 +531,7 @@ FramePtr RgaProcessor::processInference() {
     // 创建输出
     dstFrame.reset(new Frame(bufferPool_[index].getState()));
     dstFrame->meta = rgaMeta;
-    dstFrame->setReleaseCallback([this](int idx) {
-        releaseBuffer(idx);
-    });
+    dstFrame->setReleaseCallback<RgaProcessor, &RgaProcessor::releaseBuffer>(this);
     
     LOG_TRACE("Frame processed successfully: index=%d", index);
     
@@ -564,9 +562,7 @@ void RgaProcessor::workerThreadMain() {
         }
         
         // 添加异步处理任务
-        auto future = threadPool_->try_enqueue([this]() {
-            return processInference();
-        });
+        auto future = threadPool_->try_enqueue(this, &RgaProcessor::processInference);
         
         if (future.valid()) {
             std::lock_guard<std::mutex> lock(taskQueueMutex_);
