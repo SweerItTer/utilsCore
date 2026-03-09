@@ -8,8 +8,8 @@
 
 RgaConverter &RgaConverter::instance()
 {
-    static RgaConverter converter;
-    return converter;
+    static RgaConverter* converter = new RgaConverter();
+    return *converter;
 }
 
 RgaConverter::RgaConverter() {

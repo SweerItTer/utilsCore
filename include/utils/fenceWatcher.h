@@ -14,8 +14,8 @@
 class FenceWatcher {
 public:
     static FenceWatcher& instance() {
-        static FenceWatcher watcher;
-        return watcher;
+        static FenceWatcher* watcher = new FenceWatcher();
+        return *watcher;
     }
 
     // 异步等待 fence_fd, timeout_ms 可选, callback 超时或完成都会调用

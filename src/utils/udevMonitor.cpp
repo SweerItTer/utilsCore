@@ -9,9 +9,8 @@
 
 // 获取单例实例
 UdevMonitor& UdevMonitor::instance() {
-    // 和程序共存亡
-    static UdevMonitor inst;
-    return inst;
+    static UdevMonitor* inst = new UdevMonitor();
+    return *inst;
 }
 
 UdevMonitor::UdevMonitor() {
