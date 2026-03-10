@@ -288,7 +288,7 @@ void UdevMonitor::run() {
                     try {
                         // 异步调用回调
                         // asyncPool.enqueue([](){h.cb();});
-                        asyncPool.enqueue(h.cb);
+                        asyncPool.post(h.cb);
 
                     } catch (const std::exception& e) {
                         std::cerr << "UdevMonitor: handler exception: " << e.what() << "\n";
