@@ -95,9 +95,21 @@ public:
     {
         static_assert(std::is_same<typename std::remove_reference<Owner>::type, Owner>::value,
                       "Owner type must not be a reference");
-        // 这个重载是给热点成员函数路径用的。
-        // 调用点可以显式写 this + 成员函数指针，避免再包一层捕获 lambda。
-        return enqueue(std::bind(method, owner));
+        using taskType = std::packaged_task<R()>;
+        auto taskPtr = std::make_shared<taskType>([owner, method]() {
+            return (owner->*method)();
+        });
+
+        std::future<R> res = taskPtr->get_future();
+        std::unique_lock<std::mutex> lock(queueMtx_);
+        queueNotFullCv_.wait(lock, [this]{ return tasks_.size_approx() < maxQueueSize_ || !running_; });
+
+        if(!running_) return std::future<R>();
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+
+        return res;
     }
 
     template<class R, class Owner>
@@ -106,7 +118,21 @@ public:
     {
         static_assert(std::is_same<typename std::remove_reference<Owner>::type, Owner>::value,
                       "Owner type must not be a reference");
-        return enqueue(std::bind(method, owner));
+        using taskType = std::packaged_task<R()>;
+        auto taskPtr = std::make_shared<taskType>([owner, method]() {
+            return (owner->*method)();
+        });
+
+        std::future<R> res = taskPtr->get_future();
+        std::unique_lock<std::mutex> lock(queueMtx_);
+        queueNotFullCv_.wait(lock, [this]{ return tasks_.size_approx() < maxQueueSize_ || !running_; });
+
+        if(!running_) return std::future<R>();
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+
+        return res;
     }
 
     /**
@@ -150,8 +176,21 @@ public:
     {
         static_assert(std::is_same<typename std::remove_reference<Owner>::type, Owner>::value,
                       "Owner type must not be a reference");
-        // RGA 这类循环调度路径优先走这个入口，减少热点 lambda 包装。
-        return try_enqueue(std::bind(method, owner));
+        using taskType = std::packaged_task<R()>;
+        auto taskPtr = std::make_shared<taskType>([owner, method]() {
+            return (owner->*method)();
+        });
+
+        std::future<R> res = taskPtr->get_future();
+        std::lock_guard<std::mutex> lock(queueMtx_);
+
+        if(tasks_.size_approx() >= maxQueueSize_ || !running_)
+            return std::future<R>();
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+
+        return res;
     }
 
     template<class R, class Owner>
@@ -160,7 +199,21 @@ public:
     {
         static_assert(std::is_same<typename std::remove_reference<Owner>::type, Owner>::value,
                       "Owner type must not be a reference");
-        return try_enqueue(std::bind(method, owner));
+        using taskType = std::packaged_task<R()>;
+        auto taskPtr = std::make_shared<taskType>([owner, method]() {
+            return (owner->*method)();
+        });
+
+        std::future<R> res = taskPtr->get_future();
+        std::lock_guard<std::mutex> lock(queueMtx_);
+
+        if(tasks_.size_approx() >= maxQueueSize_ || !running_)
+            return std::future<R>();
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+
+        return res;
     }
 
     /**
