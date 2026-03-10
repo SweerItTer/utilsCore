@@ -1,4 +1,5 @@
-
+build
+.worktree
 *.code-workspace
 log
 
@@ -74,4 +75,3 @@ Thumbs.db
 # --------
 *.dll
 *.exe
-

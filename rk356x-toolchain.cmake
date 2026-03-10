@@ -37,3 +37,35 @@ set(CMAKE_CXX_FLAGS "--sysroot=${CMAKE_SYSROOT}" CACHE STRING "" FORCE)
 # CPU 架构优化标志 (针对 RK3568 的 Cortex-A55)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-a55 -mtune=cortex-a55" CACHE STRING "C Flags")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=cortex-a55 -mtune=cortex-a55" CACHE STRING "C++ Flags")
+
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    # NOTE: Don't call find_program() with CMAKE_AR/CMAKE_RANLIB directly.
+    # Those variables are typically pre-populated (and cached) by CMake to the plain
+    # cross 'ar/ranlib', which can't handle LTO objects without the GCC plugin.
+    find_program(GCC_AR
+        NAMES aarch64-buildroot-linux-gnu-gcc-ar aarch64-linux-gnu-gcc-ar gcc-ar
+        PATHS "${TOOLCHAIN_PATH}/bin"
+        NO_DEFAULT_PATH
+    )
+    find_program(GCC_RANLIB
+        NAMES aarch64-buildroot-linux-gnu-gcc-ranlib aarch64-linux-gnu-gcc-ranlib gcc-ranlib
+        PATHS "${TOOLCHAIN_PATH}/bin"
+        NO_DEFAULT_PATH
+    )
+
+    if(NOT GCC_AR)
+        find_program(GCC_AR NAMES aarch64-buildroot-linux-gnu-gcc-ar aarch64-linux-gnu-gcc-ar gcc-ar)
+    endif()
+    if(NOT GCC_RANLIB)
+        find_program(GCC_RANLIB NAMES aarch64-buildroot-linux-gnu-gcc-ranlib aarch64-linux-gnu-gcc-ranlib gcc-ranlib)
+    endif()
+
+    if(GCC_AR AND GCC_RANLIB)
+        set(CMAKE_AR "${GCC_AR}" CACHE FILEPATH "Archiver" FORCE)
+        set(CMAKE_RANLIB "${GCC_RANLIB}" CACHE FILEPATH "Ranlib" FORCE)
+        message(STATUS "Using LTO-capable archiver: ${CMAKE_AR}")
+    else()
+        message(WARNING "gcc-ar/gcc-ranlib not found; static libraries may be incomplete.")
+    endif()
+endif()

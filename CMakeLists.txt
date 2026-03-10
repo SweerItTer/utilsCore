@@ -38,6 +38,17 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
 
     # 链接时移除未使用段
     add_link_options(-Wl,--gc-sections)
+
+    # 开启 LTO (IPO)
+    set(_toolchain_bin "")
+    if(USE_CROSS_COMPILE AND DEFINED TOOLCHAIN_PATH)
+        set(_toolchain_bin "${TOOLCHAIN_PATH}/bin")
+    endif()
+
+    
+    add_compile_options(-flto)
+    add_link_options(-flto)
 endif()
 
 add_subdirectory(src/utils)         # 工具模块
+add_subdirectory(examples)

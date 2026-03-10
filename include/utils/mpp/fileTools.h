@@ -10,7 +10,7 @@
 
 /// @brief 检查指定路径的目录是否存在
 /// @param path 目录路径
-/// @return 如果目录存在返回 true，否则返回 false
+/// @return 如果目录存在返回 true, 否则返回 false
 inline bool dirExists(const std::string& path) {
     struct stat st;
     if (0 != stat(path.c_str(), &st)) {

@@ -42,7 +42,8 @@ public:
     const uint32_t height() const noexcept;
     const uint32_t format() const noexcept;
     const uint32_t pitch()  const noexcept;
-    const uint32_t size()   const noexcept;
+    const uint32_t size()   const noexcept;  // 保持API兼容性, 返回uint32_t
+    const uint64_t size64() const noexcept;  // 新增方法, 返回完整的uint64_t大小
     const uint32_t offset() const noexcept;
     const uint32_t channel() const noexcept;
 

@@ -6,12 +6,13 @@
 
 #include "udevMonitor.h"
 #include "asyncThreadPool.h"
+#include "noDestroySingleton.h"
 
 // 获取单例实例
 UdevMonitor& UdevMonitor::instance() {
-    // 和程序共存亡
-    static UdevMonitor inst;
-    return inst;
+    return utils::noDestroySingleton([]() {
+        return new UdevMonitor();
+    });
 }
 
 UdevMonitor::UdevMonitor() {
@@ -287,7 +288,7 @@ void UdevMonitor::run() {
                     try {
                         // 异步调用回调
                         // asyncPool.enqueue([](){h.cb();});
-                        asyncPool.enqueue(h.cb);
+                        asyncPool.post(h.cb);
 
                     } catch (const std::exception& e) {
                         std::cerr << "UdevMonitor: handler exception: " << e.what() << "\n";

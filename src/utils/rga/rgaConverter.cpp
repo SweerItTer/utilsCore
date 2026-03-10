@@ -5,11 +5,13 @@
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "rga/rgaConverter.h"
+#include "noDestroySingleton.h"
 
 RgaConverter &RgaConverter::instance()
 {
-    static RgaConverter converter;
-    return converter;
+    return utils::noDestroySingleton([]() {
+        return new RgaConverter();
+    });
 }
 
 RgaConverter::RgaConverter() {

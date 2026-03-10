@@ -314,7 +314,15 @@ const uint32_t DmaBuffer::width()  const noexcept { return data_.width;  }
 const uint32_t DmaBuffer::height() const noexcept { return data_.height; }
 const uint32_t DmaBuffer::format() const noexcept { return data_.format; }
 const uint32_t DmaBuffer::pitch()  const noexcept { return data_.pitch;  }
-const uint32_t DmaBuffer::size()   const noexcept { return data_.size;   }
+const uint32_t DmaBuffer::size()   const noexcept {
+    if (data_.size > UINT32_MAX) {
+        return UINT32_MAX;
+    }
+    return static_cast<uint32_t>(data_.size);
+}
+const uint64_t DmaBuffer::size64() const noexcept {
+    return data_.size;
+}
 const uint32_t DmaBuffer::offset() const noexcept { return data_.offset; }
 const uint32_t DmaBuffer::channel() const noexcept { return data_.channel; }
 
