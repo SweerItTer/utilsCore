@@ -285,8 +285,14 @@ RgaProcessorError RgaProcessor::stop() {
             LOG_ERROR("Error joining worker thread: %s", e.what());
         }
     }
-    
-    // 清理挂起的任
+
+    {
+        std::unique_lock<std::mutex> lock(taskQueueMutex_);
+        taskQueueCv_.wait_for(lock, std::chrono::milliseconds(500), [this] {
+            return inFlightTasks_.load(std::memory_order_relaxed) == 0;
+        });
+    }
+
     cleanupPendingTasks();
     
     LOG_INFO("RgaProcessor stopped successfully");
@@ -549,35 +555,58 @@ void RgaProcessor::workerThreadMain() {
             break;
         }
         
-        // 检查任务队列
+        auto queue = rawQueue_.lock();
+        if (!queue) {
+            std::unique_lock<std::mutex> lock(taskQueueMutex_);
+            taskQueueCv_.wait_for(lock, std::chrono::milliseconds(5), [this] {
+                return !running_.load(std::memory_order_relaxed);
+            });
+            continue;
+        }
+
+        if (queue->size_approx() == 0) {
+            std::unique_lock<std::mutex> lock(taskQueueMutex_);
+            taskQueueCv_.wait_for(lock, std::chrono::milliseconds(1), [this, &queue] {
+                return !running_.load(std::memory_order_relaxed) ||
+                       queue->size_approx() > 0;
+            });
+            continue;
+        }
+
         {
-            std::lock_guard<std::mutex> lock(taskQueueMutex_);
-            if (pendingTasks_.size() >= static_cast<size_t>(config_.maxPendingTasks)) {
-                // 队列已满, 丢弃最旧的任务
-                if (!pendingTasks_.empty()) {
-                    pendingTasks_.pop_front();
-                    LOG_WARN("Task queue full, dropping oldest task");
-                }
+            std::unique_lock<std::mutex> lock(taskQueueMutex_);
+            taskQueueCv_.wait(lock, [this] {
+                return !running_.load(std::memory_order_relaxed) ||
+                       (inFlightTasks_.load(std::memory_order_relaxed) + readyFrames_.size()) <
+                           static_cast<size_t>(config_.maxPendingTasks);
+            });
+            if (!running_.load(std::memory_order_relaxed)) {
+                break;
             }
+            inFlightTasks_.fetch_add(1, std::memory_order_relaxed);
         }
-        
-        // 添加异步处理任务
-        auto future = threadPool_->try_enqueue(this, &RgaProcessor::processInference);
-        
-        if (future.valid()) {
+
+        if (!threadPool_->try_post(this, &RgaProcessor::processOneTask)) {
+            inFlightTasks_.fetch_sub(1, std::memory_order_relaxed);
             std::lock_guard<std::mutex> lock(taskQueueMutex_);
-            pendingTasks_.emplace_back(std::move(future));
             taskQueueCv_.notify_one();
-        } else {
-            LOG_WARN("Failed to enqueue RGA processing task");
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        
-        // 短暂休眠以避免CPU占用过高
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
     
     LOG_INFO("RGA worker thread stopped");
+}
+
+void RgaProcessor::processOneTask() {
+    FramePtr frame = processInference();
+    {
+        std::lock_guard<std::mutex> lock(taskQueueMutex_);
+        if (frame) {
+            readyFrames_.emplace_back(std::move(frame));
+            completedTasks_.fetch_add(1, std::memory_order_relaxed);
+        }
+        inFlightTasks_.fetch_sub(1, std::memory_order_relaxed);
+    }
+    taskQueueCv_.notify_one();
 }
 
 int RgaProcessor::dump(FramePtr& frame, int64_t timeout) {
@@ -586,47 +615,27 @@ int RgaProcessor::dump(FramePtr& frame, int64_t timeout) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout);
 
     std::unique_lock<std::mutex> lock(taskQueueMutex_);
-    while (pendingTasks_.empty()) {
+    while (readyFrames_.empty()) {
         if (!running_.load()) {
-            LOG_TRACE("Not running, no pending tasks");
+            LOG_TRACE("Not running, no ready frames");
             return -1;
         }
         if (taskQueueCv_.wait_until(lock, deadline) == std::cv_status::timeout) {
-            LOG_TRACE("No pending tasks within timeout");
+            LOG_TRACE("No ready frames within timeout");
             return -1;
         }
     }
 
-    auto& future = pendingTasks_.front();
-    
-    // 等待任务完成
-    const auto now = std::chrono::steady_clock::now();
-    const auto remain = (deadline > now) ? (deadline - now) : std::chrono::milliseconds(0);
-    auto status = future.wait_for(remain);
-    if (status != std::future_status::ready) {
-        LOG_TRACE("Task not ready within timeout");
-        return -1;
+    frame = std::move(readyFrames_.front());
+    readyFrames_.pop_front();
+    taskQueueCv_.notify_one();
+    if (frame) {
+        int index = frame->meta.index;
+        LOG_TRACE("Dumped frame with index %d", index);
+        return index;
     }
-    
-    try {
-        frame = future.get();
-        pendingTasks_.pop_front();
-        completedTasks_++;
-        
-        if (frame) {
-            int index = frame->meta.index;
-            LOG_TRACE("Dumped frame with index %d", index);
-            return index;
-        } else {
-            LOG_TRACE("Task completed but returned null frame");
-            return -1;
-        }
-    } catch (const std::exception& e) {
-        LOG_ERROR("Exception while getting task result: %s", e.what());
-        pendingTasks_.pop_front();
-        failedTasks_++;
-        return -1;
-    }
+    LOG_TRACE("Ready frame is null");
+    return -1;
 }
 
 void RgaProcessor::releaseBuffer(int index) {
@@ -678,7 +687,7 @@ RgaProcessor::TaskQueueStats RgaProcessor::getTaskQueueStats() const {
     std::lock_guard<std::mutex> lock(taskQueueMutex_);
     
     TaskQueueStats stats{};
-    stats.pendingTasks = pendingTasks_.size();
+    stats.pendingTasks = readyFrames_.size() + inFlightTasks_.load(std::memory_order_relaxed);
     stats.completedTasks = completedTasks_.load();
     stats.failedTasks = failedTasks_.load();
     
@@ -689,21 +698,8 @@ void RgaProcessor::cleanupPendingTasks() {
     std::lock_guard<std::mutex> lock(taskQueueMutex_);
     
     size_t cleaned = 0;
-    while (!pendingTasks_.empty()) {
-        auto& future = pendingTasks_.front();
-        
-        // 非阻塞检查任务
-        if (future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-            try {
-                future.get(); // 清理结果
-            } catch (...) {
-                // 忽略异常
-            }
-        }
-        
-        pendingTasks_.pop_front();
-        cleaned++;
-    }
+    cleaned = readyFrames_.size();
+    readyFrames_.clear();
     
     if (cleaned > 0) {
         LOG_INFO("Cleaned up %zu pending tasks", cleaned);

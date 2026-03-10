@@ -11,7 +11,6 @@
 #include <thread>
 #include <memory>
 #include <queue>
-#include <future>
 #include <mutex>
 #include <condition_variable>
 #include <vector>
@@ -297,6 +296,11 @@ private:
      * @brief 清理挂起的任务
      */
     void cleanupPendingTasks();
+
+    /**
+     * @brief 在线程池中执行一次处理并回填输出队列
+     */
+    void processOneTask();
     
     // 配置参数
     RgaProcessorConfig config_;
@@ -316,7 +320,8 @@ private:
     
     // 任务队列管理
     std::unique_ptr<asyncThreadPool> threadPool_;
-    std::deque<std::future<FramePtr>> pendingTasks_;
+    std::deque<FramePtr> readyFrames_;
+    std::atomic<size_t> inFlightTasks_{0};
     mutable std::mutex taskQueueMutex_;
     std::condition_variable taskQueueCv_;
     std::atomic<size_t> completedTasks_{0};

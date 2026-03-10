@@ -217,6 +217,131 @@ public:
     }
 
     /**
+     * @brief 阻塞投递任务(不需要 future 返回值的热点路径)
+     * @return true: 成功投递; false: 线程池已停止
+     */
+    template<class F, class... Args>
+    bool post(F&& f, Args&&... args)
+    {
+        using callableType = typename std::decay<F>::type;
+        static_assert(
+            utils::internal::is_invocable<callableType&, Args...>::value,
+            "ThreadPool task must be invocable with the supplied argument types");
+
+        auto bound = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
+        auto taskWrapper = [bound = std::move(bound)]() mutable {
+            (void)bound();
+        };
+        using taskType = typename std::decay<decltype(taskWrapper)>::type;
+        auto taskPtr = std::make_shared<taskType>(std::move(taskWrapper));
+
+        std::unique_lock<std::mutex> lock(queueMtx_);
+        queueNotFullCv_.wait(lock, [this]{ return tasks_.size_approx() < maxQueueSize_ || !running_; });
+        if(!running_) return false;
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+        return true;
+    }
+
+    template<class Owner>
+    bool post(Owner* owner, void (Owner::*method)())
+    {
+        auto taskWrapper = [owner, method]() mutable {
+            (owner->*method)();
+        };
+        using taskType = typename std::decay<decltype(taskWrapper)>::type;
+        auto taskPtr = std::make_shared<taskType>(std::move(taskWrapper));
+
+        std::unique_lock<std::mutex> lock(queueMtx_);
+        queueNotFullCv_.wait(lock, [this]{ return tasks_.size_approx() < maxQueueSize_ || !running_; });
+        if(!running_) return false;
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+        return true;
+    }
+
+    template<class Owner>
+    bool post(const Owner* owner, void (Owner::*method)() const)
+    {
+        auto taskWrapper = [owner, method]() mutable {
+            (owner->*method)();
+        };
+        using taskType = typename std::decay<decltype(taskWrapper)>::type;
+        auto taskPtr = std::make_shared<taskType>(std::move(taskWrapper));
+
+        std::unique_lock<std::mutex> lock(queueMtx_);
+        queueNotFullCv_.wait(lock, [this]{ return tasks_.size_approx() < maxQueueSize_ || !running_; });
+        if(!running_) return false;
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+        return true;
+    }
+
+    /**
+     * @brief 非阻塞投递任务(不需要 future 返回值的热点路径)
+     * @return true: 成功投递; false: 队列满或线程池停止
+     */
+    template<class F, class... Args>
+    bool try_post(F&& f, Args&&... args)
+    {
+        using callableType = typename std::decay<F>::type;
+        static_assert(
+            utils::internal::is_invocable<callableType&, Args...>::value,
+            "ThreadPool task must be invocable with the supplied argument types");
+
+        auto bound = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
+        auto taskWrapper = [bound = std::move(bound)]() mutable {
+            (void)bound();
+        };
+        using taskType = typename std::decay<decltype(taskWrapper)>::type;
+        auto taskPtr = std::make_shared<taskType>(std::move(taskWrapper));
+
+        std::lock_guard<std::mutex> lock(queueMtx_);
+        if(tasks_.size_approx() >= maxQueueSize_ || !running_) return false;
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+        return true;
+    }
+
+    template<class Owner>
+    bool try_post(Owner* owner, void (Owner::*method)())
+    {
+        auto taskWrapper = [owner, method]() mutable {
+            (owner->*method)();
+        };
+        using taskType = typename std::decay<decltype(taskWrapper)>::type;
+        auto taskPtr = std::make_shared<taskType>(std::move(taskWrapper));
+
+        std::lock_guard<std::mutex> lock(queueMtx_);
+        if(tasks_.size_approx() >= maxQueueSize_ || !running_) return false;
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+        return true;
+    }
+
+    template<class Owner>
+    bool try_post(const Owner* owner, void (Owner::*method)() const)
+    {
+        auto taskWrapper = [owner, method]() mutable {
+            (owner->*method)();
+        };
+        using taskType = typename std::decay<decltype(taskWrapper)>::type;
+        auto taskPtr = std::make_shared<taskType>(std::move(taskWrapper));
+
+        std::lock_guard<std::mutex> lock(queueMtx_);
+        if(tasks_.size_approx() >= maxQueueSize_ || !running_) return false;
+
+        tasks_.enqueue(TaskCallback::template bindShared<taskType, &taskType::operator()>(taskPtr));
+        workerCv_.notify_one();
+        return true;
+    }
+
+    /**
      * @brief 手动停止线程池
      */
     void stop();

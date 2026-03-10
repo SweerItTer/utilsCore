@@ -795,7 +795,7 @@ void CameraController::Impl::captureLoop() {
         FramePtr frame_opt = std::move(makeFrame(buf, t0));
 
         // 回调传递
-        if (enqueueCallback_ && 0 <= frame_opt->index()) {
+        if (enqueueCallback_ && frame_opt->index() >= 0) {
             enqueueCallback_(std::move(frame_opt)); // 传递指针
         } else returnBuffer(buf.index); // 未设置正确的回调时需要手动回收缓冲区
         
