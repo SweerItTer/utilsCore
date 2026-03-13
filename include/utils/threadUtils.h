@@ -6,6 +6,11 @@
  */
 #pragma once
 
+#include <chrono>
+#include <iostream>
+#include <pthread.h>
+#include <thread>
+
 class ThreadUtils {
 public:
     // 尝试绑定指定线程到指定 CPU 核心, 最多重试 retries 次  
