@@ -6,6 +6,7 @@
  */
 #pragma once
 #include <memory>
+#include <atomic>
 
 #include "mpp/encoderContext.h"
 #include "dma/dmaBuffer.h"
