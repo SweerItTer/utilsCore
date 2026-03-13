@@ -8,6 +8,7 @@
 
 #include "rga/rgaProcessor.h"
 #include "rga/formatTool.h"
+#include "drm/deviceController.h"
 
 #include <cstdio>
 #include <memory>
