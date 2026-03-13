@@ -2,10 +2,14 @@
 #include "mpp/jpegEncoder.h"
 #include "mpp/mppResourceGuard.h"
 #include "mpp/formatTool.h"
+#include <cerrno>
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include <stdexcept>
 #include <sstream>
+#include <thread>
 #include <sys/stat.h> // POSIX 文件操作
 
 JpegEncoder::JpegEncoder(const Config& cfg)
@@ -21,13 +25,19 @@ JpegEncoder::JpegEncoder(const Config& cfg)
     ctx = encoder_ctx_->ctx();
     mpi = encoder_ctx_->api();
 
-    mkdir(config_.save_dir.c_str(), 0755);
+    if (!config_.save_dir.empty() && mkdir(config_.save_dir.c_str(), 0755) != 0 && errno != EEXIST) {
+        throw std::runtime_error("[JpegEncoder] Failed to create save directory.");
+    }
     fprintf(stdout, "[JpegEncoder] Initialized: %ux%u, quality=%d\n",
             config_.width, config_.height, config_.quality);
 }
 
 bool JpegEncoder::resetConfig(const Config& cfg) {
     config_ = cfg;
+    if (!config_.save_dir.empty() && mkdir(config_.save_dir.c_str(), 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "[JpegEncoder] Failed to create save_dir: %s\n", config_.save_dir.c_str());
+        return false;
+    }
     return encoder_ctx_->resetConfig(config_.toMppConfig());
 }
 
@@ -91,9 +101,12 @@ bool JpegEncoder::encodeToFile(MppFrame frame, const std::string& filepath) {
 
     // 获取编码结果
     MppPacket packet = nullptr;
-    const int max_retry = 50;
+    const MppEncoderContext::Config encoderConfig = config_.toMppConfig();
+    const int intervalUs = std::max(1, encoderConfig.packet_poll_interval_us);
+    const int maxRetry = std::max(encoderConfig.packet_poll_retries,
+                                  std::max(1, encoderConfig.packet_ready_timeout_us / intervalUs));
     
-    for (int i = 0; i < max_retry; ++i) {
+    for (int i = 0; i < maxRetry; ++i) {
         RK_S32 ret = mpi->encode_get_packet(ctx, &packet);
         if (ret == MPP_OK && packet) {
             break;
@@ -102,7 +115,7 @@ bool JpegEncoder::encodeToFile(MppFrame frame, const std::string& filepath) {
             fprintf(stderr, "[JpegEncoder] encode_get_packet error: %d\n", ret);
             return false;
         }
-        usleep(2000);  // 2ms
+        std::this_thread::sleep_for(std::chrono::microseconds(intervalUs));
     }
 
     if (!packet) {
@@ -122,10 +135,23 @@ bool JpegEncoder::encodeToFile(MppFrame frame, const std::string& filepath) {
     }
 
     size_t written = fwrite(data, 1, len, fp);
-    fclose(fp);
+    const int flushResult = fflush(fp);
+    const int closeResult = fclose(fp);
     mpp_packet_deinit(&packet);
 
-    return (written == len);
+    if (written != len) {
+        fprintf(stderr, "[JpegEncoder] fwrite wrote %zu/%zu bytes.\n", written, len);
+        return false;
+    }
+    if (flushResult != 0) {
+        fprintf(stderr, "[JpegEncoder] fflush failed for %s\n", filepath.c_str());
+        return false;
+    }
+    if (closeResult != 0) {
+        fprintf(stderr, "[JpegEncoder] fclose failed for %s\n", filepath.c_str());
+        return false;
+    }
+    return true;
 }
 
 std::string JpegEncoder::generateFilename() {

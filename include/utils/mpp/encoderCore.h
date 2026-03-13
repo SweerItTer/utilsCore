@@ -9,6 +9,7 @@
 #include <thread>
 #include <queue>
 #include <array>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <condition_variable>
@@ -68,6 +69,7 @@ public:
     struct EncodedMeta {
         int      core_id    = -1; ///< EncoderCore 实例 id
         int      slot_id    = -1; ///< Slot 索引
+        uint64_t generation = 0;  ///< 该 meta 对应的 slot 代际, 用于 reset 后识别陈旧结果
 
         MppEncoderCore* core    = nullptr; ///< 所属 EncoderCore 指针
         EncodedPacketPtr packet = nullptr; ///< 编码结果包
@@ -99,6 +101,7 @@ public:
         std::shared_ptr<void> lifetime_holder;   ///< 保留外部资源生命周期
         EncodedPacketPtr       packet = nullptr; ///< 编码结果
         std::atomic<SlotState> state {SlotState::invalid}; ///< 当前状态
+        std::atomic<uint64_t> generation {0}; ///< slot 当前所属配置代际
     };
 public:
     /**
@@ -108,12 +111,23 @@ public:
      */
     explicit MppEncoderCore(const MppEncoderContext::Config& cfg, int core_id);
 
+    /**
+     * @brief 使用新配置重建编码上下文和 slot 池
+     * @param cfg 新的编码配置
+     *
+     * 该接口会等待当前正在进行的编码步骤安全退出, 然后再重建上下文与 slot。
+     * 这样可以避免重置时 worker 线程仍在访问旧的 MPP 资源。
+     */
     void resetConfig(const MppEncoderContext::Config& cfg);
     /**
      * @brief 析构函数
      */
     ~MppEncoderCore();
     
+    /**
+     * @brief 标记下一帧为编码结束帧
+     * @note TODO(naming): 公共 API 名称沿用旧接口, 后续统一为 `markEndOfEncode()`
+     */
     void endOfthisEncode() { endOfEncode = true; }
     /**
      * @brief 获取可写 Slot 并置为 Writing
@@ -140,8 +154,18 @@ public:
     /**
      * @brief 释放已使用的 Slot, 置为 Writable
      * @param slot_id 释放的 Slot 索引
+     * @note TODO(naming): 仅按 `slot_id` 释放无法区分 reset 前后的陈旧 meta, 后续推荐使用 `releaseSlot(const EncodedMeta&)`
      */
     void releaseSlot(int slot_id);
+
+    /**
+     * @brief 根据 meta 中携带的代际信息释放 slot
+     * @param meta 包含 slot 和 generation 的编码元信息
+     *
+     * 相比旧的 `releaseSlot(int)` 版本, 该接口可以在 reset 后安全忽略陈旧 meta, 避免把新一代
+     * slot 错误地放回空闲队列。
+     */
+    void releaseSlot(const EncodedMeta& meta);
 
     /// 获取 core_id
     int coreId() const noexcept { return core_id_; }
@@ -153,11 +177,17 @@ private:
     void contextInit(const MppEncoderContext::Config& cfg); ///< 初始化编码上下文
     void initSlots();    ///< 初始化 Slot 内存池
     void cleanupSlots(); ///< 清理 Slot 内存
+    bool enterWorkerEncodeSection(int slot_id); ///< 在编码前与 reset 流程握手
+    void leaveWorkerEncodeSection();            ///< 标记当前编码步骤结束
+    void resetQueues();                         ///< 清空所有 slot 队列
+    void recycleSlot(int slot_id);             ///< 将 slot 安全地回收到可写队列
 
     bool createEncodableFrame(const MppEncoderCore::Slot& s, MppFrame& out_frame, MppBuffer& mpp_buf);
     bool tryGetEncodedMppPacket(MppCtx ctx, MppApi* mpi, MppFrame frame_raw, MppPacket& out_pkt);
+    int calculatePacketPollAttempts() const;   ///< 根据配置计算一次编码允许的轮询次数
     
     const int core_id_;              ///< 核心编号
+    MppEncoderContext::Config currentConfig_{}; ///< 本地缓存配置, 供线程和等待策略复用
     std::unique_ptr<MppEncoderContext> mpp_ctx_;      ///< 编码上下文
     
     std::atomic_bool endOfEncode{false};
@@ -172,21 +202,27 @@ private:
     std::mutex              free_mtx_;   ///< 保护 free_slots_ 队列的互斥锁
     std::condition_variable pending_cv_; ///< 保护 pending_slots_ 队列的互斥锁
 
-    std::atomic<bool> paused_{false};    ///< 是否暂停编码
-    std::atomic<bool> reload_need{false};///< 是否需要重载编码上下文
-    std::mutex  switch_mtx_;             ///< 切换编码参数时的互斥锁
-    std::condition_variable switch_cv_;  ///< 切换编码参数时的条件变量
+    /**
+     * @brief 控制 reset 与 worker 编码步骤之间的握手
+     *
+     * `resetInProgress_` 为 true 时表示上下文和 slot 池正准备被替换; worker 必须在进入
+     * 编码临界区前先观察这个标志。`workerEncoding_` 用于让 reset 等待当前编码步骤结束。
+     */
+    std::mutex control_mtx_;
+    std::condition_variable control_cv_;
+    bool resetInProgress_{false};
+    bool workerEncoding_{false};
+    uint64_t configGeneration_{1};
 };
 
 // SlotGuard 用于自动释放 Slot
 class SlotGuard {
 public:
-    SlotGuard(MppEncoderCore* c, int s) : core(c), slot_id(s) {}
-    ~SlotGuard() { if (slot_id!=-1) core->releaseSlot(slot_id); }
-    void release() { slot_id = -1; }
+    explicit SlotGuard(MppEncoderCore::EncodedMeta meta) : meta_(std::move(meta)) {}
+    ~SlotGuard() { if (meta_.core != nullptr && meta_.slot_id != -1) meta_.core->releaseSlot(meta_); }
+    void release() { meta_.core = nullptr; }
 private:
-    int slot_id = -1;
-    MppEncoderCore* core;
+    MppEncoderCore::EncodedMeta meta_{};
 };
 
 using SlotGuardPtr = std::shared_ptr<SlotGuard>;

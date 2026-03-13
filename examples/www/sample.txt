@@ -1,0 +1,3 @@
+utilsCore net demo download payload
+--------------------------------
+This file is served by the demo plugin through the configured HTTP route.
