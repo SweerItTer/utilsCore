@@ -2,32 +2,6 @@
 #include <iostream>
 #include <algorithm>
 
-/* --------------------------------------------------------------------- */
-/*                        缓冲区大小计算函数                             */
-/* --------------------------------------------------------------------- */
-static size_t calculateBufferSize(uint32_t width, uint32_t height) {
-    // 计算YUV420SP(NV12)格式的原始帧大小
-    size_t frame_size = width * height * 3 / 2;  // YUV420SP: Y + UV planes
-
-    // 考虑编码后的压缩数据, 通常压缩比为10:1到50:1
-    // 对于H.264编码, 为安全起见, 我们分配原始帧大小的2倍
-    size_t compressed_size = frame_size * 2;
-
-    // 确保最小缓冲区大小为1MB, 最大不超过16MB
-    size_t min_buffer = 1 * 1024 * 1024;
-    size_t max_buffer = 16 * 1024 * 1024;
-
-    size_t buffer_size = std::max(min_buffer, std::min(compressed_size, max_buffer));
-
-    // 对齐到4KB边界
-    buffer_size = (buffer_size + 4095) & ~4095;
-
-    fprintf(stdout, "[MppEncoderCore] Calculated buffer size: %zu bytes for %dx%d\n",
-            buffer_size, width, height);
-
-    return buffer_size;
-}
-
 // ------------------------ MppEncoderCore::EncodedPacket ------------------------ //
 MppEncoderCore::EncodedPacket::EncodedPacket(MppPacket pkt, size_t len,  bool keyframe)
     : packet_(pkt), data_len_(len), keyframe_(keyframe) {}
@@ -52,7 +26,8 @@ void MppEncoderCore::EncodedPacket::setKeyframe(bool keyframe) { keyframe_ = key
 
 // ------------------------ MppEncoderCore ------------------------ //
 MppEncoderCore::MppEncoderCore(const MppEncoderContext::Config& cfg, int core_id)
-    : core_id_(core_id) {
+    : core_id_(core_id),
+      currentConfig_(cfg) {
     resetConfig(cfg);
     worker_ = std::thread(&MppEncoderCore::workerThread, this);
     fprintf(stdout, "[MppEncoderCore:%d] Encoder core initialization successfully!\n", core_id_);
@@ -60,15 +35,19 @@ MppEncoderCore::MppEncoderCore(const MppEncoderContext::Config& cfg, int core_id
 
 MppEncoderCore::~MppEncoderCore() {
     running_ = false;
-    paused_ = false;
-    switch_cv_.notify_all();           // 唤醒暂停的 worker
-    pending_cv_.notify_all();          // 唤醒 wait 的 worker
+    {
+        std::lock_guard<std::mutex> lock(control_mtx_);
+        resetInProgress_ = false;
+    }
+    control_cv_.notify_all();
+    pending_cv_.notify_all();
     if (worker_.joinable())
         worker_.join();
     cleanupSlots();
 }
 
 void MppEncoderCore::contextInit(const MppEncoderContext::Config& cfg) {
+    currentConfig_ = cfg;
     mpp_ctx_.reset( new MppEncoderContext(cfg) );
     if (nullptr == mpp_ctx_->ctx() || nullptr == mpp_ctx_->api() || nullptr == mpp_ctx_->encCfg()){
         fprintf(stderr, "[MppEncoderCore:%d] Encoder core initialization failed!\n", core_id_);
@@ -77,37 +56,42 @@ void MppEncoderCore::contextInit(const MppEncoderContext::Config& cfg) {
 }
 
 void MppEncoderCore::resetConfig(const MppEncoderContext::Config& cfg){
-    paused_ = true;
-    std::lock_guard<std::mutex> lk(switch_mtx_);
     {
-        std::lock_guard<std::mutex> lk1(pending_mtx_);
-        std::lock_guard<std::mutex> lk2(free_mtx_);
-        
-        // 资源清理
-        auto empty_pending = std::queue<int>();
-        auto empty_free = std::queue<int>();
-        pending_slots_.swap(empty_pending);
-        free_slots_.swap(empty_free);
+        std::unique_lock<std::mutex> controlLock(control_mtx_);
+        // reset 分两步:
+        // 1. 提前拉起 resetInProgress_ 阻止新任务进入编码临界区
+        // 2. 等待 workerEncoding_ 清零, 确保没有线程再持有旧 MPP 上下文或旧 slot buffer
+        resetInProgress_ = true;
+        pending_cv_.notify_all();
+        control_cv_.wait(controlLock, [this] {
+            return !workerEncoding_ || !running_;
+        });
+        ++configGeneration_;
     }
-    
+
+    resetQueues();
     cleanupSlots();
-    // 重置上下文
     contextInit(cfg);
-    // 重新初始化 slot
     initSlots();
-    paused_ = false;
-    reload_need = true;
-    switch_cv_.notify_all();
+    {
+        std::lock_guard<std::mutex> controlLock(control_mtx_);
+        resetInProgress_ = false;
+    }
+    control_cv_.notify_all();
 }
 
 /* --------------------------------------------------------------------- */
 /*                            Slot 内存池                                 */
 /* --------------------------------------------------------------------- */
 void MppEncoderCore::initSlots() {
-    const auto& cfg = mpp_ctx_->getmCfg();
+    const auto* cfg = mpp_ctx_->getConfig();
+    if (cfg == nullptr) {
+        fprintf(stderr, "[MppEncoderCore:%d] initSlots skipped because config is null.\n", core_id_);
+        return;
+    }
 
-    uint32_t width  = cfg->prep_width;
-    uint32_t height = cfg->prep_height;
+    uint32_t width = static_cast<uint32_t>(cfg->prep_width);
+    uint32_t height = static_cast<uint32_t>(cfg->prep_height);
     uint32_t drm_fmt = convertMppToDrmFormat(cfg->prep_format);
 
     for (size_t i = 0; i < SLOT_COUNT; ++i) {
@@ -139,6 +123,10 @@ void MppEncoderCore::initSlots() {
         slots_[i].dmabuf = dmabuf;
         slots_[i].enc_buf = std::make_shared<MppBufferGuard>(mpp_buf); // 保存句柄
         slots_[i].packet = std::make_shared<EncodedPacket>(nullptr, 0, false);
+        slots_[i].external_dmabuf.reset();
+        slots_[i].using_external.store(false);
+        slots_[i].lifetime_holder.reset();
+        slots_[i].generation.store(configGeneration_);
         slots_[i].state  = SlotState::Writable;
         
         std::lock_guard<std::mutex> lk(free_mtx_);
@@ -152,6 +140,9 @@ void MppEncoderCore::initSlots() {
 void MppEncoderCore::cleanupSlots()
 {
     for (auto& s : slots_) {
+        s.external_dmabuf.reset();
+        s.using_external.store(false);
+        s.lifetime_holder.reset();
         s.enc_buf.reset();
         s.packet.reset();
         s.dmabuf.reset();
@@ -159,11 +150,29 @@ void MppEncoderCore::cleanupSlots()
     }
 }
 
+void MppEncoderCore::resetQueues() {
+    {
+        std::lock_guard<std::mutex> pendingLock(pending_mtx_);
+        std::queue<int> emptyPending;
+        pending_slots_.swap(emptyPending);
+    }
+    {
+        std::lock_guard<std::mutex> freeLock(free_mtx_);
+        std::queue<int> emptyFree;
+        free_slots_.swap(emptyFree);
+    }
+}
+
 /* --------------------------------------------------------------------- */
 /*                            生产者接口                                  */
 /* --------------------------------------------------------------------- */
 std::pair<DmaBufferPtr, int> MppEncoderCore::acquireWritableSlot() {
-    if (paused_) return {nullptr, -1};
+    {
+        std::lock_guard<std::mutex> controlLock(control_mtx_);
+        if (resetInProgress_ || !running_) {
+            return {nullptr, -1};
+        }
+    }
 
     int slot_id = -1;    
     {
@@ -180,13 +189,19 @@ std::pair<DmaBufferPtr, int> MppEncoderCore::acquireWritableSlot() {
     if (!slots_[slot_id].state.compare_exchange_weak(expected, SlotState::Writing)){
         // 状态不正确
         fprintf(stderr, "[MppEncoderCore:%d] acquireWritableSlot: slot %d state invalid\n", core_id_, slot_id);
+        recycleSlot(slot_id);
         return {nullptr, -1};
     }
     return {slots_[slot_id].dmabuf, slot_id};
 }
 
 MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlot(int slot_id) {
-    if (paused_) return {};
+    {
+        std::lock_guard<std::mutex> controlLock(control_mtx_);
+        if (resetInProgress_ || !running_) {
+            return {};
+        }
+    }
 
     if (slot_id < 0 || static_cast<size_t>(slot_id) >= SLOT_COUNT) {
         // 无效 slot_id
@@ -213,6 +228,7 @@ MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlot(int slot_id) {
     return EncodedMeta{
         .core_id     = core_id_,
         .slot_id     = slot_id,
+        .generation  = s.generation.load(),
         .core        = this
     };
 }
@@ -223,10 +239,19 @@ MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlotWithExternal(
     DmaBufferPtr external_dma,
     std::shared_ptr<void> lifetime_holder)
 {
-    if (paused_) return {};
+    {
+        std::lock_guard<std::mutex> controlLock(control_mtx_);
+        if (resetInProgress_ || !running_) {
+            return {};
+        }
+    }
 
     if (slot_id < 0 || static_cast<size_t>(slot_id) >= SLOT_COUNT) {
         // 无效 slot_id
+        return {};
+    }
+    if (!external_dma) {
+        fprintf(stderr, "[MppEncoderCore:%d] submitFilledSlotWithExternal received null dmabuf.\n", core_id_);
         return {};
     }
 
@@ -252,6 +277,7 @@ MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlotWithExternal(
     return EncodedMeta{
         .core_id     = core_id_,
         .slot_id     = slot_id,
+        .generation  = s.generation.load(),
         .core        = this
     };
 }
@@ -260,44 +286,39 @@ MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlotWithExternal(
 /*                             编码线程                                   */
 /* --------------------------------------------------------------------- */
 void MppEncoderCore::workerThread() {
-    MppCtx      ctx = mpp_ctx_->ctx();
-    MppApi*     mpi = mpp_ctx_->api();
-    // 开启硬件编码
-    mpi->control(ctx, MPP_START, nullptr);
-    auto fail_recover = [&](int slot_id){
-        slots_[slot_id].state.store(SlotState::Writable);
-
-        std::lock_guard<std::mutex> lk(free_mtx_);
-        free_slots_.push(slot_id);
-    };
-
+    uint64_t startedGeneration = 0;
     while (running_) {
-        if (paused_) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            if (!running_) break;
-            continue; // 轻量自旋, 避免内核阻塞
-        }
-        if (reload_need) {
-            ctx = mpp_ctx_->ctx();
-            mpi = mpp_ctx_->api();
-            reload_need = false;
+        {
+            std::unique_lock<std::mutex> controlLock(control_mtx_);
+            control_cv_.wait(controlLock, [this] {
+                return !resetInProgress_ || !running_;
+            });
+            if (!running_) {
+                break;
+            }
         }
 
         int slot_id = -1;
         // 阻塞等待有任务
         {
             std::unique_lock<std::mutex> lk(pending_mtx_);
-            pending_cv_.wait(lk, [this]{ return !pending_slots_.empty() || !running_; });
+            pending_cv_.wait(lk, [this] {
+                return !pending_slots_.empty() || !running_ || resetInProgress_;
+            });
             if (!running_) break;// 提前退出
+            if (resetInProgress_) continue;
             if (pending_slots_.empty()) continue;
             slot_id = pending_slots_.front();// 取出 slot_id
             pending_slots_.pop();
         }
         if (slot_id == -1) continue;
-        
+        if (!enterWorkerEncodeSection(slot_id)) {
+            recycleSlot(slot_id);
+            continue;
+        }
+
         auto& s = slots_[slot_id];
-        
-        // 置为 Encoding
+
         s.state.store(SlotState::Encoding);
 
         MppFrame   frame_raw   = nullptr;
@@ -307,18 +328,40 @@ void MppEncoderCore::workerThread() {
         MppFrameGuard   frame_guard(&frame_raw);
         MppPacketGuard  packet_guard(&packet_raw);
         MppBufferGuard  buffer_guard(buffer_raw);
+        auto leaveScope = std::shared_ptr<void>(nullptr, [this](void*) { leaveWorkerEncodeSection(); });
+        (void)leaveScope;
+
+        MppCtx ctx = mpp_ctx_ ? mpp_ctx_->ctx() : nullptr;
+        MppApi* mpi = mpp_ctx_ ? mpp_ctx_->api() : nullptr;
+        uint64_t currentGeneration = 0;
+        {
+            std::lock_guard<std::mutex> controlLock(control_mtx_);
+            currentGeneration = configGeneration_;
+        }
+        if (ctx == nullptr || mpi == nullptr) {
+            fprintf(stderr, "[MppEncoderCore:%d] workerThread found invalid MPP context.\n", core_id_);
+            recycleSlot(slot_id);
+            continue;
+        }
+        if (startedGeneration != currentGeneration &&
+            MPP_OK != mpi->control(ctx, MPP_START, nullptr)) {
+            fprintf(stderr, "[MppEncoderCore:%d] failed to start encoder.\n", core_id_);
+            recycleSlot(slot_id);
+            continue;
+        }
+        startedGeneration = currentGeneration;
 
         // 创建可编码 frame
         if (!createEncodableFrame(s, frame_raw, buffer_raw)) {
             fprintf(stderr, "[MppEncoderCore:%d] createEncodableFrame failed.\n", core_id_);
-            fail_recover(slot_id);
+            recycleSlot(slot_id);
             continue;
         }
 
         // 拉取结果
         bool got = tryGetEncodedMppPacket(ctx, mpi, frame_raw, packet_raw);
         if (!got || !packet_raw) {
-            fail_recover(slot_id);
+            recycleSlot(slot_id);
             fprintf(stderr, "[MppEncoderCore:%d] encode_get_packet timeout or error\n", core_id_);
             continue;
         }
@@ -355,7 +398,12 @@ void MppEncoderCore::workerThread() {
 /*                             写线程接口                                 */
 /* --------------------------------------------------------------------- */
 bool MppEncoderCore::tryGetEncodedPacket(EncodedMeta& meta) {
-    if (paused_) return false;
+    {
+        std::lock_guard<std::mutex> controlLock(control_mtx_);
+        if (resetInProgress_) {
+            return false;
+        }
+    }
 
     // 非当前 core 或者 id 非法
     if (meta.core_id != core_id_ ||
@@ -365,6 +413,11 @@ bool MppEncoderCore::tryGetEncodedPacket(EncodedMeta& meta) {
     }
 
     auto& s = slots_[meta.slot_id];
+    if (meta.generation != s.generation.load()) {
+        fprintf(stderr, "[MppEncoderCore:%d] tryGetEncodedPacket ignored stale meta for slot %d.\n",
+                core_id_, meta.slot_id);
+        return false;
+    }
     // 检查状态
     if (s.state.load() != SlotState::Encoded) {
         return false;
@@ -383,20 +436,24 @@ void MppEncoderCore::releaseSlot(int slot_id) {
         return;
     }
 
-    auto& s = slots_[slot_id];
-    if (s.state.load() == SlotState::invalid){
-        fprintf(stderr, "[MppEncoderCore:%d] releaseSlot: slot %d state invalid\n", core_id_, slot_id);
+    recycleSlot(slot_id);
+}
+
+void MppEncoderCore::releaseSlot(const EncodedMeta& meta) {
+    if (meta.slot_id < 0 || static_cast<size_t>(meta.slot_id) >= SLOT_COUNT) {
         return;
     }
-    if (s.using_external){
-        s.external_dmabuf.reset();
-        s.lifetime_holder.reset();
-        s.using_external.store(false);
+    const uint64_t slotGeneration = slots_[meta.slot_id].generation.load();
+    if (meta.generation != 0 && meta.generation != slotGeneration) {
+        fprintf(stderr,
+                "[MppEncoderCore:%d] releaseSlot ignored stale meta for slot %d (meta=%llu slot=%llu).\n",
+                core_id_,
+                meta.slot_id,
+                static_cast<unsigned long long>(meta.generation),
+                static_cast<unsigned long long>(slotGeneration));
+        return;
     }
-    s.state.store(SlotState::Writable);
-
-    std::lock_guard<std::mutex> lk(free_mtx_);
-    free_slots_.push(slot_id);
+    recycleSlot(meta.slot_id);
 }
 
 /* --------------------------------------------------------------------- */
@@ -405,7 +462,15 @@ void MppEncoderCore::releaseSlot(int slot_id) {
 bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFrame& out_frame, MppBuffer& mpp_buf) {
     out_frame = nullptr;
     mpp_buf   = nullptr;
-    if (!s.dmabuf || !s.enc_buf) return false; // 检查缓存的 buffer 是否有效
+    const DmaBufferPtr sourceDmabuf = s.using_external ? s.external_dmabuf : s.dmabuf;
+    if (!sourceDmabuf) {
+        fprintf(stderr, "[MppEncoderCore:%d] source dmabuf is null.\n", core_id_);
+        return false;
+    }
+    if (!s.using_external && !s.enc_buf) {
+        fprintf(stderr, "[MppEncoderCore:%d] internal slot buffer is null.\n", core_id_);
+        return false;
+    }
 
     // ============ 零拷贝导入 dmabuf fd ============
     // 复用 Slot 缓存的 buffer
@@ -420,8 +485,8 @@ bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFram
         // dmabuf 导入到 buffer
         MppBufferInfo import_info{};
         import_info.type = MPP_BUFFER_TYPE_EXT_DMA;
-        import_info.fd   = s.external_dmabuf->fd();
-        import_info.size = s.external_dmabuf->size();
+        import_info.fd   = sourceDmabuf->fd();
+        import_info.size = sourceDmabuf->size();
         
         if (MPP_OK != mpp_buffer_import(&mpp_buf, &import_info)) {
             fprintf(stderr, "[MppEncoderCore:%d] mpp_buffer_import failed.\n", core_id_);
@@ -430,13 +495,13 @@ bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFram
     }
 
     // 设置参数
-    mpp_frame_set_width(out_frame,       s.dmabuf->width());
-    mpp_frame_set_height(out_frame,      s.dmabuf->height());
+    mpp_frame_set_width(out_frame,       sourceDmabuf->width());
+    mpp_frame_set_height(out_frame,      sourceDmabuf->height());
     
     // Rockchip_Developer_Guide_MPP_CN.md: hor_stride	RK_U32	表示垂直方向相邻两行之间的距离, 单位为byte数
-    mpp_frame_set_hor_stride(out_frame,  s.dmabuf->pitch());
-    mpp_frame_set_ver_stride(out_frame,  s.dmabuf->height());  // 像素单位
-    mpp_frame_set_fmt(out_frame,         convertDrmToMppFormat(s.dmabuf->format())); // 2022~2023 版本API
+    mpp_frame_set_hor_stride(out_frame,  sourceDmabuf->pitch());
+    mpp_frame_set_ver_stride(out_frame,  sourceDmabuf->height());  // 像素单位
+    mpp_frame_set_fmt(out_frame,         convertDrmToMppFormat(sourceDmabuf->format())); // 2022~2023 版本API
     // mpp_frame_set_buffer 会增加引用计数, mpp_frame_deinit 会减少引用计数
     // s.enc_buf 本身的引用计数(1)保持不变
     mpp_frame_set_buffer(out_frame,      s.using_external ? mpp_buf : s.enc_buf->get());
@@ -458,9 +523,17 @@ bool MppEncoderCore::tryGetEncodedMppPacket(MppCtx ctx, MppApi* mpi, MppFrame fr
         return false;
     }
     out_pkt = nullptr;
-    const int max_polls = 200;
+    const int maxPolls = calculatePacketPollAttempts();
+    const auto pollInterval = std::chrono::microseconds(currentConfig_.packet_poll_interval_us);
 
-    for (int i = 0; i < max_polls && running_; ++i) {
+    for (int i = 0; i < maxPolls && running_; ++i) {
+        {
+            std::lock_guard<std::mutex> controlLock(control_mtx_);
+            if (resetInProgress_) {
+                fprintf(stderr, "[MppEncoderCore:%d] packet polling interrupted by reset.\n", core_id_);
+                return false;
+            }
+        }
         RK_S32 ret = mpi->encode_get_packet(ctx, &out_pkt);
         if (ret == MPP_OK && out_pkt) {
             return true;
@@ -469,8 +542,57 @@ bool MppEncoderCore::tryGetEncodedMppPacket(MppCtx ctx, MppApi* mpi, MppFrame fr
             fprintf(stderr, "[MppEncoderCore:%d] encode_get_packet error: %d\n", core_id_, ret);
             return false;
         }
-        usleep(33);
+        std::this_thread::sleep_for(pollInterval);
     }
     fprintf(stderr, "[MppEncoderCore:%d] encode timeout\n", core_id_);
     return false;
+}
+
+bool MppEncoderCore::enterWorkerEncodeSection(int slot_id) {
+    std::unique_lock<std::mutex> controlLock(control_mtx_);
+    if (!running_) {
+        return false;
+    }
+    // worker 在真正触碰 MPP ctx 前必须再次检查 reset 标志。
+    // 这样即使 slot 已经从 pending 队列中弹出, 也不会在 reset 过程中继续使用旧资源。
+    if (resetInProgress_) {
+        fprintf(stderr, "[MppEncoderCore:%d] reset in progress, recycle slot %d before encode.\n", core_id_, slot_id);
+        return false;
+    }
+    workerEncoding_ = true;
+    return true;
+}
+
+void MppEncoderCore::leaveWorkerEncodeSection() {
+    std::lock_guard<std::mutex> controlLock(control_mtx_);
+    workerEncoding_ = false;
+    control_cv_.notify_all();
+}
+
+void MppEncoderCore::recycleSlot(int slot_id) {
+    auto& slot = slots_[slot_id];
+    SlotState state = slot.state.load();
+    while (state != SlotState::Writable) {
+        if (state == SlotState::invalid) {
+            fprintf(stderr, "[MppEncoderCore:%d] recycleSlot ignored invalid slot %d.\n", core_id_, slot_id);
+            return;
+        }
+        // compare_exchange 让 releaseSlot 变成幂等操作:
+        // 只有第一个把 slot 状态切回 Writable 的线程会重新入 free_queue, 后续重复释放只会看到 Writable/invalid。
+        if (slot.state.compare_exchange_weak(state, SlotState::Writable)) {
+            if (slot.using_external.exchange(false)) {
+                slot.external_dmabuf.reset();
+                slot.lifetime_holder.reset();
+            }
+            std::lock_guard<std::mutex> freeLock(free_mtx_);
+            free_slots_.push(slot_id);
+            return;
+        }
+    }
+}
+
+int MppEncoderCore::calculatePacketPollAttempts() const {
+    const int intervalUs = std::max(1, currentConfig_.packet_poll_interval_us);
+    const int retriesByTimeout = std::max(1, currentConfig_.packet_ready_timeout_us / intervalUs);
+    return std::max(currentConfig_.packet_poll_retries, retriesByTimeout);
 }
