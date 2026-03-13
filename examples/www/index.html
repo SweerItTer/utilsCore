@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>utilsCore HTTP 示例</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial; background: #0b1220; color: #e7edf7; }
+      .wrap { max-width: 880px; margin: 0 auto; padding: 48px 20px; }
+      .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 22px; }
+      h1 { margin: 0 0 12px; font-size: 24px; }
+      p { margin: 8px 0; line-height: 1.6; color: rgba(231,237,247,.86); }
+      code { background: rgba(255,255,255,.08); padding: 2px 6px; border-radius: 6px; }
+      .muted { color: rgba(231,237,247,.62); font-size: 13px; margin-top: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>utils::net Demo</h1>
+        <p>这是一个基于 JSON 配置和插件装载的 <code>utils::net</code> HTTP 服务示例。</p>
+        <p>静态资源通过 <code>/static/</code> 暴露；插件路由提供 <code>/api/ping</code>、<code>/api/echo</code> 和 <code>/download/sample.txt</code>。</p>
+        <p class="muted">提示：你可以直接用 <code>curl 127.0.0.1:18080/api/ping</code> 验证服务是否工作。</p>
+      </div>
+    </div>
+  </body>
+</html>

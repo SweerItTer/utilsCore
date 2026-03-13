@@ -1,0 +1,47 @@
+{
+  "server": {
+    "bind_address": "127.0.0.1",
+    "port": 18080,
+    "max_clients": 64,
+    "worker_threads_min": 2,
+    "worker_threads_max": 4,
+    "worker_queue_size": 64,
+    "idle_timeout_sec": 15,
+    "enable_tcp_keepalive": true
+  },
+  "static_dirs": [
+    {
+      "url_prefix": "/static/",
+      "directory": "www"
+    }
+  ],
+  "plugins": [
+    {
+      "instance_name": "demo",
+      "library_path": "plugins/net_demo_plugin.so",
+      "config": {
+        "download_file": "www/sample.txt"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/ping",
+      "plugin": "demo",
+      "handler": "ping"
+    },
+    {
+      "method": "POST",
+      "path": "/api/echo",
+      "plugin": "demo",
+      "handler": "echo"
+    },
+    {
+      "method": "GET",
+      "path": "/download/sample.txt",
+      "plugin": "demo",
+      "handler": "download"
+    }
+  ]
+}
