@@ -32,7 +32,7 @@ public:
     using Handler = std::function<Response(const ConnectionContext&, const HttpRequest&)>;
 
     /**
-     * @brief 注册一个供配置文件绑定的 HTTP handler。
+     * @brief 注册一个供配置文件绑定的 HTTP handler.
      * @param handlerName 路由声明中使用的 handler 名称
      * @param handler 具体处理函数
      * @param error 失败时写入错误原因
@@ -58,7 +58,7 @@ public:
     virtual ~NetPlugin() = default;
 
     /**
-     * @brief 基于插件级配置注册本插件提供的 handler。
+     * @brief 基于插件级配置注册本插件提供的 handler.
      * @param registrar handler 注册器
      * @param context 当前插件实例上下文
      * @param pluginConfig 插件在 JSON 配置中的 config 字段

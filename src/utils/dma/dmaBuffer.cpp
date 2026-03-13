@@ -60,8 +60,8 @@ static int exportFD(uint32_t handle) {
         }
     }
 
-    /* 如果完全依赖 prime fd, 可立即销毁 handle。
-     * 如果后续需要 plane attach, 必须保留 handle + drm_fd 直到 attach 完成。
+    /* 如果完全依赖 prime fd, 可立即销毁 handle.
+     * 如果后续需要 plane attach, 必须保留 handle + drm_fd 直到 attach 完成.
      * 立即销毁 handle 实现见 DmaBuffer::cleanup()
      */
     return prime_fd;
@@ -399,7 +399,7 @@ void DmaBuffer::buildBufferIdentity() {
     planeDescriptor.offsetBytes = data_.offset;
     planeDescriptor.sizeBytes = data_.size;
 
-    // 使用 inode + layout 组合身份, 避免把会被复用的 fd 数字当作对象身份。
+    // 使用 inode + layout 组合身份, 避免把会被复用的 fd 数字当作对象身份.
     if (!fillFileIdentity(primeFd_, planeDescriptor.fileSystemDevice, planeDescriptor.fileSystemInode)) {
         fprintf(stderr, "[DmaBuffer] Failed to query stable file identity for fd=%d\n", primeFd_);
     }

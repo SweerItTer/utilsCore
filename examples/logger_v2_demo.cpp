@@ -3,7 +3,7 @@
  * @Date: 2026-02-22
  * @Description: LoggerV2 使用例程
  *
- * 目标: 给出一个最小但“看得出效果”的 LoggerV2 使用示例: 
+ * 目标: 给出一个最小但"看得出效果"的 LoggerV2 使用示例: 
  * - 通过 LoggerConfig 初始化
  * - 基础日志 + 结构化字段
  * - 动态调整日志级别并观察过滤效果
@@ -21,11 +21,11 @@ int main() {
 
     LoggerConfig config = LoggerConfig::defaultConfig();
     config.global_level = LogLevel::INFO;
-    // 为了让示例输出顺序稳定，这里使用同步模式；生产环境可开启 async。
+    // 为了让示例输出顺序稳定,这里使用同步模式;生产环境可开启 async.
     config.async = false;
 
     if (!config.sinks.empty()) {
-        // 简化输出格式，让示例更易读
+        // 简化输出格式,让示例更易读
         config.sinks[0].pattern = "[%Y-%m-%d %H:%M:%S.%e] [%l] %v";
     }
 

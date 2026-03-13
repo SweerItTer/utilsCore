@@ -15,8 +15,8 @@
 /**
  * @brief 基于 Rockchip MPP 的 JPEG 单帧抓拍器
  *
- * 该类面向“把现有 DMABUF 抓拍成 JPEG 文件”的场景。调用方负责保证传入的 DMABUF
- * 生命周期在 `captureFromDmabuf()` 返回前有效, 并且像素格式与配置中的 `format` 匹配。
+ * 该类面向"把现有 DMABUF 抓拍成 JPEG 文件"的场景.调用方负责保证传入的 DMABUF
+ * 生命周期在 `captureFromDmabuf()` 返回前有效, 并且像素格式与配置中的 `format` 匹配.
  */
 class JpegEncoder {
 public:

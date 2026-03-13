@@ -70,11 +70,11 @@ public:
 
     size_t size() const;
 
-    // 解析 JSON 文本。失败时返回 false 并写入 error。
+    // 解析 JSON 文本.失败时返回 false 并写入 error.
     static bool parse(const std::string& text, JsonValue& outValue, std::string& error);
-    // 从文件中加载并解析 JSON。
+    // 从文件中加载并解析 JSON.
     static bool parseFile(const std::string& path, JsonValue& outValue, std::string& error);
-    // 以紧凑 JSON 形式序列化。
+    // 以紧凑 JSON 形式序列化.
     std::string stringify() const;
 
 private:

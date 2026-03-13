@@ -28,13 +28,13 @@ static constexpr std::chrono::milliseconds MANAGERINTERVAL = std::chrono::millis
 /**
  * @brief 异步线程池类
  * 
- * 线程池管理一组工作线程, 可动态伸缩。
- * 支持任务优先级, 用户可选择阻塞或非阻塞入队。
+ * 线程池管理一组工作线程, 可动态伸缩.
+ * 支持任务优先级, 用户可选择阻塞或非阻塞入队.
  */
 class asyncThreadPool {
 public:
-    // 线程池内部任务队列改成静态回调槽。
-    // 目标是保留原有 enqueue/try_enqueue 用法，同时让热点任务避免落到 std::function<void()>。
+    // 线程池内部任务队列改成静态回调槽.
+    // 目标是保留原有 enqueue/try_enqueue 用法,同时让热点任务避免落到 std::function<void()>.
     using TaskCallback = utils::internal::StaticCallback<void()>;
 
     /**
@@ -69,7 +69,7 @@ public:
             utils::internal::is_invocable<callableType&, Args...>::value,
             "ThreadPool task must be invocable with the supplied argument types");
         using resultType = typename std::result_of<F(Args...)>::type;
-        // 仍然使用 packaged_task 保留 future 语义，但真正入队的是静态绑定后的 TaskCallback。
+        // 仍然使用 packaged_task 保留 future 语义,但真正入队的是静态绑定后的 TaskCallback.
         using taskType = std::packaged_task<resultType()>;
         auto taskPtr = std::make_shared<taskType>(
             std::bind(std::forward<F>(f), std::forward<Args>(args)...)

@@ -44,7 +44,7 @@ struct RuntimeConfig {
 };
 
 /**
- * @brief 从 JSON 文件加载 net 运行时配置。
+ * @brief 从 JSON 文件加载 net 运行时配置.
  * @param configPath JSON 配置文件路径
  * @param outConfig 解析成功后写入的配置对象
  * @param error 失败时写入错误原因

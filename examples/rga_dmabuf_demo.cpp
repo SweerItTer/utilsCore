@@ -3,7 +3,7 @@
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2026-02-22
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
- * @Description: RgaProcessor DMABUF 演示：构造一帧 DMABUF -> RGA 转换 -> dump 到文件
+ * @Description: RgaProcessor DMABUF 演示:构造一帧 DMABUF -> RGA 转换 -> dump 到文件
  */
 
 #include "rga/rgaProcessor.h"

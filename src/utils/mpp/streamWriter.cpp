@@ -125,8 +125,8 @@ void StreamWriter::stop() {
     if (!acceptingMeta_.exchange(false)) {
         return;
     }
-    // 先停收新 meta, 再等待 dispatch 把已有队列全部转交给 writer。
-    // 只有 writer 的 pendingCount 清零后才会真正让线程退出, 这样可以最大化保留已编码结果。
+    // 先停收新 meta, 再等待 dispatch 把已有队列全部转交给 writer.
+    // 只有 writer 的 pendingCount 清零后才会真正让线程退出, 这样可以最大化保留已编码结果.
     dispatchCv_.notify_all();
     writerA_.cv.notify_all();
     writerB_.cv.notify_all();
@@ -149,7 +149,7 @@ void StreamWriter::stop() {
 bool StreamWriter::openNewSegmentFor(WriterCtx* ctx) {
     if (nullptr == ctx) return false;
 
-    // 更换文件前必须保证该 writer 已完全写空, 否则会把新旧 segment 混写到同一文件句柄上。
+    // 更换文件前必须保证该 writer 已完全写空, 否则会把新旧 segment 混写到同一文件句柄上.
     waitUntilWriterIdle(ctx);
 
     std::string filename = makeSegmentFilename(baseName_, segmentIndex_, suffix_);
@@ -375,7 +375,7 @@ void StreamWriter::dispatchLoop() {
             {
                 std::lock_guard<std::mutex> lk2(writerSelectionMtx_);
                 writerToSync = currentWriter_;
-                // 新 segment 先在 idle writer 上准备好, 这样一旦 swap 完成, 后续包就能直接落到新文件。
+                // 新 segment 先在 idle writer 上准备好, 这样一旦 swap 完成, 后续包就能直接落到新文件.
                 if (!openNewSegmentFor(idleWriter_)) {
                     fprintf(stderr, "[StreamWriter] Failed to open on dispatch segment: %zu\n", segmentIndex_);
                 }
@@ -383,7 +383,7 @@ void StreamWriter::dispatchLoop() {
             }
             // 重置计数
             currentPacketCount_.store(0,  std::memory_order_relaxed);
-            // 旧 writer 已经不再接收新包, 等它把最后几个包写完之后再刷盘和 fsync, 避免切片文件尾部丢失。
+            // 旧 writer 已经不再接收新包, 等它把最后几个包写完之后再刷盘和 fsync, 避免切片文件尾部丢失.
             waitUntilWriterIdle(writerToSync);
             flushAndSyncWriter(writerToSync);
         }

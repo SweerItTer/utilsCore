@@ -16,19 +16,19 @@
 #include "dma/dmaBuffer.h"
 
 /**
- * @brief 将一组 DMA-BUF 导入结果缓存为可复用的 DRM framebuffer。
+ * @brief 将一组 DMA-BUF 导入结果缓存为可复用的 DRM framebuffer.
  *
- * 缓存命中使用两级判断：
+ * 缓存命中使用两级判断:
  * 1. generation + 预计算 hash 做快路径查找
  * 2. 完整 BufferIdentity 做慢路径确认
  *
- * 这样可以避免热路径每次重新拼装复杂键，同时在热插拔后通过 generation
- * 明确隔离旧的 framebuffer，避免复用失效资源。
+ * 这样可以避免热路径每次重新拼装复杂键,同时在热插拔后通过 generation
+ * 明确隔离旧的 framebuffer,避免复用失效资源.
  */
 class FramebufferCache {
 public:
     /**
-     * @brief 一组 plane 的聚合身份。
+     * @brief 一组 plane 的聚合身份.
      */
     struct FramebufferIdentity {
         uint32_t width = 0;
@@ -39,9 +39,9 @@ public:
     };
 
     /**
-     * @brief 返回给调用方的 framebuffer 租约句柄。
+     * @brief 返回给调用方的 framebuffer 租约句柄.
      *
-     * 句柄只保存轻量索引信息，真正的 entry 仍由缓存所有。
+     * 句柄只保存轻量索引信息,真正的 entry 仍由缓存所有.
      */
     struct FramebufferHandle {
         uint32_t framebufferId = 0;
@@ -57,7 +57,7 @@ public:
     ~FramebufferCache();
 
     /**
-     * @brief 获取可复用 framebuffer，必要时创建新的 framebuffer。
+     * @brief 获取可复用 framebuffer,必要时创建新的 framebuffer.
      * @param dmaBuffers 当前图层使用的 DMA-BUF planes
      * @param width framebuffer 宽度
      * @param height framebuffer 高度
@@ -71,17 +71,17 @@ public:
                                          uint32_t format,
                                          uint64_t generation);
     /**
-     * @brief 释放一次 framebuffer 使用租约。
+     * @brief 释放一次 framebuffer 使用租约.
      * @param framebufferHandle 由 acquireFramebuffer 返回的句柄
      */
     void releaseFramebuffer(const FramebufferHandle& framebufferHandle);
     /**
-     * @brief 清理非当前代际的 framebuffer。
+     * @brief 清理非当前代际的 framebuffer.
      * @param currentGeneration 当前仍允许复用的代际
      */
     void clearGenerationCache(uint64_t currentGeneration);
     /**
-     * @brief 清理全部缓存。
+     * @brief 清理全部缓存.
      */
     void clearAllCache();
 

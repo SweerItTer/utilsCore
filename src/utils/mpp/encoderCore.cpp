@@ -553,8 +553,8 @@ bool MppEncoderCore::enterWorkerEncodeSection(int slot_id) {
     if (!running_) {
         return false;
     }
-    // worker 在真正触碰 MPP ctx 前必须再次检查 reset 标志。
-    // 这样即使 slot 已经从 pending 队列中弹出, 也不会在 reset 过程中继续使用旧资源。
+    // worker 在真正触碰 MPP ctx 前必须再次检查 reset 标志.
+    // 这样即使 slot 已经从 pending 队列中弹出, 也不会在 reset 过程中继续使用旧资源.
     if (resetInProgress_) {
         fprintf(stderr, "[MppEncoderCore:%d] reset in progress, recycle slot %d before encode.\n", core_id_, slot_id);
         return false;
@@ -578,7 +578,7 @@ void MppEncoderCore::recycleSlot(int slot_id) {
             return;
         }
         // compare_exchange 让 releaseSlot 变成幂等操作:
-        // 只有第一个把 slot 状态切回 Writable 的线程会重新入 free_queue, 后续重复释放只会看到 Writable/invalid。
+        // 只有第一个把 slot 状态切回 Writable 的线程会重新入 free_queue, 后续重复释放只会看到 Writable/invalid.
         if (slot.state.compare_exchange_weak(state, SlotState::Writable)) {
             if (slot.using_external.exchange(false)) {
                 slot.external_dmabuf.reset();

@@ -20,7 +20,7 @@ namespace net {
 class ConfiguredServer {
 public:
     /**
-     * @brief 从 JSON 配置文件构建一个已完成路由与插件装载的服务实例。
+     * @brief 从 JSON 配置文件构建一个已完成路由与插件装载的服务实例.
      * @param configPath JSON 配置文件路径
      * @param error 失败时写入错误原因
      * @return 成功时返回可启动的服务对象

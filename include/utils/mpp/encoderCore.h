@@ -115,8 +115,8 @@ public:
      * @brief 使用新配置重建编码上下文和 slot 池
      * @param cfg 新的编码配置
      *
-     * 该接口会等待当前正在进行的编码步骤安全退出, 然后再重建上下文与 slot。
-     * 这样可以避免重置时 worker 线程仍在访问旧的 MPP 资源。
+     * 该接口会等待当前正在进行的编码步骤安全退出, 然后再重建上下文与 slot.
+     * 这样可以避免重置时 worker 线程仍在访问旧的 MPP 资源.
      */
     void resetConfig(const MppEncoderContext::Config& cfg);
     /**
@@ -163,7 +163,7 @@ public:
      * @param meta 包含 slot 和 generation 的编码元信息
      *
      * 相比旧的 `releaseSlot(int)` 版本, 该接口可以在 reset 后安全忽略陈旧 meta, 避免把新一代
-     * slot 错误地放回空闲队列。
+     * slot 错误地放回空闲队列.
      */
     void releaseSlot(const EncodedMeta& meta);
 
@@ -206,7 +206,7 @@ private:
      * @brief 控制 reset 与 worker 编码步骤之间的握手
      *
      * `resetInProgress_` 为 true 时表示上下文和 slot 池正准备被替换; worker 必须在进入
-     * 编码临界区前先观察这个标志。`workerEncoding_` 用于让 reset 等待当前编码步骤结束。
+     * 编码临界区前先观察这个标志.`workerEncoding_` 用于让 reset 等待当前编码步骤结束.
      */
     std::mutex control_mtx_;
     std::condition_variable control_cv_;
@@ -224,8 +224,8 @@ public:
      * @param core 所属编码核心
      * @param slotId slot 编号
      *
-     * 该构造函数保留旧签名, 但内部会尽量补齐 `core_id` 和当前 generation。
-     * 新代码应优先直接传入完整 `EncodedMeta`。
+     * 该构造函数保留旧签名, 但内部会尽量补齐 `core_id` 和当前 generation.
+     * 新代码应优先直接传入完整 `EncodedMeta`.
      */
     SlotGuard(MppEncoderCore* core, int slotId)
         : meta_{core ? core->coreId() : -1, slotId, 0, core, nullptr} {}

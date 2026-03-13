@@ -98,7 +98,7 @@ public:
 
     
     /**
-     * @brief 将 src 指定矩形区域经过缩放、旋转等处理后写入 dst 指定矩形位置
+     * @brief 将 src 指定矩形区域经过缩放,旋转等处理后写入 dst 指定矩形位置
      *
      * @param params  RgaParams 结构体
      * @param pat     可选的目标填充缓冲区(rga_buffer_t), 用于指定输出占位或背景, 默认空

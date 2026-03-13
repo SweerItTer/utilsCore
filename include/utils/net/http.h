@@ -25,9 +25,9 @@ struct HttpRequest {
     std::unordered_map<std::string, std::string> headers;
     std::string body; // optional; v1 supports Content-Length only
 
-    // 返回去掉 query string 的请求路径。
+    // 返回去掉 query string 的请求路径.
     std::string path() const;
-    // 将 body 解析为 JSON 对象, 便于插件直接处理结构化 API 请求。
+    // 将 body 解析为 JSON 对象, 便于插件直接处理结构化 API 请求.
     bool parseJsonBody(JsonValue& outValue, std::string& error) const;
 };
 
@@ -63,7 +63,7 @@ public:
     }
     HttpResponse&& body(std::string bytes) && { return std::move(body(std::move(bytes))); }
 
-    // 将 JSON 序列化为 application/json 响应体。
+    // 将 JSON 序列化为 application/json 响应体.
     HttpResponse& json(const JsonValue& value) &;
     HttpResponse&& json(const JsonValue& value) && { return std::move(json(value)); }
 

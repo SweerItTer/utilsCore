@@ -136,14 +136,14 @@ public:
     // 获取DRM设备fd
     int get() const { return fd_.get(); }
     /**
-     * @brief 获取当前 DRM 资源代际号。
+     * @brief 获取当前 DRM 资源代际号.
      * @return uint64_t 每次热插拔重建后递增的 generation
      */
     uint64_t currentGeneration() const noexcept {
         return resourceGeneration_.load(std::memory_order_acquire);
     }
     /**
-     * @brief 获取全局 framebuffer 复用缓存。
+     * @brief 获取全局 framebuffer 复用缓存.
      * @return FramebufferCachePtr 当前 device 对应的 framebuffer cache
      */
     FramebufferCachePtr getFramebufferCache() const {

@@ -68,7 +68,7 @@ void DrmLayer::updateBuffer(std::vector<DmaBufferPtr> buffers) {
     if (updatelayer_){
         updatelayer_(shared_from_this(), props_.fb_id_);
     }
-    // 记录新 framebuffer 句柄为最新 in-flight。
+    // 记录新 framebuffer 句柄为最新 in-flight.
     {
         std::lock_guard<std::mutex> lock(framebufferMutex_);
         framebufferHandles_.push_back(framebufferHandle);
@@ -89,7 +89,7 @@ FramebufferCache::FramebufferHandle DrmLayer::acquireFramebufferHandle() const {
 }
 
 void DrmLayer::onFenceSignaled() {
-    // fence 表示上一帧/更老的帧已经 scanout 完毕, 可以回收旧句柄。
+    // fence 表示上一帧/更老的帧已经 scanout 完毕, 可以回收旧句柄.
     recycleQueuedFramebuffers(/*keep=*/cacheSize_);
 }
 
