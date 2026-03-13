@@ -2,6 +2,8 @@
 #include "mpp/jpegEncoder.h"
 #include "mpp/mppResourceGuard.h"
 #include "mpp/formatTool.h"
+#include <chrono>
+#include <ctime>
 #include <iomanip>
 #include <sstream>
 #include <sys/stat.h> // POSIX 文件操作

@@ -18,7 +18,9 @@
 #include "fdWrapper.h"
 
 class DeviceController;
+class FramebufferCache;
 using DrmDevicePtr = std::shared_ptr<DeviceController>;
+using FramebufferCachePtr = std::shared_ptr<FramebufferCache>;
 
 namespace DrmDev {
     extern std::mutex fd_mutex;
@@ -37,6 +39,7 @@ static std::string fourccToString(uint32_t fourcc)
 }
 
 // 设备组合
+// TODO(naming): rename drmModeDev to DrmModeDevice in the next public API cleanup.
 struct drmModeDev {
     drmModeModeInfo mode;           // 显示模式
     uint16_t width;                 // 显示宽度
@@ -132,6 +135,21 @@ public:
     
     // 获取DRM设备fd
     int get() const { return fd_.get(); }
+    /**
+     * @brief 获取当前 DRM 资源代际号。
+     * @return uint64_t 每次热插拔重建后递增的 generation
+     */
+    uint64_t currentGeneration() const noexcept {
+        return resourceGeneration_.load(std::memory_order_acquire);
+    }
+    /**
+     * @brief 获取全局 framebuffer 复用缓存。
+     * @return FramebufferCachePtr 当前 device 对应的 framebuffer cache
+     */
+    FramebufferCachePtr getFramebufferCache() const {
+        std::lock_guard<std::mutex> lock(framebufferCacheMutex_);
+        return framebufferCache_;
+    }
     
     // 注册资源回调
     void registerResourceCallback(
@@ -201,6 +219,7 @@ private:
     
     // 热插拔事件监听
     void handleHotplugEvent();
+    void bumpGeneration();
     
     // 资源刷新同步
     void notifyPreRefresh();
@@ -209,6 +228,10 @@ private:
     // 回调管理
     std::mutex callbackMutex_;
     std::vector<std::pair<ResourceCallback, ResourceCallback>> callbacks_;
+
+    mutable std::mutex framebufferCacheMutex_;
+    FramebufferCachePtr framebufferCache_ = nullptr;
+    std::atomic<uint64_t> resourceGeneration_{1};
 };
 
 #endif // DEVICE_CONTROLLER_H

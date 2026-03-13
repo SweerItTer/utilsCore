@@ -10,6 +10,7 @@
 
 #include "udevMonitor.h"
 #include "drm/deviceController.h"
+#include "drm/framebufferCache.h"
 
 namespace DrmDev {
     std::mutex fd_mutex;
@@ -95,10 +96,14 @@ DrmDevicePtr DeviceController::create(const std::string &path)
 
 DeviceController::~DeviceController()
 {
+    if (framebufferCache_) {
+        framebufferCache_->clearAllCache();
+    }
 }
 
 DeviceController::DeviceController(int fd) : fd_(fd) {
     // 初始化资源
+    framebufferCache_ = std::make_shared<FramebufferCache>();
     refreshResources();
     refreshAllDevices();
 
@@ -114,14 +119,22 @@ void DeviceController::handleHotplugEvent() {
     // if (changing.exchange(true)) return;
     // 通知释放资源 
     notifyPreRefresh();
+    bumpGeneration();
     // 等待系统稳定(堵塞 UdevMonitor 工作线程)
     // std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     // 更新资源
     refreshResources();
     refreshAllDevices();
+    if (framebufferCache_) {
+        framebufferCache_->clearGenerationCache(currentGeneration());
+    }
     // 重新获取资源
     notifyPostRefresh();
     // changing.store(false);
+}
+
+void DeviceController::bumpGeneration() {
+    resourceGeneration_.fetch_add(1, std::memory_order_acq_rel);
 }
 
 void DeviceController::registerResourceCallback(const ResourceCallback& preRefreshCallback, 

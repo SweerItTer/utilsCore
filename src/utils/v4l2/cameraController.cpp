@@ -19,6 +19,7 @@
 #include "fdWrapper.h"      // fd RAII处理类
 #include "logger.h"
 #include "v4l2/formatTool.h"
+#include "drm/drmBpp.h"
 #include "dma/dmaBuffer.h"    // 包含 drm 头文件
 #include "objectsPool.h"
 #include "threadUtils.h"

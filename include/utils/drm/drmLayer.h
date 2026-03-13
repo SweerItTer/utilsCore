@@ -16,9 +16,11 @@
 
 #include "simpleVariant.h"
 #include "dma/dmaBuffer.h"
+#include "drm/framebufferCache.h"
 
 class DrmLayer : public std::enable_shared_from_this<DrmLayer> {
 public:
+    // TODO(naming): rename planeType to PlaneType in the next public API cleanup.
     enum class planeType {
         overlay = 0,
         primary = 1,
@@ -92,21 +94,23 @@ public:
     // 等待fence更新fb(采用多级缓冲避免直接销毁fb)
     void onFenceSignaled();
 private:
-    // 导入 Dmabuf 创建 fb
-    uint32_t createFramebuffer();
-    // 销毁 fb 缓存队列
-    void destroyFramebuffer();
-    // 回收旧 fb, 使得队列中至多保留 keep 个
-    void recycleOldFbs(size_t keep = 1);
+    // 为当前 planes 获取可复用 framebuffer 句柄。
+    FramebufferCache::FramebufferHandle acquireFramebufferHandle() const;
+    // 释放全部排队中的 framebuffer 句柄。
+    void releaseQueuedFramebuffers();
+    // 回收旧句柄, 只保留仍可能处于 scanout 中的最新 keep 个。
+    void recycleQueuedFramebuffers(size_t keep = 1);
 
     LayerProperties props_{};
     updateLayerCallback updatelayer_;
     std::vector<DmaBufferPtr> buffers_{};
+    FramebufferCachePtr framebufferCache_{nullptr};
 
-    // fb 缓存队列
+    // 这里缓存的是 framebuffer 使用句柄, 不是 framebuffer 身份键。
+    // 句柄会跨 fence 生命周期保留, 避免当前 scanout 尚未完成时过早释放缓存租约。
     size_t cacheSize_;
-    std::deque<uint32_t> fbCache_;
-    mutable std::mutex fbCacheMutex_;
+    std::deque<FramebufferCache::FramebufferHandle> framebufferHandles_;
+    mutable std::mutex framebufferMutex_;
 
     std::unordered_map<std::string, std::function<void(PropertyValue)>> propertySetters_;   
     std::unordered_map<std::string, std::function<PropertyValue()>> propertyGetters_;

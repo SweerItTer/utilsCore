@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <linux/videodev2.h>
 #include <unordered_map>
 #include <drm/drm_fourcc.h>
 #include "rga/rgaConverter.h"
