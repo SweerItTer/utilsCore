@@ -219,6 +219,16 @@ private:
 class SlotGuard {
 public:
     explicit SlotGuard(MppEncoderCore::EncodedMeta meta) : meta_(std::move(meta)) {}
+    /**
+     * @brief 兼容旧调用点的 RAII 构造函数
+     * @param core 所属编码核心
+     * @param slotId slot 编号
+     *
+     * 该构造函数保留旧签名, 但内部会尽量补齐 `core_id` 和当前 generation。
+     * 新代码应优先直接传入完整 `EncodedMeta`。
+     */
+    SlotGuard(MppEncoderCore* core, int slotId)
+        : meta_{core ? core->coreId() : -1, slotId, 0, core, nullptr} {}
     ~SlotGuard() { if (meta_.core != nullptr && meta_.slot_id != -1) meta_.core->releaseSlot(meta_); }
     void release() { meta_.core = nullptr; }
 private:
