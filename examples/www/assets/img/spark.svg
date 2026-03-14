@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 280" fill="none">
+  <rect width="960" height="280" rx="28" fill="#07111f"/>
+  <path d="M56 196C116 170 146 110 212 122C268 132 295 206 351 206C410 206 428 90 501 90C563 90 594 168 648 168C710 168 730 66 804 66C843 66 875 94 904 118"
+        stroke="#6EE7C8" stroke-width="14" stroke-linecap="round"/>
+  <path d="M56 228C110 228 158 180 214 180C264 180 302 232 364 232C428 232 456 154 520 154C578 154 606 208 670 208C742 208 775 128 844 128C867 128 890 136 910 146"
+        stroke="#F6C453" stroke-width="10" stroke-linecap="round" opacity=".88"/>
+  <circle cx="212" cy="122" r="10" fill="#6EE7C8"/>
+  <circle cx="501" cy="90" r="10" fill="#6EE7C8"/>
+  <circle cx="804" cy="66" r="10" fill="#6EE7C8"/>
+  <circle cx="214" cy="180" r="8" fill="#F6C453"/>
+  <circle cx="520" cy="154" r="8" fill="#F6C453"/>
+  <text x="58" y="54" fill="#EDF4FF" font-size="28" font-family="Segoe UI, Arial, sans-serif">Static SVG asset served by utils::net</text>
+</svg>
