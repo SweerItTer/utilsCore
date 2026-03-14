@@ -11,6 +11,7 @@
 #include "udevMonitor.h"
 #include "drm/deviceController.h"
 #include "drm/framebufferCache.h"
+#include "logger_v2.h"
 
 namespace DrmDev {
     std::mutex fd_mutex;
@@ -60,19 +61,19 @@ DrmDevicePtr DeviceController::create(const std::string &path)
     const char *node = path_.c_str();
     int fd = ::open(node, O_RDWR | O_CLOEXEC);
     if (fd < 0) {
-        fprintf(stderr, "Failed to open DRM device: %s : %s\n", node, strerror(errno));
+        LOG_ERROR("Failed to open DRM device: %s : %s", node, strerror(errno));
         return nullptr;
     }
     // 检查设备是否可以dump dmabuf
     uint64_t has_dumb = 0;  
     if (drmGetCap(fd, DRM_CAP_DUMB_BUFFER, &has_dumb) < 0 || !has_dumb){
-        fprintf(stderr, "drm device '%s' does not support dumb buffers\n",node);
+        LOG_ERROR("drm device '%s' does not support dumb buffers", node);
         close(fd);
         return nullptr;
     }
     // 检查是否允许原子提交
     if (drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1) < 0){
-        fprintf(stderr, "drm device '%s' does not support atomic modesetting\n", node);
+        LOG_ERROR("drm device '%s' does not support atomic modesetting", node);
         close(fd);
         return nullptr;
     }
@@ -80,15 +81,15 @@ DrmDevicePtr DeviceController::create(const std::string &path)
     try{
         auto controller = DrmDevicePtr(new DeviceController(fd));
         if (controller) {
-            fprintf(stdout, "Init DeviceController success\n");
+            LOG_INFO("Init DeviceController success");
             DrmDev::fd_ptr = std::move(controller);
             return DrmDev::fd_ptr;
         } else { 
-            fprintf(stderr, "Faild to init DeviceController\n");
+            LOG_ERROR("Faild to init DeviceController");
             return nullptr;
         }
     } catch (const std::system_error& ex){
-        fprintf(stderr, "DmaBuffer::initialize_drm_fd: %s\n",ex.what());
+        LOG_ERROR("DmaBuffer::initialize_drm_fd: %s", ex.what());
         close(fd);
         return nullptr;
     }
@@ -168,14 +169,14 @@ std::shared_ptr<drmModeRes> DeviceController::refreshResources() {
     std::lock_guard<std::mutex> resLock(resMutex_);
 
     if(fd_.get() < 0){
-        fprintf(stderr, "Invalid DRM fd\n");
+        LOG_ERROR("Invalid DRM fd");
         return nullptr;
     }
 
     // 获取临时资源
     drmModeRes* res = drmModeGetResources(fd_.get());
     if (!res) {
-        fprintf(stderr, "Failed to get DRM resources: %s\n", strerror(errno));
+        LOG_ERROR("Failed to get DRM resources: %s", strerror(errno));
         return nullptr;
     } 
     // 获取成功后交由shardptr接管
@@ -184,11 +185,11 @@ std::shared_ptr<drmModeRes> DeviceController::refreshResources() {
     // 刷新plane资源
     int ret = drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1); // 若不设置DRM_CLIENT_CAP_UNIVERSAL_PLANES,只会返回Overlay Plane
     if (0 > ret){
-        fprintf(stderr, "Failed to set DRM_CLIENT_CAP_UNIVERSAL_PLANES:%d \nOnly allow Overlay Plane\n", ret);
+        LOG_WARN("Failed to set DRM_CLIENT_CAP_UNIVERSAL_PLANES:%d Only allow Overlay Plane", ret);
     }
     drmModePlaneRes* planeRes = drmModeGetPlaneResources(fd_.get());
     if (!planeRes) {
-        fprintf(stderr, "Failed to get DRM plane resources: %s\n", strerror(errno));
+        LOG_ERROR("Failed to get DRM plane resources: %s", strerror(errno));
     } else {
         planeResources_.reset(planeRes, DrmDeleter<drmModePlaneRes, &drmModeFreePlaneResources>());  
     }
@@ -205,7 +206,7 @@ SharedDev& DeviceController::refreshAllDevices()
 
     // 检查 DRM 设备和资源
     if(fd_.get() < 0 || nullptr == resources_){
-        fprintf(stderr, "Invalid DRM fd or resources\n");
+        LOG_ERROR("Invalid DRM fd or resources");
         return devices_;
     }
     
@@ -217,18 +218,18 @@ SharedDev& DeviceController::refreshAllDevices()
         // 遍历所有 connector
         drmModeConnectorPtr connector = drmModeGetConnector(fd_.get(), resources_->connectors[i]);
         if ( nullptr == connector ) {
-            fprintf(stderr, "Failed to get DRM connector: %s\n", strerror(errno));
+            LOG_ERROR("Failed to get DRM connector: %s", strerror(errno));
             continue;
         }
         // 忽略未连接
         if ( DRM_MODE_CONNECTED != connector->connection ) {
-            fprintf(stderr, "Ignoring unused connector: %u\n", connector->connector_id);
+            LOG_WARN("Ignoring unused connector: %u", connector->connector_id);
             drmModeFreeConnector(connector);
             continue;
         }
         // 忽略无模式
         if ( 0 == connector->count_modes ) {
-            fprintf(stderr, "Ignoring connector with no modes: %u\n", connector->connector_id);
+            LOG_WARN("Ignoring connector with no modes: %u", connector->connector_id);
             drmModeFreeConnector(connector);
             continue;
         }
@@ -239,7 +240,9 @@ SharedDev& DeviceController::refreshAllDevices()
         if (setUpDevice(connector, *devPtr) == 0) { 
             // 将对应的crtc和connector绑定
             if (bindConn2Crtc(fd_.get(), connector->connector_id, devPtr->crtc_id, devPtr->mode) < 0) {
-                fprintf(stderr, "Failed to bind connector %u to crtc %u\n", connector->connector_id, devPtr->crtc_id);
+                LOG_ERROR("Failed to bind connector %u to crtc %u",
+                          connector->connector_id,
+                          devPtr->crtc_id);
                 devPtr.reset();
             } else {
                 // 入队设备信息
@@ -262,7 +265,7 @@ int DeviceController::bindConn2Crtc(int fd, uint32_t conn_id, uint32_t crtc_id, 
     // 获取 connector 属性ID
     drmModeObjectPropertiesPtr connProps = drmModeObjectGetProperties(fd, conn_id, DRM_MODE_OBJECT_CONNECTOR);
     if (!connProps) {
-        fprintf(stderr, "Failed to get connector properties\n");
+        LOG_ERROR("Failed to get connector properties");
         return -1;
     }
 	auto property_crtc_id = getPropertyId(fd, connProps, "CRTC_ID");
@@ -271,7 +274,7 @@ int DeviceController::bindConn2Crtc(int fd, uint32_t conn_id, uint32_t crtc_id, 
     // 获取 CRTC 属性ID
 	drmModeObjectPropertiesPtr crtcProps = drmModeObjectGetProperties(fd, crtc_id, DRM_MODE_OBJECT_CRTC);
 	if (!crtcProps) {
-        fprintf(stderr, "Failed to get connector properties\n");
+        LOG_ERROR("Failed to get connector properties");
         return -1;
     }
     auto property_active = getPropertyId(fd, crtcProps, "ACTIVE");
@@ -283,7 +286,7 @@ int DeviceController::bindConn2Crtc(int fd, uint32_t conn_id, uint32_t crtc_id, 
 
 	auto req = drmModeAtomicAlloc();
     if (!req) {
-        fprintf(stderr, "Failed to allocate atomic request\n");
+        LOG_ERROR("Failed to allocate atomic request");
         return -1;
     }
 	ret |= drmModeAtomicAddProperty(req, crtc_id, property_active, 1);          // 激活 CRTC
@@ -293,9 +296,12 @@ int DeviceController::bindConn2Crtc(int fd, uint32_t conn_id, uint32_t crtc_id, 
 
 	drmModeAtomicFree(req);
     if (0 > ret) {
-        fprintf(stderr, "Failed to bind connector %u to crtc %u: %s\n", conn_id, crtc_id, strerror(-ret));
+        LOG_ERROR("Failed to bind connector %u to crtc %u: %s",
+                  conn_id,
+                  crtc_id,
+                  strerror(-ret));
     } else {
-        fprintf(stdout, "Bind connector %u to crtc %u success\n", conn_id, crtc_id);
+        LOG_INFO("Bind connector %u to crtc %u success", conn_id, crtc_id);
     }
     return ret;
 }
@@ -311,8 +317,7 @@ int DeviceController::setUpDevice(drmModeConnectorPtr connector, drmModeDev &dev
     dev.height = mode.vdisplay;
     dev.connector_id = connector->connector_id;
 
-    fprintf(stdout, "Mode for connector %u is %ux%u\n", 
-        connector->connector_id, dev.width, dev.height);
+    LOG_INFO("Mode for connector %u is %ux%u", connector->connector_id, dev.width, dev.height);
     
     // 查询当前活动的encoder 和 crtc
     drmModeEncoderPtr encoder = drmModeGetEncoder(fd, connector->encoder_id);
@@ -331,7 +336,7 @@ int DeviceController::setUpDevice(drmModeConnectorPtr connector, drmModeDev &dev
         // 备份旧配置
         dev.oldCrtc = drmModeGetCrtc(fd, crtc);
         dev.crtc_id = crtc;
-        fprintf(stdout, "Find CRTC %u for connector %u\n", crtc, connector->connector_id);
+        LOG_INFO("Find CRTC %u for connector %u", crtc, connector->connector_id);
         return 0;
     }
 
@@ -340,8 +345,7 @@ int DeviceController::setUpDevice(drmModeConnectorPtr connector, drmModeDev &dev
         // 遍历所有连接的编码器
 		encoder = drmModeGetEncoder(fd, connector->encoders[i]);
 		if (nullptr == encoder) {
-			fprintf(stderr, "Cannot retrieve encoder %u:%u (%d): %m\n",
-				i, connector->encoders[i], errno);
+			LOG_ERROR("Cannot retrieve encoder %u:%u (%d): %m", i, connector->encoders[i], errno);
 			continue;
 		}
 
@@ -359,7 +363,7 @@ int DeviceController::setUpDevice(drmModeConnectorPtr connector, drmModeDev &dev
             // 找到可用CRTC
 			crtcStatu[crtc] = true; // 标记为占用
             dev.crtc_id = crtc;
-            fprintf(stdout, "Find CRTC %u for connector %u\n", crtc, connector->connector_id);
+            LOG_INFO("Find CRTC %u for connector %u", crtc, connector->connector_id);
             
             drmModeFreeEncoder(encoder);
             encoder = nullptr;
@@ -369,7 +373,8 @@ int DeviceController::setUpDevice(drmModeConnectorPtr connector, drmModeDev &dev
         encoder = nullptr;
 	}
 
-    fprintf(stderr, "Failed to setup device for connector %u, cannot find suitable CRTC\n", connector->connector_id);
+    LOG_ERROR("Failed to setup device for connector %u, cannot find suitable CRTC",
+              connector->connector_id);
 	return -1;
 }
 
@@ -383,22 +388,22 @@ bool DeviceController::isFormatSupported(uint32_t format, drmModePlanePtr plane)
         return false;
     }
     if (0 == format){
-        fprintf(stdout, "Plane %u\n",plane->plane_id);
+        LOG_INFO("Plane %u", plane->plane_id);
     }
     for (uint32_t i = 0; i < plane->count_formats; ++i) {
         auto planeFormat = plane->formats[i];
         if (0 == format) {
-            fprintf(stdout, "\tSupported format: %s \n",
-                    fourccToString(planeFormat).c_str());
+            LOG_INFO("\tSupported format: %s ", fourccToString(planeFormat).c_str());
             continue;
         } 
         if (planeFormat == format) {
-            fprintf(stdout, "Find matched format: %s for plane %u\n",
-                    fourccToString(planeFormat).c_str(), plane->plane_id);
+            LOG_INFO("Find matched format: %s for plane %u",
+                     fourccToString(planeFormat).c_str(),
+                     plane->plane_id);
             return true;
         }
     }
-    fprintf(stdout, "\n");
+    LOG_INFO("");
     return (0 != format) ? false : true; // 当 format==0 仅列出不做判断
 }
 
@@ -440,7 +445,7 @@ size_t DeviceController::refreshPlane(uint32_t crtc_id)
         return {};
     }
     if (!planeResources_) {
-        fprintf(stderr, "No planeResources found.\n");
+        LOG_ERROR("No planeResources found.");
         return {};
     }
     // 实际上drm没有给出过任何说明crtcid不为0,其为任意值,不能它通过==0来判断有效性
@@ -448,7 +453,7 @@ size_t DeviceController::refreshPlane(uint32_t crtc_id)
     std::vector<uint32_t> planeIDs;
     planesCache_.clear();
     auto count_planes = planeResources_->count_planes;
-    fprintf(stdout, "Find %zu planes in resources.\n", count_planes);
+    LOG_INFO("Find %zu planes in resources.", count_planes);
 
     for (uint32_t i = 0; i < count_planes; i++) {
         // 遍历plane
@@ -462,7 +467,7 @@ size_t DeviceController::refreshPlane(uint32_t crtc_id)
         for (int j = 0; j < resources_->count_crtcs; j++) {
             // 检查crtc有效性
             if (resources_->crtcs[j] != crtc_id) {
-                fprintf(stdout, "Plane %u do not match crtc %u\n", plane_id, crtc_id);
+                LOG_DEBUG("Plane %u do not match crtc %u", plane_id, crtc_id);
             } else {
                 supports_crtc = (plane->possible_crtcs & (1 << j));
                 break;
@@ -483,14 +488,14 @@ size_t DeviceController::refreshPlane(uint32_t crtc_id)
             drmModeFreePlane(plane);
         }
     }
-    if (planeIDs.empty()) fprintf(stdout, "No plane matched. Fxxk\n");
+    if (planeIDs.empty()) LOG_WARN("No plane matched. Fxxk");
     // 返回planeID列表
     return planeIDs.size();
 }
 
 void DeviceController::getPossiblePlane(int plane_type, uint32_t format, std::vector<uint32_t>& out_ids) {
     if (planesCache_.size() == 0) {
-        fprintf(stdout, "There is no plane cached.\n");
+        LOG_WARN("There is no plane cached.");
         return;
     }
     out_ids.clear();

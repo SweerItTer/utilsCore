@@ -9,6 +9,7 @@
 #include <cerrno>
 
 #include "drm/deviceController.h"
+#include "logger_v2.h"
 
 namespace {
 
@@ -184,7 +185,7 @@ uint32_t FramebufferCache::createFramebuffer(const std::vector<DmaBufferPtr>& dm
     for (std::size_t planeIndex = 0; planeIndex < dmaBuffers.size(); ++planeIndex) {
         const auto& currentBuffer = dmaBuffers[planeIndex];
         if (!currentBuffer) {
-            fprintf(stderr, "[FramebufferCache] Invalid DmaBuffer on plane %zu\n", planeIndex);
+            LOG_ERROR("[FramebufferCache] Invalid DmaBuffer on plane %zu", planeIndex);
             return 0;
         }
         handles[planeIndex] = currentBuffer->handle();
@@ -205,7 +206,7 @@ uint32_t FramebufferCache::createFramebuffer(const std::vector<DmaBufferPtr>& dm
         &framebufferId,
         0);
     if (ret != 0 || framebufferId == 0) {
-        fprintf(stderr, "[FramebufferCache] drmModeAddFB2 failed ret=%d\n", ret);
+        LOG_ERROR("[FramebufferCache] drmModeAddFB2 failed ret=%d", ret);
         return 0;
     }
     return framebufferId;
@@ -224,7 +225,7 @@ void FramebufferCache::destroyFramebuffer(uint32_t& framebufferId) const noexcep
 
     const int ret = drmModeRmFB(DrmDev::fd_ptr->get(), framebufferId);
     if (ret < 0) {
-        fprintf(stderr, "[FramebufferCache] drmModeRmFB failed errno=%d\n", errno);
+        LOG_WARN("[FramebufferCache] drmModeRmFB failed errno=%d", errno);
     }
     framebufferId = 0;
 }

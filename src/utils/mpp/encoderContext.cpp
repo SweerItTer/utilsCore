@@ -2,14 +2,15 @@
 #include <algorithm>
 #include <string>
 
+#include "logger_v2.h"
 #include "mpp/encoderContext.h"
 
 MppEncoderContext::MppEncoderContext(const Config &cfg)
     : mCurCfg(cfg) {
     if (init()) {
-        fprintf(stderr, "[MppEncoderContext] Initialization succeeded.\n");
+        LOG_INFO("[MppEncoderContext] Initialization succeeded.");
     } else {
-        fprintf(stderr, "[MppEncoderContext] Initialization failed!\n");
+        LOG_ERROR("[MppEncoderContext] Initialization failed!");
     }
 }
 
@@ -26,7 +27,7 @@ MppEncoderContext::~MppEncoderContext() {
 
 bool MppEncoderContext::resetConfig(const Config &cfg) {
     if (!validateConfig(cfg)) {
-        fprintf(stderr, "[MppEncoderContext] resetConfig rejected invalid config.\n");
+        LOG_ERROR("[MppEncoderContext] resetConfig rejected invalid config.");
         return false;
     }
     mCurCfg = cfg;
@@ -35,22 +36,22 @@ bool MppEncoderContext::resetConfig(const Config &cfg) {
 
 bool MppEncoderContext::init() {
     if (!validateConfig(mCurCfg)) {
-        fprintf(stderr, "[MppEncoderContext] init rejected invalid config.\n");
+        LOG_ERROR("[MppEncoderContext] init rejected invalid config.");
         return false;
     }
     if (MPP_OK != mpp_create(&mCtx, &mpi)) {
-        fprintf(stderr, "[MppEncoderContext] mpp_create failed\n");
+        LOG_ERROR("[MppEncoderContext] mpp_create failed");
         return false;
     }
     if (MPP_OK != mpp_init(mCtx, MPP_CTX_ENC, (MppCodingType)mCurCfg.codec_type)) {
-        fprintf(stderr, "[MppEncoderContext] mpp_init failed\n");
+        LOG_ERROR("[MppEncoderContext] mpp_init failed");
         mpp_destroy(mCtx);
         mCtx = nullptr;
         mpi = nullptr;
         return false;
     }
     if (MPP_OK != mpp_enc_cfg_init(&mCfg)) {
-        fprintf(stderr, "[MppEncoderContext] mpp_enc_cfg_init failed\n");
+        LOG_ERROR("[MppEncoderContext] mpp_enc_cfg_init failed");
         mpp_destroy(mCtx);
         mCtx = nullptr;
         mpi = nullptr;
@@ -62,37 +63,39 @@ bool MppEncoderContext::init() {
 
 bool MppEncoderContext::validateConfig(const Config& cfg) {
     if (cfg.prep_width <= 0 || cfg.prep_height <= 0) {
-        fprintf(stderr, "[MppEncoderContext] Invalid frame size: %dx%d\n", cfg.prep_width, cfg.prep_height);
+        LOG_ERROR("[MppEncoderContext] Invalid frame size: %dx%d", cfg.prep_width, cfg.prep_height);
         return false;
     }
     if (cfg.prep_hor_stride < 0 || cfg.prep_ver_stride < 0) {
-        fprintf(stderr, "[MppEncoderContext] Stride must not be negative.\n");
+        LOG_ERROR("[MppEncoderContext] Stride must not be negative.");
         return false;
     }
     if (cfg.prep_hor_stride > 0 && cfg.prep_hor_stride < cfg.prep_width) {
-        fprintf(stderr, "[MppEncoderContext] Horizontal stride %d is smaller than width %d.\n",
-                cfg.prep_hor_stride, cfg.prep_width);
+        LOG_ERROR("[MppEncoderContext] Horizontal stride %d is smaller than width %d.",
+                  cfg.prep_hor_stride,
+                  cfg.prep_width);
         return false;
     }
     if (cfg.prep_ver_stride > 0 && cfg.prep_ver_stride < cfg.prep_height) {
-        fprintf(stderr, "[MppEncoderContext] Vertical stride %d is smaller than height %d.\n",
-                cfg.prep_ver_stride, cfg.prep_height);
+        LOG_ERROR("[MppEncoderContext] Vertical stride %d is smaller than height %d.",
+                  cfg.prep_ver_stride,
+                  cfg.prep_height);
         return false;
     }
     if (cfg.packet_poll_retries <= 0) {
-        fprintf(stderr, "[MppEncoderContext] packet_poll_retries must be positive.\n");
+        LOG_ERROR("[MppEncoderContext] packet_poll_retries must be positive.");
         return false;
     }
     if (cfg.packet_poll_interval_us <= 0) {
-        fprintf(stderr, "[MppEncoderContext] packet_poll_interval_us must be positive.\n");
+        LOG_ERROR("[MppEncoderContext] packet_poll_interval_us must be positive.");
         return false;
     }
     if (cfg.packet_ready_timeout_us <= 0) {
-        fprintf(stderr, "[MppEncoderContext] packet_ready_timeout_us must be positive.\n");
+        LOG_ERROR("[MppEncoderContext] packet_ready_timeout_us must be positive.");
         return false;
     }
     if (cfg.prep_format == MPP_FMT_BUTT) {
-        fprintf(stderr, "[MppEncoderContext] prep_format is invalid.\n");
+        LOG_ERROR("[MppEncoderContext] prep_format is invalid.");
         return false;
     }
     return true;
@@ -109,7 +112,7 @@ bool MppEncoderContext::applyConfig() {
     auto setConfigValue = [&](const char* key, RK_S32 value) -> bool {
         MPP_RET ret = mpp_enc_cfg_set_s32(mCfg, key, value);
         if (MPP_OK != ret) {
-            fprintf(stderr, "[MppEncoderContext] ERROR: set %s failed, ret=%d\n", key, ret);
+            LOG_ERROR("[MppEncoderContext] ERROR: set %s failed, ret=%d", key, ret);
             return false;
         }
         return true;
@@ -253,7 +256,7 @@ bool MppEncoderContext::applyConfig() {
         }
         break;
     default:
-        fprintf(stderr, "[MppEncoderContext] ERROR: unsupported codec type %d\n", mCurCfg.codec_type);
+        LOG_ERROR("[MppEncoderContext] ERROR: unsupported codec type %d", mCurCfg.codec_type);
         return false;
     }
 
@@ -284,20 +287,20 @@ bool MppEncoderContext::applyConfig() {
             // VP8配置已在QP设置中处理
             break;
         default:
-            fprintf(stderr, "[MppEncoderContext] ERROR: unsupported codec type %d\n", mCurCfg.codec_type);
+            LOG_ERROR("[MppEncoderContext] ERROR: unsupported codec type %d", mCurCfg.codec_type);
             return false;
     }
 
     // ---- SEI / header 输出 (MJPEG 跳过) ----
     if (!is_mjpeg) {
         if (MPP_OK != mpi->control(mCtx, MPP_ENC_SET_SEI_CFG, &mCurCfg.sei_mode)) {
-            fprintf(stderr, "[MppEncoderContext] ERROR: MPP_ENC_SET_SEI_CFG failed\n");
+            LOG_ERROR("[MppEncoderContext] ERROR: MPP_ENC_SET_SEI_CFG failed");
             return false;
         }
         MppCodingType type_ = static_cast<MppCodingType>(mCurCfg.codec_type);
         if ((type_ == MPP_VIDEO_CodingAVC || type_ == MPP_VIDEO_CodingHEVC) &&
             MPP_OK != mpi->control(mCtx, MPP_ENC_SET_HEADER_MODE, &mCurCfg.header_mode)) {
-            fprintf(stderr, "[MppEncoderContext] ERROR: MPP_ENC_SET_HEADER_MODE failed\n");
+            LOG_ERROR("[MppEncoderContext] ERROR: MPP_ENC_SET_HEADER_MODE failed");
             return false;
         }
     }
@@ -310,7 +313,7 @@ bool MppEncoderContext::applyConfig() {
 
     // ---- 应用全部配置 ----
     if (MPP_OK != mpi->control(mCtx, MPP_ENC_SET_CFG, mCfg)) {
-        fprintf(stderr, "[MppEncoderContext] ERROR: MPP_ENC_SET_CFG failed\n");
+        LOG_ERROR("[MppEncoderContext] ERROR: MPP_ENC_SET_CFG failed");
         return false;
     }
 

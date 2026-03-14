@@ -6,6 +6,7 @@
  */
 #include "drm/drmLayer.h"
 #include "drm/deviceController.h"
+#include "logger_v2.h"
 #include "rga/formatTool.h"
 
 DrmLayer::DrmLayer(std::vector<DmaBufferPtr> buffers, size_t cacheSize)
@@ -53,13 +54,13 @@ DrmLayer::~DrmLayer() {
 
 void DrmLayer::updateBuffer(std::vector<DmaBufferPtr> buffers) {
     if (buffers.empty() || buffers.size() > 4) {
-        fprintf(stderr, "DrmLayer::DrmLayer: Invalid DmaBuffer count\n");
+        LOG_ERROR("DrmLayer::DrmLayer: Invalid DmaBuffer count");
         return;
     }
     buffers_ = std::move(buffers); // 更新bufs
     const auto framebufferHandle = acquireFramebufferHandle();
     if (!framebufferHandle.valid()) {
-        fprintf(stderr, "DrmLayer::updateBuffer: acquireFramebufferHandle failed\n");
+        LOG_ERROR("DrmLayer::updateBuffer: acquireFramebufferHandle failed");
         return;
     }
     

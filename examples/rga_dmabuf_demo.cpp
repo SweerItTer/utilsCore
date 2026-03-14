@@ -9,6 +9,8 @@
 #include "rga/rgaProcessor.h"
 #include "rga/formatTool.h"
 #include "drm/deviceController.h"
+#include "logger_config.h"
+#include "logger_v2.h"
 
 #include <cstdio>
 #include <memory>
@@ -32,6 +34,10 @@ static void fillSolidBGRA(const DmaBufferPtr& buf, uint8_t b, uint8_t g, uint8_t
 }
 
 int main(int argc, char** argv) {
+    utils::LoggerConfig loggerConfig = utils::LoggerConfig::defaultConfig();
+    loggerConfig.async = false;
+    loggerConfig.global_level = utils::LogLevel::INFO;
+    utils::LoggerV2::init(loggerConfig);
     DrmDev::fd_ptr = DeviceController::create();
     const uint32_t w = 64;
     const uint32_t h = 64;
@@ -42,13 +48,13 @@ int main(int argc, char** argv) {
 
     const uint32_t srcDrm = convertRGAtoDrmFormat(srcFmt);
     if (srcDrm == static_cast<uint32_t>(-1)) {
-        std::fprintf(stderr, "convertRGAtoDrmFormat(srcFmt) failed\n");
+        LOG_ERROR("convertRGAtoDrmFormat(srcFmt) failed");
         return 1;
     }
 
     auto src = DmaBuffer::create(w, h, srcDrm, 0, 0);
     if (!src || src->fd() < 0) {
-        std::fprintf(stderr, "DmaBuffer::create() failed\n");
+        LOG_ERROR("DmaBuffer::create() failed");
         return 1;
     }
 
@@ -73,21 +79,21 @@ int main(int argc, char** argv) {
 
     utils::rga::RgaProcessor proc(cfg);
     if (proc.start() != utils::rga::RgaProcessorError::SUCCESS) {
-        std::fprintf(stderr, "RgaProcessor start failed\n");
+        LOG_ERROR("RgaProcessor start failed");
         return 1;
     }
 
     FramePtr outFrame;
     const int idx = proc.dump(outFrame, 50000);
     if (idx < 0 || !outFrame) {
-        std::fprintf(stderr, "dump() failed (idx=%d)\n", idx);
+        LOG_ERROR("dump() failed (idx=%d)", idx);
         proc.stop();
         return 1;
     }
 
     auto outState = outFrame->sharedState(0);
     if (!outState || !outState->dmabuf_ptr) {
-        std::fprintf(stderr, "output state invalid\n");
+        LOG_ERROR("output state invalid");
         proc.stop();
         return 1;
     }
@@ -104,12 +110,12 @@ int main(int argc, char** argv) {
     proc.stop();
 
     if (!ok) {
-        std::fprintf(stderr, "dumpDmabufAsXXXX8888 failed\n");
+        LOG_ERROR("dumpDmabufAsXXXX8888 failed");
         return 1;
     }
 
-    std::printf("Wrote raw RGBA8888 to %s (%ux%u).\n", outPath, w, h);
-    std::printf("Tip: view as raw RGBA (e.g. ffplay -f rawvideo -pix_fmt rgba -s 64x64 %s)\n", outPath);
+    LOG_INFO("Wrote raw RGBA8888 to %s (%ux%u).", outPath, w, h);
+    LOG_INFO("Tip: view as raw RGBA (e.g. ffplay -f rawvideo -pix_fmt rgba -s 64x64 %s)", outPath);
+    utils::LoggerV2::shutdown();
     return 0;
 }
-

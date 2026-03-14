@@ -9,7 +9,7 @@
 
 #include "dma/dmaBuffer.h"
 #include "drm/deviceController.h"
-#include "logger.h"
+#include "logger_v2.h"
 
 using namespace DrmDev;
 
@@ -45,7 +45,7 @@ bool fillFileIdentity(int dmaBufferFd, dev_t& fileSystemDevice, ino_t& fileSyste
  */
 static int exportFD(uint32_t handle) {
     if (handle == 0) {
-        fprintf(stderr, "[DmaBuffer] Invalid handle 0\n");
+        LOG_ERROR("[DmaBuffer] Invalid handle 0");
         return -1;
     }
     int prime_fd = -1;
@@ -56,7 +56,7 @@ static int exportFD(uint32_t handle) {
             drm_mode_destroy_dumb destroy_arg = {};
             destroy_arg.handle = handle;
             drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
-            fprintf(stderr, "[DmaBuffer] drmPrimeHandleToFD failed");
+            LOG_ERROR("[DmaBuffer] drmPrimeHandleToFD failed");
         }
     }
 
@@ -87,7 +87,7 @@ static bool getPlaneBpp(uint32_t format, uint32_t planeIndex,
 
     bpp = calculate_bpp(format);
     if (bpp == 0) {
-        fprintf(stderr, "[DmaBuffer] Unsupported format: 0x%x\n", format);
+        LOG_ERROR("[DmaBuffer] Unsupported format: 0x%x", format);
         return false;
     }
     return true;
@@ -130,7 +130,7 @@ bool DmaBuffer::tryCreateDumbBuffer(DmaBufferData &data, uint32_t requiredSize, 
     uint32_t width = data.width;
     uint32_t height = data.height;
     if (width == 0 || height == 0) {
-        fprintf(stderr, "[DmaBuffer] Invalid dimensions: %ux%u\n", width, height);
+        LOG_ERROR("[DmaBuffer] Invalid dimensions: %ux%u", width, height);
         return false;
     }
 
@@ -149,8 +149,9 @@ bool DmaBuffer::tryCreateDumbBuffer(DmaBufferData &data, uint32_t requiredSize, 
             std::lock_guard<std::mutex> lock(fd_mutex);
             // 尝试创建 dumb buffer
             if (drmIoctl(fd_ptr->get(), DRM_IOCTL_MODE_CREATE_DUMB, &createArg) < 0) {
-                fprintf(stderr, "[DmaBuffer] DRM_IOCTL_MODE_CREATE_DUMB failed with align %u: %d\n",
-                        align, errno);
+                LOG_ERROR("[DmaBuffer] DRM_IOCTL_MODE_CREATE_DUMB failed with align %u: %d",
+                          align,
+                          errno);
                 continue;
             }
         }
@@ -170,8 +171,8 @@ bool DmaBuffer::tryCreateDumbBuffer(DmaBufferData &data, uint32_t requiredSize, 
 
         return true;
     }
-    std::cerr << "[DmaBuffer] Failed to create dumb buffer with required size "
-              << requiredSize << " after trying all alignments\n";
+    LOG_ERROR("[DmaBuffer] Failed to create dumb buffer with required size %u after trying all alignments",
+              requiredSize);
     return false;
 }
 
@@ -190,12 +191,12 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
     {
         std::lock_guard<std::mutex> lock(fd_mutex);
         if (!fd_ptr || -1 == fd_ptr->get()) {
-            fprintf(stderr, "[DmaBuffer] DRM fd not initialized, please call initialize_drm_fd() first\n");
+            LOG_ERROR("[DmaBuffer] DRM fd not initialized, please call initialize_drm_fd() first");
             return nullptr;
         }
     }
     if (requiredSize == 0) {
-        fprintf(stderr, "[DmaBuffer] Invalid required size 0\n");
+        LOG_ERROR("[DmaBuffer] Invalid required size 0");
         return nullptr;
     }
     float ratioW, ratioH;
@@ -212,15 +213,18 @@ std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
     data.channel = planeIndex;
 
     if (!tryCreateDumbBuffer(data, requiredSize, planeIndex, ratioW, ratioH, bpp)) {
-        fprintf(stderr, "[DmaBuffer] Failed to create (%ux%u) buffer\n\t\t bpp: %u; required size %u;\n", 
-                width, height, bpp, requiredSize);
+        LOG_ERROR("[DmaBuffer] Failed to create (%ux%u) buffer bpp: %u; required size %u;",
+                  width,
+                  height,
+                  bpp,
+                  requiredSize);
         return nullptr;
     }
     
     // 导出为 dma-buf fd
     int primeFd = exportFD(data.handle);
     if (primeFd < 0) {
-        fprintf(stderr, "[DmaBuffer] failed to export prime fd: %d\n", primeFd);
+        LOG_ERROR("[DmaBuffer] failed to export prime fd: %d", primeFd);
         return nullptr;
     }
 
@@ -246,11 +250,11 @@ std::shared_ptr<DmaBuffer> DmaBuffer::importFromFD(
     int importFd, uint32_t width, uint32_t height, uint32_t format, uint32_t size, uint32_t offset)
 {
     if (importFd < 0) {
-        fprintf(stderr, "[DmaBuffer] Invalid import fd: %d\n", importFd);
+        LOG_ERROR("[DmaBuffer] Invalid import fd: %d", importFd);
         return nullptr;
     }
     if (0 == width || 0 == height) {
-        fprintf(stderr, "[DmaBuffer] Invalid dimensions: %ux%u\n", width, height);
+        LOG_ERROR("[DmaBuffer] Invalid dimensions: %ux%u", width, height);
         return nullptr;
     }
 
@@ -258,18 +262,18 @@ std::shared_ptr<DmaBuffer> DmaBuffer::importFromFD(
     {
         std::lock_guard<std::mutex> lock(fd_mutex);
         if (!fd_ptr || -1 == fd_ptr->get()) {
-            fprintf(stderr, "[DmaBuffer] DRM fd not initialized, please call initialize_drm_fd() first\n");
+            LOG_ERROR("[DmaBuffer] DRM fd not initialized, please call initialize_drm_fd() first");
             return nullptr;
         }
 
         // 把 fd 转成 DRM handle
         if (drmPrimeFDToHandle(fd_ptr->get(), importFd, &handle) < 0) {
-            fprintf(stderr, "[DmaBuffer] Failed to import DMA-BUF fd: %d\n", importFd);
+            LOG_ERROR("[DmaBuffer] Failed to import DMA-BUF fd: %d", importFd);
             return nullptr;
         }
     }
     if (0 == handle) {
-        fprintf(stderr, "[DmaBuffer] Imported handle is 0 for fd: %d\n", importFd);
+        LOG_ERROR("[DmaBuffer] Imported handle is 0 for fd: %d", importFd);
         return nullptr;
     }
 
@@ -401,7 +405,7 @@ void DmaBuffer::buildBufferIdentity() {
 
     // 使用 inode + layout 组合身份, 避免把会被复用的 fd 数字当作对象身份.
     if (!fillFileIdentity(primeFd_, planeDescriptor.fileSystemDevice, planeDescriptor.fileSystemInode)) {
-        fprintf(stderr, "[DmaBuffer] Failed to query stable file identity for fd=%d\n", primeFd_);
+        LOG_WARN("[DmaBuffer] Failed to query stable file identity for fd=%d", primeFd_);
     }
 
     bufferIdentity_.planeDescriptors.emplace_back(planeDescriptor);

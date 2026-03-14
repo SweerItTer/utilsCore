@@ -30,8 +30,9 @@
 #include <chrono>
 #include <iomanip>
 #include <sstream>
-#include <iostream>
 #include <cerrno>
+
+#include "logger_v2.h"
 
 using namespace std::chrono_literals;
 
@@ -96,21 +97,22 @@ StreamWriter::StreamWriter(const std::string &path)
 
     // 打开第一个分段到 currentWriter_
     if (!currentWriter_) {
-        fprintf(stderr, "[StreamWriter] Cannot get [currentWriter] from [writer].\n");
+        LOG_ERROR("[StreamWriter] Cannot get [currentWriter] from [writer].");
         return;
     }
     // 失败也继续启动线程(但写入会失败)
     if (!openNewSegmentFor(currentWriter_)) {
-        fprintf(stderr, "[StreamWriter] Cannot open segment file.\n");
+        LOG_ERROR("[StreamWriter] Cannot open segment file.");
     }
 
     // 启动线程
     if (!initThreads()) {
-        fprintf(stderr, "[StreamWriter] Writer thread initialization failed.\n");
+        LOG_ERROR("[StreamWriter] Writer thread initialization failed.");
         return;
     }
-    fprintf(stdout, "[StreamWriter] Writer thread initialized successfully:\n\tbase=%s\n\tsuffix=%s\n",
-            baseName_.c_str(), suffix_.c_str());
+    LOG_INFO("[StreamWriter] Writer thread initialized successfully:");
+    LOG_INFO("\tbase=%s", baseName_.c_str());
+    LOG_INFO("\tsuffix=%s", suffix_.c_str());
 }
 
 /**
@@ -138,7 +140,7 @@ void StreamWriter::stop() {
     writerB_.cv.notify_all();
     if (writerThreadA_.joinable()) writerThreadA_.join();
     if (writerThreadB_.joinable()) writerThreadB_.join();
-    fprintf(stderr, "[StreamWriter] Stop...\n");
+    LOG_INFO("[StreamWriter] Stop...");
 }
 
 /**
@@ -156,7 +158,7 @@ bool StreamWriter::openNewSegmentFor(WriterCtx* ctx) {
 
     FILE *fp = fopen(filename.c_str(), "wb");
     if (nullptr == fp) {
-        fprintf(stderr, "[StreamWriter] Failed to open file: %s\n", filename.c_str());
+        LOG_ERROR("[StreamWriter] Failed to open file: %s", filename.c_str());
         return false;
     }
 
@@ -168,7 +170,7 @@ bool StreamWriter::openNewSegmentFor(WriterCtx* ctx) {
 
     // 获取对应 fd
     if ((ctx->fd = fileno(fp)) < 0){
-        fprintf(stderr, "[StreamWriter] Failed to get [%s] file descriptor.\n", filename.c_str());
+        LOG_ERROR("[StreamWriter] Failed to get [%s] file descriptor.", filename.c_str());
         return false;
     }
     // 顺序访问优化
@@ -187,7 +189,7 @@ bool StreamWriter::initThreads() {
         writerThreadA_ = std::thread(&StreamWriter::writerLoop, this, &writerA_);
         writerThreadB_ = std::thread(&StreamWriter::writerLoop, this, &writerB_);
     } catch (const std::system_error &e) {
-        fprintf(stderr, "[StreamWriter] Thread initialization failed: %s\n", e.what());
+        LOG_ERROR("[StreamWriter] Thread initialization failed: %s", e.what());
         return false;
     }
     return true;
@@ -204,7 +206,7 @@ bool StreamWriter::pushMeta(const MppEncoderCore::EncodedMeta &meta) {
         return false;
     }
     if (nullptr == meta.core) {
-        fprintf(stderr, "[StreamWriter] pushMeta: meta.core is nullptr.\n");
+        LOG_ERROR("[StreamWriter] pushMeta: meta.core is nullptr.");
         return false;
     }
     // 分发到当前 writer
@@ -263,7 +265,7 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
         }
         // 写入当前文件 (短路求值)
         if (nullptr == ctx->fp || nullptr == ctx->fp->get()) {
-            fprintf(stderr, "[StreamWriter] writerLoop: File point to NULL, drop current packet.\n");
+            LOG_ERROR("[StreamWriter] writerLoop: File point to NULL, drop current packet.");
             std::lock_guard<std::mutex> lk(ctx->mtx);
             if (ctx->pendingCount > 0) {
                 --ctx->pendingCount;
@@ -276,7 +278,7 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
         // fprintf(stdout, "[SlotGuard] Acquired slot_id=%d\n", meta.slot_id); 
         void* data = packet->data();
         if (nullptr == data) {
-            fprintf(stderr, "[StreamWriter] writerLoop: Packet data is NULL, drop current packet.\n");
+            LOG_ERROR("[StreamWriter] writerLoop: Packet data is NULL, drop current packet.");
             std::lock_guard<std::mutex> lk(ctx->mtx);
             if (ctx->pendingCount > 0) {
                 --ctx->pendingCount;
@@ -295,7 +297,7 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
         size_t written = fwrite(data, 1, length, fp);
         
         if (written != length) {
-            fprintf(stderr, "[StreamWriter] Insufficient actual data written: %zu/%zu\n", written, length);
+            LOG_ERROR("[StreamWriter] Insufficient actual data written: %zu/%zu", written, length);
         }
         
         // 更新累加大小
@@ -303,7 +305,7 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
         
         // 达到阈值时刷新并重置累加器
         if (accumulatedSize >= FLUSH_THRESHOLD && fflush(fp) != 0) {
-            fprintf(stderr, "[StreamWriter] Flush STREAM error:%s\n", std::strerror(errno));
+            LOG_ERROR("[StreamWriter] Flush STREAM error:%s", std::strerror(errno));
         }
         if (accumulatedSize >= FLUSH_THRESHOLD) {
             accumulatedSize = 0;
@@ -330,7 +332,7 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
  *        并在达到 packetsPerSegment_ 时切换到 idleWriter_
  */
 void StreamWriter::dispatchLoop() {
-    fprintf(stdout, "[StreamWriter] Start form segment index: 1\n");
+    LOG_INFO("[StreamWriter] Start form segment index: 1");
     while (true) {
         MppEncoderCore::EncodedMeta meta;
         {
@@ -356,7 +358,7 @@ void StreamWriter::dispatchLoop() {
         }
         // 非关键帧不计数
         if (packet->isKeyframe()) {
-            fprintf(stdout, "GET I(ntra) frame.\n");
+            LOG_INFO("GET I(ntra) frame.");
             firstKeyFramePending_.store(false);
             // 关键帧计数
             auto ct = currentPacketCount_.fetch_add(1, std::memory_order_release) + 1;
@@ -371,13 +373,13 @@ void StreamWriter::dispatchLoop() {
         if (shouldCutSegment){
             WriterCtx* writerToSync = nullptr;
             ++segmentIndex_;
-            fprintf(stdout, "[StreamWriter] Switching to segment index: %zu\n", segmentIndex_);
+            LOG_INFO("[StreamWriter] Switching to segment index: %zu", segmentIndex_);
             {
                 std::lock_guard<std::mutex> lk2(writerSelectionMtx_);
                 writerToSync = currentWriter_;
                 // 新 segment 先在 idle writer 上准备好, 这样一旦 swap 完成, 后续包就能直接落到新文件.
                 if (!openNewSegmentFor(idleWriter_)) {
-                    fprintf(stderr, "[StreamWriter] Failed to open on dispatch segment: %zu\n", segmentIndex_);
+                    LOG_ERROR("[StreamWriter] Failed to open on dispatch segment: %zu", segmentIndex_);
                 }
                 std::swap(currentWriter_, idleWriter_);
             }
@@ -429,13 +431,13 @@ bool StreamWriter::obtainPacketForMeta(MppEncoderCore::EncodedPacketPtr &out,
         out = meta.packet;
         if (out == nullptr) {
             // 安全检查
-            fprintf(stderr, "[StreamWriter] obtainPacketForMeta: packet is nullptr, slot_id=%d\n", id);
+            LOG_ERROR("[StreamWriter] obtainPacketForMeta: packet is nullptr, slot_id=%d", id);
             break;
         }
         return true;
     }
     if (tries <= 0) {
-        fprintf(stderr, "[StreamWriter][slot_id:%d] Timeout, packet dropped\n", id);
+        LOG_ERROR("[StreamWriter][slot_id:%d] Timeout, packet dropped", id);
     }
     meta.core->releaseSlot(meta);
     return false;
@@ -448,11 +450,11 @@ bool StreamWriter::flushAndSyncWriter(WriterCtx *ctx) {
     std::lock_guard<std::mutex> lk(ctx->mtx);
     FILE* fp = ctx->fp->get();
     if (fflush(fp) != 0) {
-        fprintf(stderr, "[StreamWriter] Flush STREAM error:%s\n", std::strerror(errno));
+        LOG_ERROR("[StreamWriter] Flush STREAM error:%s", std::strerror(errno));
         return false;
     }
     if (ctx->fd >= 0 && fsync(ctx->fd) != 0) {
-        fprintf(stderr, "[StreamWriter] Failed to sync segment to disk: %d\n", errno);
+        LOG_ERROR("[StreamWriter] Failed to sync segment to disk: %d", errno);
         return false;
     }
     return true;

@@ -1,6 +1,7 @@
 #include "mpp/encoderCore.h"
-#include <iostream>
 #include <algorithm>
+
+#include "logger_v2.h"
 
 // ------------------------ MppEncoderCore::EncodedPacket ------------------------ //
 MppEncoderCore::EncodedPacket::EncodedPacket(MppPacket pkt, size_t len,  bool keyframe)
@@ -30,7 +31,7 @@ MppEncoderCore::MppEncoderCore(const MppEncoderContext::Config& cfg, int core_id
       currentConfig_(cfg) {
     resetConfig(cfg);
     worker_ = std::thread(&MppEncoderCore::workerThread, this);
-    fprintf(stdout, "[MppEncoderCore:%d] Encoder core initialization successfully!\n", core_id_);
+    LOG_INFO("[MppEncoderCore:%d] Encoder core initialization successfully!", core_id_);
 }
 
 MppEncoderCore::~MppEncoderCore() {
@@ -50,7 +51,7 @@ void MppEncoderCore::contextInit(const MppEncoderContext::Config& cfg) {
     currentConfig_ = cfg;
     mpp_ctx_.reset( new MppEncoderContext(cfg) );
     if (nullptr == mpp_ctx_->ctx() || nullptr == mpp_ctx_->api() || nullptr == mpp_ctx_->encCfg()){
-        fprintf(stderr, "[MppEncoderCore:%d] Encoder core initialization failed!\n", core_id_);
+        LOG_ERROR("[MppEncoderCore:%d] Encoder core initialization failed!", core_id_);
         return;
     }
 }
@@ -86,7 +87,7 @@ void MppEncoderCore::resetConfig(const MppEncoderContext::Config& cfg){
 void MppEncoderCore::initSlots() {
     const auto* cfg = mpp_ctx_->getConfig();
     if (cfg == nullptr) {
-        fprintf(stderr, "[MppEncoderCore:%d] initSlots skipped because config is null.\n", core_id_);
+        LOG_ERROR("[MppEncoderCore:%d] initSlots skipped because config is null.", core_id_);
         return;
     }
 
@@ -103,7 +104,7 @@ void MppEncoderCore::initSlots() {
         );
 
         if (!dmabuf) {
-            fprintf(stderr, "[MppEncoderCore:%d] DmaBuffer create failed (slot %zu)\n", core_id_, i);
+            LOG_ERROR("[MppEncoderCore:%d] DmaBuffer create failed (slot %zu)", core_id_, i);
             continue;
         }
 
@@ -115,7 +116,7 @@ void MppEncoderCore::initSlots() {
         import_info.size = dmabuf->size();
         
         if (MPP_OK != mpp_buffer_import(&mpp_buf, &import_info)) {
-            fprintf(stderr, "[MppEncoderCore:%d] mpp_buffer_import failed (slot %zu)\n", core_id_, i);
+            LOG_ERROR("[MppEncoderCore:%d] mpp_buffer_import failed (slot %zu)", core_id_, i);
             continue;
         }
 
@@ -133,8 +134,9 @@ void MppEncoderCore::initSlots() {
         free_slots_.push(static_cast<int>(i));
     }
 
-    fprintf(stdout, "[MppEncoderCore:%d] %d Slot init successfully.\n",
-            core_id_, static_cast<int>(free_slots_.size()));
+    LOG_INFO("[MppEncoderCore:%d] %d Slot init successfully.",
+             core_id_,
+             static_cast<int>(free_slots_.size()));
 }
 
 void MppEncoderCore::cleanupSlots()
@@ -188,7 +190,7 @@ std::pair<DmaBufferPtr, int> MppEncoderCore::acquireWritableSlot() {
     auto expected = SlotState::Writable;
     if (!slots_[slot_id].state.compare_exchange_weak(expected, SlotState::Writing)){
         // 状态不正确
-        fprintf(stderr, "[MppEncoderCore:%d] acquireWritableSlot: slot %d state invalid\n", core_id_, slot_id);
+        LOG_ERROR("[MppEncoderCore:%d] acquireWritableSlot: slot %d state invalid", core_id_, slot_id);
         recycleSlot(slot_id);
         return {nullptr, -1};
     }
@@ -214,7 +216,7 @@ MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlot(int slot_id) {
     auto expected = SlotState::Writing;
     if (!s.state.compare_exchange_weak(expected, SlotState::Filled)){
         // 状态不正确
-        fprintf(stderr, "[MppEncoderCore:%d] submitFilledSlot: slot %d state invalid\n", core_id_, slot_id);
+        LOG_ERROR("[MppEncoderCore:%d] submitFilledSlot: slot %d state invalid", core_id_, slot_id);
         return {};
     }
     s.packet->setPts(std::chrono::steady_clock::now());    // 更新时间戳
@@ -251,7 +253,7 @@ MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlotWithExternal(
         return {};
     }
     if (!external_dma) {
-        fprintf(stderr, "[MppEncoderCore:%d] submitFilledSlotWithExternal received null dmabuf.\n", core_id_);
+        LOG_ERROR("[MppEncoderCore:%d] submitFilledSlotWithExternal received null dmabuf.", core_id_);
         return {};
     }
 
@@ -261,7 +263,7 @@ MppEncoderCore::EncodedMeta MppEncoderCore::submitFilledSlotWithExternal(
     auto expected = SlotState::Writing;
     if (!s.state.compare_exchange_weak(expected, SlotState::Filled)){
         // 状态不正确
-        fprintf(stderr, "[MppEncoderCore:%d] submitFilledSlot: slot %d state invalid\n", core_id_, slot_id);
+        LOG_ERROR("[MppEncoderCore:%d] submitFilledSlot: slot %d state invalid", core_id_, slot_id);
         return {};
     }
     s.external_dmabuf = external_dma;
@@ -339,13 +341,13 @@ void MppEncoderCore::workerThread() {
             currentGeneration = configGeneration_;
         }
         if (ctx == nullptr || mpi == nullptr) {
-            fprintf(stderr, "[MppEncoderCore:%d] workerThread found invalid MPP context.\n", core_id_);
+            LOG_ERROR("[MppEncoderCore:%d] workerThread found invalid MPP context.", core_id_);
             recycleSlot(slot_id);
             continue;
         }
         if (startedGeneration != currentGeneration &&
             MPP_OK != mpi->control(ctx, MPP_START, nullptr)) {
-            fprintf(stderr, "[MppEncoderCore:%d] failed to start encoder.\n", core_id_);
+            LOG_ERROR("[MppEncoderCore:%d] failed to start encoder.", core_id_);
             recycleSlot(slot_id);
             continue;
         }
@@ -353,7 +355,7 @@ void MppEncoderCore::workerThread() {
 
         // 创建可编码 frame
         if (!createEncodableFrame(s, frame_raw, buffer_raw)) {
-            fprintf(stderr, "[MppEncoderCore:%d] createEncodableFrame failed.\n", core_id_);
+            LOG_ERROR("[MppEncoderCore:%d] createEncodableFrame failed.", core_id_);
             recycleSlot(slot_id);
             continue;
         }
@@ -362,7 +364,7 @@ void MppEncoderCore::workerThread() {
         bool got = tryGetEncodedMppPacket(ctx, mpi, frame_raw, packet_raw);
         if (!got || !packet_raw) {
             recycleSlot(slot_id);
-            fprintf(stderr, "[MppEncoderCore:%d] encode_get_packet timeout or error\n", core_id_);
+            LOG_ERROR("[MppEncoderCore:%d] encode_get_packet timeout or error", core_id_);
             continue;
         }
     
@@ -414,8 +416,9 @@ bool MppEncoderCore::tryGetEncodedPacket(EncodedMeta& meta) {
 
     auto& s = slots_[meta.slot_id];
     if (meta.generation != s.generation.load()) {
-        fprintf(stderr, "[MppEncoderCore:%d] tryGetEncodedPacket ignored stale meta for slot %d.\n",
-                core_id_, meta.slot_id);
+        LOG_WARN("[MppEncoderCore:%d] tryGetEncodedPacket ignored stale meta for slot %d.",
+                 core_id_,
+                 meta.slot_id);
         return false;
     }
     // 检查状态
@@ -432,7 +435,7 @@ bool MppEncoderCore::tryGetEncodedPacket(EncodedMeta& meta) {
 void MppEncoderCore::releaseSlot(int slot_id) {
     if (slot_id < 0 || static_cast<size_t>(slot_id) >= SLOT_COUNT){
         // 无效 slot_id
-        fprintf(stderr, "[MppEncoderCore:%d] releaseSlot: invalid slot_id %d\n", core_id_, slot_id);
+        LOG_ERROR("[MppEncoderCore:%d] releaseSlot: invalid slot_id %d", core_id_, slot_id);
         return;
     }
 
@@ -445,12 +448,11 @@ void MppEncoderCore::releaseSlot(const EncodedMeta& meta) {
     }
     const uint64_t slotGeneration = slots_[meta.slot_id].generation.load();
     if (meta.generation != 0 && meta.generation != slotGeneration) {
-        fprintf(stderr,
-                "[MppEncoderCore:%d] releaseSlot ignored stale meta for slot %d (meta=%llu slot=%llu).\n",
-                core_id_,
-                meta.slot_id,
-                static_cast<unsigned long long>(meta.generation),
-                static_cast<unsigned long long>(slotGeneration));
+        LOG_WARN("[MppEncoderCore:%d] releaseSlot ignored stale meta for slot %d (meta=%llu slot=%llu).",
+                 core_id_,
+                 meta.slot_id,
+                 static_cast<unsigned long long>(meta.generation),
+                 static_cast<unsigned long long>(slotGeneration));
         return;
     }
     recycleSlot(meta.slot_id);
@@ -464,11 +466,11 @@ bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFram
     mpp_buf   = nullptr;
     const DmaBufferPtr sourceDmabuf = s.using_external ? s.external_dmabuf : s.dmabuf;
     if (!sourceDmabuf) {
-        fprintf(stderr, "[MppEncoderCore:%d] source dmabuf is null.\n", core_id_);
+        LOG_ERROR("[MppEncoderCore:%d] source dmabuf is null.", core_id_);
         return false;
     }
     if (!s.using_external && !s.enc_buf) {
-        fprintf(stderr, "[MppEncoderCore:%d] internal slot buffer is null.\n", core_id_);
+        LOG_ERROR("[MppEncoderCore:%d] internal slot buffer is null.", core_id_);
         return false;
     }
 
@@ -478,7 +480,7 @@ bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFram
     // 创建 frame
     RK_S32 ret = mpp_frame_init(&out_frame);
     if (ret != MPP_OK || !out_frame) {
-        fprintf(stderr, "[MppEncoderCore:%d] mpp_frame_init failed\n", core_id_);
+        LOG_ERROR("[MppEncoderCore:%d] mpp_frame_init failed", core_id_);
         return false;
     }
     if (s.using_external){
@@ -489,7 +491,7 @@ bool MppEncoderCore::createEncodableFrame(const MppEncoderCore::Slot& s, MppFram
         import_info.size = sourceDmabuf->size();
         
         if (MPP_OK != mpp_buffer_import(&mpp_buf, &import_info)) {
-            fprintf(stderr, "[MppEncoderCore:%d] mpp_buffer_import failed.\n", core_id_);
+            LOG_ERROR("[MppEncoderCore:%d] mpp_buffer_import failed.", core_id_);
             return false;
         }
     }
@@ -514,12 +516,12 @@ bool MppEncoderCore::tryGetEncodedMppPacket(MppCtx ctx, MppApi* mpi, MppFrame fr
         mpp_frame_set_eos(frame_raw, true);
     }
     if (!running_){
-        fprintf(stderr, "[MppEncoderCore:%d] Core has been shutdown.\n", core_id_);
+        LOG_ERROR("[MppEncoderCore:%d] Core has been shutdown.", core_id_);
         return false;
     }
     // 提交编码
     if (mpi->encode_put_frame(ctx, frame_raw) != MPP_OK) {
-        fprintf(stderr, "[MppEncoderCore:%d] encode_put_frame error\n", core_id_);
+        LOG_ERROR("[MppEncoderCore:%d] encode_put_frame error", core_id_);
         return false;
     }
     out_pkt = nullptr;
@@ -530,7 +532,7 @@ bool MppEncoderCore::tryGetEncodedMppPacket(MppCtx ctx, MppApi* mpi, MppFrame fr
         {
             std::lock_guard<std::mutex> controlLock(control_mtx_);
             if (resetInProgress_) {
-                fprintf(stderr, "[MppEncoderCore:%d] packet polling interrupted by reset.\n", core_id_);
+                LOG_WARN("[MppEncoderCore:%d] packet polling interrupted by reset.", core_id_);
                 return false;
             }
         }
@@ -539,12 +541,12 @@ bool MppEncoderCore::tryGetEncodedMppPacket(MppCtx ctx, MppApi* mpi, MppFrame fr
             return true;
         }
         if (ret != MPP_ERR_TIMEOUT) {
-            fprintf(stderr, "[MppEncoderCore:%d] encode_get_packet error: %d\n", core_id_, ret);
+            LOG_ERROR("[MppEncoderCore:%d] encode_get_packet error: %d", core_id_, ret);
             return false;
         }
         std::this_thread::sleep_for(pollInterval);
     }
-    fprintf(stderr, "[MppEncoderCore:%d] encode timeout\n", core_id_);
+    LOG_ERROR("[MppEncoderCore:%d] encode timeout", core_id_);
     return false;
 }
 
@@ -556,7 +558,7 @@ bool MppEncoderCore::enterWorkerEncodeSection(int slot_id) {
     // worker 在真正触碰 MPP ctx 前必须再次检查 reset 标志.
     // 这样即使 slot 已经从 pending 队列中弹出, 也不会在 reset 过程中继续使用旧资源.
     if (resetInProgress_) {
-        fprintf(stderr, "[MppEncoderCore:%d] reset in progress, recycle slot %d before encode.\n", core_id_, slot_id);
+        LOG_WARN("[MppEncoderCore:%d] reset in progress, recycle slot %d before encode.", core_id_, slot_id);
         return false;
     }
     workerEncoding_ = true;
@@ -574,7 +576,7 @@ void MppEncoderCore::recycleSlot(int slot_id) {
     SlotState state = slot.state.load();
     while (state != SlotState::Writable) {
         if (state == SlotState::invalid) {
-            fprintf(stderr, "[MppEncoderCore:%d] recycleSlot ignored invalid slot %d.\n", core_id_, slot_id);
+            LOG_WARN("[MppEncoderCore:%d] recycleSlot ignored invalid slot %d.", core_id_, slot_id);
             return;
         }
         // compare_exchange 让 releaseSlot 变成幂等操作:

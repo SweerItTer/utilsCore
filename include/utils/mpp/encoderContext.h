@@ -13,6 +13,8 @@
 #include <rockchip/rk_venc_rc.h>
 #include <rockchip/rk_venc_cmd.h>
 
+#include "logger_v2.h"
+
 /**
  * @brief MppEncoderContext
  * 
@@ -234,22 +236,26 @@ public:
     static void validateForFfmpeg(const Config& cfg) {
         // Check format compatibility
         if (cfg.prep_format != MPP_FMT_YUV420SP && cfg.prep_format != MPP_FMT_YUV420P) {
-            fprintf(stderr, "[MppEncoderContext] WARNING: Format %d may not be optimal for ffmpeg. Use MPP_FMT_YUV420SP (NV12).\n", cfg.prep_format);
+            LOG_WARN("[MppEncoderContext] WARNING: Format %d may not be optimal for ffmpeg. Use MPP_FMT_YUV420SP (NV12).",
+                     cfg.prep_format);
         }
 
         // Check color range
         if (cfg.rc_color_range_override != 1) {
-            fprintf(stderr, "[MppEncoderContext] WARNING: Color range %d may cause issues. Set to 1 (MPEG range) for ffmpeg.\n", cfg.rc_color_range_override);
+            LOG_WARN("[MppEncoderContext] WARNING: Color range %d may cause issues. Set to 1 (MPEG range) for ffmpeg.",
+                     cfg.rc_color_range_override);
         }
 
         // Check codec type
         if (cfg.codec_type != CodingType::H264 && cfg.codec_type != CodingType::H265) {
-            fprintf(stderr, "[MppEncoderContext] WARNING: Codec type %d may not be optimal for MP4. Use H264 or H265.\n", static_cast<int>(cfg.codec_type));
+            LOG_WARN("[MppEncoderContext] WARNING: Codec type %d may not be optimal for MP4. Use H264 or H265.",
+                     static_cast<int>(cfg.codec_type));
         }
 
         // Check profile for H264
         if (cfg.codec_type == CodingType::H264 && cfg.h264_profile != 77 && cfg.h264_profile != 100) {
-            fprintf(stderr, "[MppEncoderContext] WARNING: H264 profile %d may not be widely supported. Use 77 (Main) or 100 (High).\n", cfg.h264_profile);
+            LOG_WARN("[MppEncoderContext] WARNING: H264 profile %d may not be widely supported. Use 77 (Main) or 100 (High).",
+                     cfg.h264_profile);
         }
     }
 
