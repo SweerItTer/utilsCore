@@ -323,6 +323,7 @@ static void testQueueSize(const TestContext& ctx) {
     std::cout << "\n[TEST] queue - 队列大小监控\n";
 
     size_t initial_size = LoggerV2::queueSize();
+    LogQueueStats initial_stats = LoggerV2::queueStats();
     std::cout << "queueSize(initial) ~ " << initial_size << "\n";
 
     const LogLevel prev = LoggerV2::getLevel();
@@ -334,13 +335,19 @@ static void testQueueSize(const TestContext& ctx) {
     }
 
     const size_t after_burst = LoggerV2::queueSize();
+    const LogQueueStats after_burst_stats = LoggerV2::queueStats();
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     const size_t after_drain = LoggerV2::queueSize();
+    const LogQueueStats after_drain_stats = LoggerV2::queueStats();
 
     LoggerV2::setLevel(prev);
 
     std::cout << "queueSize(after burst) ~ " << after_burst << "\n";
     std::cout << "queueSize(after 20ms)  ~ " << after_drain << "\n";
+    std::cout << "dropped(initial/burst/drain) = "
+              << initial_stats.dropped << " / "
+              << after_burst_stats.dropped << " / "
+              << after_drain_stats.dropped << "\n";
     std::cout << "✓ done (size is approximate)\n";
 }
 
@@ -358,12 +365,14 @@ static void testPerformance(const TestContext& ctx) {
 
     const auto end = std::chrono::steady_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    const LogQueueStats stats = LoggerV2::queueStats();
 
     LoggerV2::setLevel(prev);
 
     const double ms = static_cast<double>(duration.count());
     const double per_msg_ns = (ms <= 0.0) ? 0.0 : (ms * 1e6 / num_messages);
     std::cout << "messages=" << num_messages << ", time=" << duration.count() << " ms, avg=" << per_msg_ns << " ns/msg\n";
+    std::cout << "queued=" << stats.queued << ", pushed=" << stats.pushed << ", dropped=" << stats.dropped << "\n";
     std::cout << "✓ done\n";
 }
 

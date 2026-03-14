@@ -13,6 +13,14 @@ namespace utils {
 
 namespace {
 
+std::string shortenSourcePath(const std::string& filePath) {
+    const size_t slashPos = filePath.find_last_of("/\\");
+    if (slashPos == std::string::npos) {
+        return filePath;
+    }
+    return filePath.substr(slashPos + 1);
+}
+
 std::string formatWithPattern(const std::string& pattern, const LogMessage& msg, bool short_file) {
     std::string result = pattern;
 
@@ -30,11 +38,8 @@ std::string formatWithPattern(const std::string& pattern, const LogMessage& msg,
     const std::string time_with_ms = std::string(time_buf) + "." + std::to_string(ms);
 
     std::string file = msg.file;
-    if (short_file) {
-        const size_t slash_pos = file.find_last_of("/\\");
-        if (slash_pos != std::string::npos) {
-            file = file.substr(slash_pos + 1);
-        }
+    if (short_file || !file.empty()) {
+        file = shortenSourcePath(file);
     }
 
     std::stringstream tid;
@@ -225,10 +230,19 @@ void FileSink::closeFile() {
     }
 }
 
-AsyncLogQueue::AsyncLogQueue(size_t capacity)
+AsyncLogQueue::AsyncLogQueue(size_t capacity, LogOverflowPolicy overflow_policy)
     : queue_(capacity)
     , running_(false)
-    , flush_interval_ms_(1000) {}
+    , flush_interval_ms_(1000)
+    , queued_count_(0)
+    , capacity_hint_(capacity == 0 ? 1 : capacity)
+    , overflow_policy_(overflow_policy)
+    , pushed_count_(0)
+    , dropped_count_(0)
+    , dropped_trace_count_(0)
+    , dropped_debug_count_(0)
+    , dropped_info_count_(0)
+    , dropped_warn_count_(0) {}
 
 AsyncLogQueue::~AsyncLogQueue() {
     stop();
@@ -252,6 +266,7 @@ void AsyncLogQueue::stop() {
 
     LogMessage msg;
     while (queue_.try_dequeue(msg)) {
+        queued_count_.fetch_sub(1, std::memory_order_relaxed);
         std::lock_guard<std::mutex> lock(sinks_mutex_);
         for (size_t i = 0; i < sinks_.size(); ++i) {
             if (sinks_[i] && sinks_[i]->shouldLog(msg.level)) {
@@ -264,11 +279,50 @@ void AsyncLogQueue::stop() {
 }
 
 bool AsyncLogQueue::push(LogMessage&& msg) {
-    return queue_.enqueue(std::move(msg));
+    pushed_count_.fetch_add(1, std::memory_order_relaxed);
+    if (overflow_policy_ == LogOverflowPolicy::DropIfBelowError && shouldDrop(msg)) {
+        recordDrop(msg.level);
+        return false;
+    }
+
+    if (overflow_policy_ == LogOverflowPolicy::Block) {
+        while (running_.load(std::memory_order_relaxed) &&
+               queued_count_.load(std::memory_order_relaxed) >= capacity_hint_) {
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
+        }
+        return tryPush(std::move(msg));
+    }
+
+    if (queued_count_.load(std::memory_order_relaxed) >= capacity_hint_) {
+        recordDrop(msg.level);
+        return false;
+    }
+    return tryPush(std::move(msg));
 }
 
 size_t AsyncLogQueue::size() const {
-    return queue_.size_approx();
+    return queued_count_.load(std::memory_order_relaxed);
+}
+
+size_t AsyncLogQueue::capacity() const {
+    return capacity_hint_;
+}
+
+LogQueueStats AsyncLogQueue::stats() const {
+    LogQueueStats currentStats;
+    currentStats.queued = queued_count_.load(std::memory_order_relaxed);
+    currentStats.pushed = pushed_count_.load(std::memory_order_relaxed);
+    currentStats.dropped = dropped_count_.load(std::memory_order_relaxed);
+    currentStats.dropped_trace = dropped_trace_count_.load(std::memory_order_relaxed);
+    currentStats.dropped_debug = dropped_debug_count_.load(std::memory_order_relaxed);
+    currentStats.dropped_info = dropped_info_count_.load(std::memory_order_relaxed);
+    currentStats.dropped_warn = dropped_warn_count_.load(std::memory_order_relaxed);
+    return currentStats;
+}
+
+bool AsyncLogQueue::hasSinks() const {
+    std::lock_guard<std::mutex> lock(sinks_mutex_);
+    return !sinks_.empty();
 }
 
 void AsyncLogQueue::addSink(std::shared_ptr<LogSink> sink) {
@@ -313,6 +367,7 @@ void AsyncLogQueue::workerThread() {
     while (running_.load(std::memory_order_relaxed)) {
         bool got_one = queue_.try_dequeue(msg);
         if (got_one) {
+            queued_count_.fetch_sub(1, std::memory_order_relaxed);
             std::lock_guard<std::mutex> lock(sinks_mutex_);
             for (size_t i = 0; i < sinks_.size(); ++i) {
                 if (sinks_[i] && sinks_[i]->shouldLog(msg.level)) {
@@ -329,6 +384,41 @@ void AsyncLogQueue::workerThread() {
             flushSinks();
             last_flush = now;
         }
+    }
+}
+
+bool AsyncLogQueue::shouldDrop(const LogMessage& msg) const {
+    return msg.level < LogLevel::ERROR &&
+           queued_count_.load(std::memory_order_relaxed) >= capacity_hint_;
+}
+
+bool AsyncLogQueue::tryPush(LogMessage&& msg) {
+    const LogLevel level = msg.level;
+    if (!queue_.try_enqueue(std::move(msg))) {
+        recordDrop(level);
+        return false;
+    }
+    queued_count_.fetch_add(1, std::memory_order_relaxed);
+    return true;
+}
+
+void AsyncLogQueue::recordDrop(LogLevel level) {
+    dropped_count_.fetch_add(1, std::memory_order_relaxed);
+    switch (level) {
+        case LogLevel::TRACE:
+            dropped_trace_count_.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case LogLevel::DEBUG:
+            dropped_debug_count_.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case LogLevel::INFO:
+            dropped_info_count_.fetch_add(1, std::memory_order_relaxed);
+            break;
+        case LogLevel::WARN:
+            dropped_warn_count_.fetch_add(1, std::memory_order_relaxed);
+            break;
+        default:
+            break;
     }
 }
 
@@ -357,7 +447,7 @@ void LoggerV2::init(const LoggerConfig& config) {
     queue_.reset();
 
     if (async_mode_) {
-        queue_.reset(new AsyncLogQueue(config.queue_capacity));
+        queue_.reset(new AsyncLogQueue(config.queue_capacity, config.overflow_policy));
         queue_->setFlushInterval(config.flush_interval_ms);
     }
 
@@ -430,12 +520,11 @@ void LoggerV2::ensureInitialized() {
 }
 
 void LoggerV2::dispatch(LogMessage&& msg) {
+    if (!hasActiveSinks()) {
+        return;
+    }
     if (async_mode_ && queue_) {
-        if (!queue_->push(std::move(msg))) {
-            // Queue full or temporary contention; fallback to stderr to avoid dropping silently.
-            ConsoleSink fallback(stderr, LogLevel::TRACE);
-            fallback.write(msg);
-        }
+        queue_->push(std::move(msg));
         return;
     }
 
@@ -444,6 +533,13 @@ void LoggerV2::dispatch(LogMessage&& msg) {
             sync_sinks_[i]->write(msg);
         }
     }
+}
+
+bool LoggerV2::hasActiveSinks() {
+    if (async_mode_ && queue_) {
+        return queue_->hasSinks();
+    }
+    return !sync_sinks_.empty();
 }
 
 void LoggerV2::addSink(std::shared_ptr<LogSink> sink) {

@@ -49,6 +49,7 @@ struct LoggerConfig {
     bool async = true;                        ///< 是否使用异步日志
     size_t queue_capacity = 8192;             ///< 异步队列容量
     int flush_interval_ms = 1000;             ///< 刷新间隔(毫秒)
+    LogOverflowPolicy overflow_policy = LogOverflowPolicy::DropIfBelowError; ///< 队列溢出策略
     std::vector<SinkConfig> sinks;            ///< 输出sink配置
     
     // 默认配置
