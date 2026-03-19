@@ -16,6 +16,7 @@
 #include "sharedBufferState.h"
 #include "fixedSizePool.h"
 #include "internal/staticCallback.h"
+#include "logger_v2.h"
 
 struct FrameMeta {
     uint64_t    frame_id = -1;      // 单调递增
@@ -60,12 +61,12 @@ public:
             return state_;
         }
         if (planeIndex < 0 || planeIndex >= states_.size()) {
-            fprintf(stderr, "Frame is mutiplane.\n");
+            LOG_ERROR("Frame is mutiplane.\n");
             return nullptr;
         }
         auto s = states_[planeIndex];
         if (nullptr == s || false == s->valid) {
-            fprintf(stderr, "Current Plane is invalid.\n");
+            LOG_ERROR("Current Plane is invalid.\n");
             return nullptr;
         }
         return s;

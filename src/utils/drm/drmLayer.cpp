@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-08-26 23:22:26
- * @FilePath: /src/utils/drm/drmLayer.cpp
+ * @FilePath: /EdgeVision-app/third_party/utils/src/utils/drm/drmLayer.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "drm/drmLayer.h"
@@ -54,7 +54,7 @@ DrmLayer::~DrmLayer() {
 
 void DrmLayer::updateBuffer(std::vector<DmaBufferPtr> buffers) {
     if (buffers.empty() || buffers.size() > 4) {
-        LOG_ERROR("DrmLayer::DrmLayer: Invalid DmaBuffer count");
+        LOG_WARN("DrmLayer::DrmLayer: Invalid DmaBuffer count");
         return;
     }
     buffers_ = std::move(buffers); // 更新bufs

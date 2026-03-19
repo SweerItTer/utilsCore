@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-08-09 18:57:46
- * @FilePath: /src/utils/logger.cpp
+ * @FilePath: /EdgeVision-app/third_party/utils/src/utils/logger.cpp
  */
 #include "logger.h"
 

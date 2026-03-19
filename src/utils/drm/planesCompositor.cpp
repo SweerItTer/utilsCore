@@ -55,7 +55,7 @@ bool PlanesCompositor::updateLayer(const DrmLayerPtr& layer) {
     }
     // 更新图层状态缓存
     updateLayerCache(layer);
-    // fprintf(stdout, "[PlanesCompositor] Update Layer.\n");
+    // LOG_INFO("[PlanesCompositor] Update Layer.\n");
     return true;
 }
 
@@ -94,7 +94,7 @@ int PlanesCompositor::commit(int& fence) {
         auto const& propertyCache = layer.second;
         crtc_id = propertyCache.layerProperty.crtc_id;
         if (propertyCache.layerProperty.fb_id == 0) {
-            // fprintf(stderr, "Layer fb_id is 0, skip this layer\n");
+            // LOG_ERROR("Layer fb_id is 0, skip this layer\n");
             continue;
         }
         // 添加有效layer到预配置
@@ -146,7 +146,7 @@ void PlanesCompositor::updateLayerCache(const DrmLayerPtr& layer) {
     cache.layerProperty.type     = layer->getProperty("type").get<int>();
     cache.layerProperty.zpos     = layer->getProperty("zOrder").get<uint32_t>();
 
-    // fprintf(stdout, "Update layer on plane:%u\n", cache.layerProperty.plane_id);
+    // LOG_INFO("Update layer on plane:%u\n", cache.layerProperty.plane_id);
 }
 
 int PlanesCompositor::updatePlaneProperty(const DrmLayerPtr& layer) {

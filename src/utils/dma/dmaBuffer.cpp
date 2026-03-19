@@ -188,16 +188,16 @@ bool DmaBuffer::tryCreateDumbBuffer(DmaBufferData &data, uint32_t requiredSize, 
 std::shared_ptr<DmaBuffer> DmaBuffer::create(uint32_t width, uint32_t height,
                                              uint32_t format, uint32_t requiredSize,
                                              uint32_t offset, uint32_t planeIndex) {
+    if (requiredSize == 0) {
+        LOG_ERROR("[DmaBuffer] Invalid required size 0");
+        return nullptr;
+    }
     {
         std::lock_guard<std::mutex> lock(fd_mutex);
         if (!fd_ptr || -1 == fd_ptr->get()) {
             LOG_ERROR("[DmaBuffer] DRM fd not initialized, please call initialize_drm_fd() first");
             return nullptr;
         }
-    }
-    if (requiredSize == 0) {
-        LOG_ERROR("[DmaBuffer] Invalid required size 0");
-        return nullptr;
     }
     float ratioW, ratioH;
     uint32_t bpp;
@@ -300,7 +300,7 @@ DmaBuffer::~DmaBuffer() {
 
 void DmaBuffer::cleanup() noexcept {
     if (isImported_) return;
-    // fprintf(stdout, "DmaBuffer: closed: fd=%d, handle=%d\n", primeFd_, data_.handle);
+    // LOG_INFO("DmaBuffer: closed: fd=%d, handle=%d\n", primeFd_, data_.handle);
 
     if (-1 != primeFd_) {
         // 关闭 dambuf fd

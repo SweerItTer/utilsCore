@@ -14,7 +14,7 @@
 #include "fdWrapper.h"      // fd RAII处理类
 #include "udevMonitor.h"    // udev 监听类
 #include "threadPauser.h"
-
+#include "logger_v2.h"
 
 // 内部工具: 事件映射查找表, O(1)查找
 namespace {
@@ -139,7 +139,7 @@ public:
         std::string devicePath = mouseInfo.second;
         
         if (mouseFd.get() < 0) {
-            fprintf(stderr, "[MouseWatcher] Not find any mouse device.\n");
+            LOG_ERROR("[MouseWatcher] Not find any mouse device.\n");
         }
 
         // 注册设备变动回调
@@ -150,16 +150,16 @@ public:
             std::lock_guard<std::mutex> fdLock(this->fdMtx);
             this->mouseFd = std::move(newMouseInfo.first);
             if (this->mouseFd.get() < 0) {
-                fprintf(stderr, "[MouseWatcher] Mouse device disconnected.\n");
+                LOG_ERROR("[MouseWatcher] Mouse device disconnected.\n");
             } else {
-                fprintf(stdout, "[MouseWatcher] Mouse device changed to %s\n", 
+                LOG_INFO("[MouseWatcher] Mouse device changed to %s\n", 
                         newMouseInfo.second.c_str());
                 this->start();
             }
         });
 
         events.resize(2);
-        fprintf(stdout, "[MouseWatcher] Mouse device: %s\n", devicePath.c_str());
+        LOG_INFO("[MouseWatcher] Mouse device: %s\n", devicePath.c_str());
     }
 
     // 生命周期管理
@@ -239,7 +239,7 @@ public:
             }
 
             if (screenWidth == 0 || screenHeight == 0) {
-                fprintf(stderr, "[MouseWatcher] Warning: Screen size not set, "
+                LOG_ERROR("[MouseWatcher] Warning: Screen size not set, "
                         "mouse position clamping may be invalid.\n");
             }
 
@@ -357,13 +357,13 @@ public:
         int th = targetHeight.load();
         
         if (sw == 0 || sh == 0) {
-            fprintf(stderr, "[MouseWatcher] Warning: Screen size not set, "
+            LOG_ERROR("[MouseWatcher] Warning: Screen size not set, "
                     "cannot map position.\n");
             return false;
         }
         
         if (tw == 0 || th == 0) {
-            fprintf(stderr, "[MouseWatcher] Warning: Target size not set, "
+            LOG_ERROR("[MouseWatcher] Warning: Target size not set, "
                     "returning raw position.\n");
             mappedX = rawX;
             mappedY = rawY;
@@ -429,13 +429,13 @@ void MouseWatcher::resume() {
 void MouseWatcher::setScreenSize(int width, int height) {
     impl->screenWidth.store(width);
     impl->screenHeight.store(height);
-    fprintf(stdout, "[MouseWatcher] Screen size set to %dx%d\n", width, height);
+    LOG_INFO("[MouseWatcher] Screen size set to %dx%d\n", width, height);
 }
 
 void MouseWatcher::setTargetSize(int width, int height) {
     impl->targetWidth.store(width);
     impl->targetHeight.store(height);
-    fprintf(stdout, "[MouseWatcher] Target size set to %dx%d\n", width, height);
+    LOG_INFO("[MouseWatcher] Target size set to %dx%d\n", width, height);
 }
 
 bool MouseWatcher::getRawPosition(int& x, int& y) {
@@ -464,11 +464,11 @@ void MouseWatcher::registerHandler(const std::vector<MouseEventType>& eventTypes
     std::unordered_set<MouseEventType> typeSet(eventTypes.begin(), eventTypes.end());
     
     // 输出注册关注的事件
-    fprintf(stdout, "[MouseWatcher] Registered event types: ");
+    LOG_INFO("[MouseWatcher] Registered event types: ");
     for (auto& type : typeSet) {
-        fprintf(stdout, "%s, ", eventTypeName(type));
+        LOG_INFO("%s, ", eventTypeName(type));
     }
-    fprintf(stdout, "\n");
+    LOG_INFO("\n");
 
     auto pred = [typeSet](MouseEventType type) -> bool {
         return typeSet.find(type) != typeSet.end();
@@ -481,14 +481,14 @@ void MouseWatcher::registerHandler(const std::vector<MouseEventType>& eventTypes
 void MouseWatcher::registerRawPositionCallback(PositionCallback cb) {
     std::lock_guard<std::mutex> lk(impl->handlersMutex);
     impl->rawPositionCallbacks.emplace_back(std::move(cb));
-    fprintf(stdout, "[MouseWatcher] Registered raw position callback, total: %zu\n",
+    LOG_INFO("[MouseWatcher] Registered raw position callback, total: %zu\n",
             impl->rawPositionCallbacks.size());
 }
 
 void MouseWatcher::registerMappedPositionCallback(PositionCallback cb) {
     std::lock_guard<std::mutex> lk(impl->handlersMutex);
     impl->mappedPositionCallbacks.emplace_back(std::move(cb));
-    fprintf(stdout, "[MouseWatcher] Registered mapped position callback, total: %zu\n",
+    LOG_INFO("[MouseWatcher] Registered mapped position callback, total: %zu\n",
             impl->mappedPositionCallbacks.size());
 }
 /*
@@ -534,7 +534,7 @@ public:
         mouseFd = std::move(mouseInfo.first);
         std::string devicePath = mouseInfo.second;
         if (mouseFd.get() < 0) {
-            fprintf(stderr, "[MouseWatcher] Not find any mouse device.\n");
+            LOG_ERROR("[MouseWatcher] Not find any mouse device.\n");
         }
         
         // 注册设备变动回调
@@ -547,16 +547,16 @@ public:
             // 更新 mouseFd
             this->mouseFd = std::move(newMouseInfo.first);
             if (this->mouseFd.get() < 0) {
-                fprintf(stderr, "[MouseWatcher] Mouse device disconnected.\n");
+                LOG_ERROR("[MouseWatcher] Mouse device disconnected.\n");
             } else {
-                fprintf(stdout, "[MouseWatcher] Mouse device changed to %s\n", newMouseInfo.second.c_str());
+                LOG_INFO("[MouseWatcher] Mouse device changed to %s\n", newMouseInfo.second.c_str());
                 this->start();
             }
         });
         // 初始化事件数据
         m_events.resize(2);
         
-        fprintf(stdout, "[MouseWatcher] Mouse device: %s\n", devicePath.c_str());
+        LOG_INFO("[MouseWatcher] Mouse device: %s\n", devicePath.c_str());
     }
     
     void setScreenSize(int width, int height) {
@@ -603,11 +603,11 @@ public:
     void registerHandler(const std::vector<uint16_t>& eventCodes,  Callback cb) {
         // 原理参考 include/utils/udevMonitor.h
         std::unordered_set<uint16_t> actionSet(eventCodes.begin(), eventCodes.end());
-        fprintf(stdout, "[MouseWatcher] registed actions: \t");
+        LOG_INFO("[MouseWatcher] registed actions: \t");
         for(auto& act : actionSet){
-            fprintf(stdout, "%u, ", act);
+            LOG_INFO("%u, ", act);
         }
-        fprintf(stdout, "\n");
+        LOG_INFO("\n");
         auto pred = [actionSet](const uint16_t evCode) -> bool {
             return (actionSet.find(evCode) != actionSet.end());
         };
@@ -669,7 +669,7 @@ protected:
             }
             if (!keyName) continue; // 非关心事件
             if (screenWidth == 0 || screenHeight == 0) {
-                fprintf(stderr, "[MouseWatcher] Warning: Screen size not set, mouse position clamping may be invalid.\n");
+                LOG_ERROR("[MouseWatcher] Warning: Screen size not set, mouse position clamping may be invalid.\n");
             }
             // 更新鼠标事件
             updateMouseEvent(mouse_x, mouse_y, ev.code, ev.value);
@@ -722,7 +722,7 @@ private:
             } 
             close(fd);
         }
-        // fprintf(stdout, "Final Fd: %d\n", fd);
+        // LOG_INFO("Final Fd: %d\n", fd);
         return std::make_pair(std::move(FdWrapper(fd)), devicePath);
     }
 

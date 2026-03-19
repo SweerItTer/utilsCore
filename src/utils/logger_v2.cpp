@@ -216,7 +216,7 @@ bool FileSink::openFile() {
 
     file_ = std::fopen(filename_.c_str(), "a");
     if (!file_) {
-        std::fprintf(stderr, "[logger_v2] open file failed: %s (%s)\n", filename_.c_str(), std::strerror(errno));
+        LOG_ERROR("[logger_v2] open file failed: %s (%s)\n", filename_.c_str(), std::strerror(errno));
         return false;
     }
     std::setvbuf(file_, NULL, _IOFBF, 8192);

@@ -275,7 +275,7 @@ void StreamWriter::writerLoop(WriterCtx *ctx) {
             }
             continue;
         }
-        // fprintf(stdout, "[SlotGuard] Acquired slot_id=%d\n", meta.slot_id); 
+        // LOG_INFO("[SlotGuard] Acquired slot_id=%d\n", meta.slot_id); 
         void* data = packet->data();
         if (nullptr == data) {
             LOG_ERROR("[StreamWriter] writerLoop: Packet data is NULL, drop current packet.");
