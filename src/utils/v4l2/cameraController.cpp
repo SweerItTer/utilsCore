@@ -401,14 +401,22 @@ void CameraController::Impl::allocateDMABuffers() {
     for (int i = 0; i < buffers_.size(); i++) {
         size_t plane_num = config_.plane_count;     // 备存储实际 planes 个数
         v4l2_buffer buf{};
+        // 多平面格式
+        /* 这里之所以把变量移到这里, 其实它就该在这里, 但有些教程视频会将它定义在if后
+         * 理论上那样的代码就不应该跑起来
+         * 因为栈变量在立刻if后就必然失效了
+         * 之所以DEBUG没报错, 是因为这里的失效内存没有被复用, 所以成功了
+         * 这也就解释了在之前的版本会有偶发性异常(启动失败), 报错是因为内存被复用了
+         * 旧版本完全就是看运气, 而现在之所以Release一定报错
+         * 不过是编译器优化了 LOG 的宏展开导致这里的UB被放大了, 变成了一个固定的异常
+         */
+        v4l2_plane planes[VIDEO_MAX_PLANES]{};
         buf.type = buf_type_;
         buf.memory = V4L2_MEMORY_DMABUF;
         buf.index = i;
         buf.length = plane_num; // 先手动设置平面个数
         
         if (V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == buf_type_) {
-            // 多平面格式
-            v4l2_plane planes[VIDEO_MAX_PLANES]{};
             buf.m.planes = planes;
             // 查询缓冲区信息
             if (0 > ioctl(fd_.get(), VIDIOC_QUERYBUF, &buf)) {
