@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>utilsCore Net Playground</title>
+    <link rel="stylesheet" href="/static/assets/css/styles.css" />
+  </head>
+  <body data-theme="default" data-ui-ready="false">
+    <main class="shell">
+      <section class="hero">
+        <div class="hero-topline">
+          <p class="eyebrow">utils::net browser test</p>
+          <button id="themeToggleButton" class="theme-toggle" type="button">Switch To Hacker</button>
+        </div>
+        <h1>Static files, JavaScript, API calls, and a theme switcher in one page.</h1>
+        <p class="summary">
+          This page is served from <code>/static/</code>. It loads organized CSS, JS,
+          JSON, and SVG assets to prove the browser path is working end-to-end, and it
+          can switch between a clean dashboard theme and a hacker-style terminal skin.
+        </p>
+        <div class="status-strip">
+          <div class="status-pill"><span class="status-led status-led-live"></span>link: active</div>
+          <div class="status-pill"><span class="status-led status-led-warm"></span>route-set: demo</div>
+          <div class="status-pill"><span class="status-led status-led-cold"></span>transport: http/1.1</div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>Quick Actions</h2>
+          <div class="actions">
+            <button id="pingButton" type="button">GET /api/ping</button>
+            <button id="echoButton" type="button">POST /api/echo</button>
+            <button id="assetButton" type="button">GET /static/status.json</button>
+          </div>
+          <pre id="resultBox">Waiting for a request...</pre>
+        </article>
+
+        <article class="panel">
+          <h2>Static Asset Preview</h2>
+          <img class="preview" src="/static/assets/img/spark.svg" alt="Decorative spark chart" />
+          <ul id="assetList" class="asset-list">
+            <li>Loading asset manifest...</li>
+            <li>Preparing static path map...</li>
+            <li>Checking API companion assets...</li>
+            <li>Warming browser cache...</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="grid telemetry-grid">
+        <article class="panel telemetry-panel">
+          <h2>Telemetry</h2>
+          <div class="telemetry-stack">
+            <div class="telemetry-line">
+              <span>theme</span>
+              <strong id="telemetryTheme">default</strong>
+            </div>
+            <div class="telemetry-line">
+              <span>last command</span>
+              <strong id="telemetryCommand">idle</strong>
+            </div>
+            <div class="telemetry-line">
+              <span>requests sent</span>
+              <strong id="telemetryCount">0</strong>
+            </div>
+            <div class="telemetry-line">
+              <span>last status</span>
+              <strong id="telemetryStatus">ready</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel telemetry-panel">
+          <h2>Signal Trace</h2>
+          <div class="trace-box" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <p class="muted">
+            In hacker mode this trace gets louder: sharper borders, scanlines, and glitch
+            bands layered over the whole viewport.
+          </p>
+        </article>
+      </section>
+
+      <section class="panel command-panel">
+        <h2>Preset Command Runner</h2>
+        <p class="command-copy">
+          The field is intentionally read-only. It shows a fixed frontend command template
+          and sends the matching request to the backend when you click the button.
+        </p>
+        <div class="command-toolbar">
+          <select id="commandSelect" aria-label="Preset command">
+            <option value="ping">GET /api/ping</option>
+            <option value="echo">POST /api/echo {"message":"Hello from UI"}</option>
+            <option value="assets">GET /static/status.json</option>
+          </select>
+          <button id="runCommandButton" type="button">Run Command</button>
+        </div>
+        <input
+          id="commandDisplay"
+          class="command-display"
+          type="text"
+          readonly
+          value="GET /api/ping"
+        />
+        <div id="commandCanvas" class="command-canvas" aria-live="polite">
+          <div class="command-label">Backend output</div>
+          <pre id="commandOutput" data-full-text="No command executed yet.">No command executed yet.</pre>
+        </div>
+      </section>
+
+      <section class="panel footer-panel">
+        <h2>Hints</h2>
+        <p>
+          Open DevTools and watch the network tab. This page should request:
+          <code>assets/css/styles.css</code>, <code>assets/js/app.js</code>,
+          <code>assets/data/status.json</code>, <code>assets/img/spark.svg</code>,
+          and whichever API route you click.
+        </p>
+        <p class="muted">
+          Sample file download is still available at
+          <a href="/download/sample.txt" target="_blank" rel="noreferrer">/download/sample.txt</a>.
+        </p>
+      </section>
+    </main>
+
+    <script src="/static/assets/js/app.js" defer></script>
+  </body>
+</html>

@@ -19,7 +19,7 @@
  *  - slot 内存由外部管理, 入队/出队只操作 slot.data_
  *  - 可选丢弃策略: DISCARD_OLDEST / DISCARD_NEWEST / BLOCK / THROW_EXCEPTION
  *  - 支持超时出队
- *  - 提供统计信息: 总入队/出队、timeout、slot 冲突、pending
+ *  - 提供统计信息: 总入队/出队,timeout,slot 冲突,pending
  *
  * 注意: 
  *  - 容量建议为 2 的幂, 方便快速索引计算

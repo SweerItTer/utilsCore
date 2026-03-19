@@ -193,7 +193,7 @@ void RgaProcessor::initBufferPool() {
                 
                 bufferPool_.emplace_back(data, bufferSize);
                 // Debug: Created MMAP buffer %d: addr=%p, size=%zu
-                // fprintf(stderr, "[RgaProcessor] Created MMAP buffer %d: addr=%p, size=%zu\n", i, data, bufferSize);
+                // LOG_ERROR("[RgaProcessor] Created MMAP buffer %d: addr=%p, size=%zu\n", i, data, bufferSize);
             } else {
                 uint32_t drmFormat = convertRGAtoDrmFormat(config_.dstFormat);
                 if (drmFormat == static_cast<uint32_t>(-1)) {
@@ -207,7 +207,7 @@ void RgaProcessor::initBufferPool() {
                 
                 bufferPool_.emplace_back(dmaBuf);
                 // Debug: Created DMA-BUF buffer %d: fd=%d
-                // fprintf(stderr, "[RgaProcessor] Created DMA-BUF buffer %d: fd=%d\n", i, dmaBuf->fd());
+                // LOG_ERROR("[RgaProcessor] Created DMA-BUF buffer %d: fd=%d\n", i, dmaBuf->fd());
             }
         } catch (const std::exception& e) {
             // 清理已创建的缓冲
@@ -302,13 +302,13 @@ RgaProcessorError RgaProcessor::stop() {
 void RgaProcessor::pause() {
     pauser_.pause();
     // Debug: RgaProcessor paused
-    // fprintf(stderr, "[RgaProcessor] Paused\n");
+    // LOG_ERROR("[RgaProcessor] Paused\n");
 }
 
 void RgaProcessor::resume() {
     pauser_.resume();
     // Debug: RgaProcessor resumed
-    // fprintf(stderr, "[RgaProcessor] Resumed\n");
+    // LOG_ERROR("[RgaProcessor] Resumed\n");
 }
 
 int RgaProcessor::getAvailableBufferIndex() {
@@ -334,7 +334,7 @@ int RgaProcessor::getAvailableBufferIndex() {
         currentIndex_.store((tryIdx + 1) % poolSize);
         
         // Trace: Allocated buffer index %zu
-        // fprintf(stderr, "[RgaProcessor] Allocated buffer index %zu\n", tryIdx);
+        // LOG_ERROR("[RgaProcessor] Allocated buffer index %zu\n", tryIdx);
         return static_cast<int>(tryIdx);
     }
     

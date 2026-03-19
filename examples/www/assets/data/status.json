@@ -1,0 +1,10 @@
+{
+  "name": "utilsCore net demo asset manifest",
+  "assets": [
+    { "name": "styles", "path": "/static/assets/css/styles.css" },
+    { "name": "script", "path": "/static/assets/js/app.js" },
+    { "name": "manifest", "path": "/static/assets/data/status.json" },
+    { "name": "svg preview", "path": "/static/assets/img/spark.svg" },
+    { "name": "sample text", "path": "/static/sample.txt" }
+  ]
+}

@@ -1,7 +1,7 @@
 /*
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-09-19 03:31:36
- * @FilePath: /src/utils/v4l2/frame.cpp
+ * @FilePath: /EdgeVision-app/third_party/utils/src/utils/v4l2/frame.cpp
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "v4l2/frame.h"
@@ -77,24 +77,24 @@ void Frame::operator delete(void *p) noexcept {
 // 二次检查(优于结构体)
 void* Frame::data(int planeIndex) const {
     if (type_ != MemoryType::MMAP) {
-        fprintf(stderr, "Frame is not MMAP type");
+        LOG_ERROR("Frame is not MMAP type");
         return nullptr;
     }
     // 单平面直接返回state_ (states_[0])
     if (!mutiPlane_) {
         if (false == state_->valid.load(std::memory_order_acquire)) {
-            std::fprintf(stderr, "Frame is released\n");
+            LOG_WARN("Frame is released\n");
             return nullptr;
         }
         return state_->start; 
     }
     // 多平面检查索引
     if (planeIndex < 0 || planeIndex >= states_.size()) {
-        fprintf(stderr, "Invalid plane index %d\n", planeIndex);
+        LOG_ERROR("Invalid plane index %d\n", planeIndex);
         return nullptr;
     }
     if (false == states_[planeIndex]->valid.load(std::memory_order_acquire)) {
-        std::fprintf(stderr, "Frame plane %d is released\n", planeIndex);
+        LOG_ERROR("Frame plane %d is released\n", planeIndex);
         return nullptr;
     }
     return states_[planeIndex]->start; 
@@ -102,24 +102,24 @@ void* Frame::data(int planeIndex) const {
 
 int Frame::dmabuf_fd(int planeIndex) const {         
     if (MemoryType::DMABUF != type_) {
-        fprintf(stderr, "Frame is not MMAP type");
+        LOG_ERROR("Frame is not MMAP type");
         return -1;
     }
     // 单平面直接返回state_ (states_[0])
     if (!mutiPlane_) {
         if (false == state_->valid.load(std::memory_order_acquire)) {
-            std::fprintf(stderr, "Frame is released\n");
+            LOG_WARN("Frame is released\n");
             return -1;
         }
         return state_->dmabuf_fd();
     }
     // 多平面检查索引
     if (planeIndex < 0 || planeIndex >= states_.size()) {
-        fprintf(stderr, "Invalid plane index %d\n", planeIndex);
+        LOG_ERROR("Invalid plane index %d\n", planeIndex);
         return -1;
     }
     if (false == states_[planeIndex]->valid.load(std::memory_order_acquire)) {
-        std::fprintf(stderr, "Frame plane %d is released\n", planeIndex);
+        LOG_WARN("Frame plane %d is released\n", planeIndex);
         return -1;
     }
     return states_[planeIndex]->dmabuf_fd();

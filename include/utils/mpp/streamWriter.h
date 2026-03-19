@@ -14,7 +14,7 @@
  * 设计要点: 
  * - 调度线程负责切片决策与分发(保证写线程职责单一)
  * - 写线程负责获取 packet, 写入并释放 slot
- * - 使用 FILEGuard 自动管理 FILE* 生命周期
+ * - 使用 FileGuard 自动管理 FILE* 生命周期
  *
  * @author SweerItTer
  * @date 2025-11-21
@@ -71,10 +71,10 @@ private:
     /**
      * @brief RAII管理的文件句柄保护类
      */
-    class FILEGuard {
+    class FileGuard {
     public:
-        explicit FILEGuard(FILE *f);
-        ~FILEGuard();
+        explicit FileGuard(FILE *f);
+        ~FileGuard();
         FILE *get() const { return fp_; }
         void reset(FILE *f);
     private:
@@ -90,8 +90,10 @@ private:
         std::queue<MppEncoderCore::EncodedMeta> queue; ///< 待写 meta 队列
         std::mutex mtx;                                ///< 队列保护锁
         std::condition_variable cv;                    ///< 唤醒条件
-        std::unique_ptr<FILEGuard> fp;                 ///< 当前写入段的文件指针
+        std::condition_variable idleCv;                ///< 队列写空后唤醒调度线程
+        std::unique_ptr<FileGuard> fp;                 ///< 当前写入段的文件指针
         int fd = -1;                                   ///< 当前流对应的文件描述符
+        size_t pendingCount = 0;                       ///< 已分发但尚未完成写入的包数量
     };
 
 private:
@@ -100,6 +102,8 @@ private:
     void dispatchLoop();                       ///< 调度线程主循环
     void writerLoop(WriterCtx *ctx);           ///< 写线程主循环
     bool openNewSegmentFor(WriterCtx *ctx);    ///< 为指定 writer 打开下一个分段文件
+    bool flushAndSyncWriter(WriterCtx *ctx);   ///< 刷新并同步指定 writer 的当前段文件
+    void waitUntilWriterIdle(WriterCtx *ctx);  ///< 等待 writer 处理完当前队列
     bool obtainPacketForMeta(MppEncoderCore::EncodedPacketPtr &packet,
                              MppEncoderCore::EncodedMeta &meta); ///< 等待并获取 packet
 
@@ -124,6 +128,7 @@ private:
     WriterCtx writerB_;
     WriterCtx *currentWriter_ = nullptr; ///< 正在被分发写入的 writer
     WriterCtx *idleWriter_ = nullptr;    ///< 空闲 writer(下一段将使用)
+    std::mutex writerSelectionMtx_;      ///< 保护 currentWriter_/idleWriter_ 切换过程
 
     // 线程
     std::thread dispatchThread_;
@@ -132,5 +137,6 @@ private:
 
     // 运行开关
     std::atomic<bool> running_{true};
-    std::atomic<bool> firstIframeNeed;
+    std::atomic<bool> acceptingMeta_{true};   ///< stop 后拒绝新 meta, 但允许后台继续 drain
+    std::atomic<bool> firstKeyFramePending_;  ///< 首个关键帧前不切片, 避免生成无效段
 };

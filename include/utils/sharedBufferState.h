@@ -7,6 +7,7 @@
 #ifndef SHARED_BUFFER_STATE_H
 #define SHARED_BUFFER_STATE_H
 
+#include <atomic>
 #include <cstddef>
 #include <unistd.h>
 #include <sys/mman.h>

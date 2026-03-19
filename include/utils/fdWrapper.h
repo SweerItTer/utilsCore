@@ -1,5 +1,5 @@
 /*
- * @FilePath: /include/utils/fdWrapper.h
+ * @FilePath: /EdgeVision-app/third_party/utils/include/utils/fdWrapper.h
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-08 15:40:41
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
@@ -10,6 +10,7 @@
 
 #include <fcntl.h>    // O_RDWR, O_CLOEXEC, open
 #include <unistd.h>   // close
+#include "logger_v2.h"
 
 class FdWrapper {
 public:
@@ -45,7 +46,7 @@ private:
 
     void closeFd() {
         if (fd_ >= 0) {
-            fprintf(stdout, "[FdWrapper] close fd: %d\n", fd_);
+            LOG_INFO("[FdWrapper] close fd: %d\n", fd_);
             close(fd_);
             fd_ = -1;
         }

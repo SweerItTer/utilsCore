@@ -1,11 +1,12 @@
 /*
- * @FilePath: /src/utils/rga/rgaConverter.cpp
+ * @FilePath: /EdgeVision-app/third_party/utils/src/utils/rga/rgaConverter.cpp
  * @Author: SweerItTer xxxzhou.xian@gmail.com
  * @Date: 2025-07-04 19:43:27
  * @LastEditors: SweerItTer xxxzhou.xian@gmail.com
  */
 #include "rga/rgaConverter.h"
 #include "noDestroySingleton.h"
+#include "logger_v2.h"
 
 RgaConverter &RgaConverter::instance()
 {
@@ -17,7 +18,7 @@ RgaConverter &RgaConverter::instance()
 RgaConverter::RgaConverter() {
     // 初始化RGA上下文
     m_rga.RkRgaInit();
-    fprintf(stdout, "%s\t", querystring(RGA_VERSION));
+    LOG_INFO("%s\t", querystring(RGA_VERSION));
     m_initialized = true;
 }
 
@@ -43,13 +44,13 @@ IM_STATUS RgaConverter::FormatTransform(RgaParams& params){
     
     // IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
     // if (IM_STATUS_NOERROR != ret) {
-    //     fprintf(stderr, "%s", imStrError(ret));
+    //     LOG_ERROR("%s", imStrError(ret));
     //     return ret;
     // }
 
     IM_STATUS ret = imcvtcolor(params.src, params.dst, params.src.format, params.dst.format);
     if (IM_STATUS_SUCCESS != ret) {
-        fprintf(stderr, "%s", imStrError(ret));
+        LOG_ERROR("%s", imStrError(ret));
     }
 
     return ret;
@@ -62,7 +63,7 @@ IM_STATUS RgaConverter::ImageResize(RgaParams& params){
     
     IM_STATUS ret = imcheck(params.src, params.dst, params.src_rect, params.dst_rect);
     if (ret != IM_STATUS_NOERROR) {
-        fprintf(stderr, "%s", imStrError(ret));
+        LOG_ERROR("%s", imStrError(ret));
         return ret;
     }
 
@@ -75,7 +76,7 @@ IM_STATUS RgaConverter::ImageResize(RgaParams& params){
     double scale  = (scaleX < scaleY) ? scaleX : scaleY;   // 取最小, 保证完整显示
     ret = imresize(params.src, params.dst, scale, scale, INTER_LINEAR, 1);
     if (ret != IM_STATUS_SUCCESS) {
-        fprintf(stderr, "%s", imStrError(ret));
+        LOG_ERROR("%s", imStrError(ret));
     }
     return ret;
 }
@@ -86,12 +87,12 @@ IM_STATUS RgaConverter::ImageFill(rga_buffer_t& dst_buffer, im_rect& dst_rect, c
         imcolor |= ((unsigned char)color << (i * 8));
     }
     
-    // fprintf(stdout, "fill dst image (x y w h)=(%d %d %d %d) with color=0x%x\n",
+    // LOG_INFO("fill dst image (x y w h)=(%d %d %d %d) with color=0x%x\n",
     //     dst_rect.x, dst_rect.y, dst_rect.width, dst_rect.height, imcolor);
     IM_STATUS ret = imfill(dst_buffer, dst_rect, imcolor); // 填充指定区域为目标颜色
 
     if (ret != IM_STATUS_SUCCESS) {
-        fprintf(stderr, "%s\n", imStrError(ret));
+        LOG_ERROR("%s\n", imStrError(ret));
     }
     return ret;
 }
@@ -99,7 +100,7 @@ IM_STATUS RgaConverter::ImageFill(rga_buffer_t& dst_buffer, im_rect& dst_rect, c
 IM_STATUS RgaConverter::ImageProcess(RgaParams& params, rga_buffer_t pat, im_rect prect, int usage) {
     IM_STATUS ret = improcess(params.src, params.dst, pat, params.src_rect, params.dst_rect, prect, usage);
     if (ret <= 0) {
-        fprintf(stderr, "%s\n", imStrError(ret));
+        LOG_ERROR("%s\n", imStrError(ret));
     }
     return ret;
 }

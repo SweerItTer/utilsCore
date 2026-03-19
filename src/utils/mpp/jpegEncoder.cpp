@@ -2,8 +2,15 @@
 #include "mpp/jpegEncoder.h"
 #include "mpp/mppResourceGuard.h"
 #include "mpp/formatTool.h"
+#include "logger_v2.h"
+#include <cerrno>
+#include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <iomanip>
+#include <stdexcept>
 #include <sstream>
+#include <thread>
 #include <sys/stat.h> // POSIX 文件操作
 
 JpegEncoder::JpegEncoder(const Config& cfg)
@@ -11,7 +18,7 @@ JpegEncoder::JpegEncoder(const Config& cfg)
     encoder_ctx_ = std::make_unique<MppEncoderContext>(config_.toMppConfig());
 
     if (!encoder_ctx_->ctx() || !encoder_ctx_->api()) {
-        fprintf(stderr, "[JpegEncoder] Initialization failed!\n");
+        LOG_ERROR("[JpegEncoder] Initialization failed!");
         throw std::runtime_error("[JpegEncoder] Initialization failed!");
     }
 
@@ -19,19 +26,27 @@ JpegEncoder::JpegEncoder(const Config& cfg)
     ctx = encoder_ctx_->ctx();
     mpi = encoder_ctx_->api();
 
-    mkdir(config_.save_dir.c_str(), 0755);
-    fprintf(stdout, "[JpegEncoder] Initialized: %ux%u, quality=%d\n",
-            config_.width, config_.height, config_.quality);
+    if (!config_.save_dir.empty() && mkdir(config_.save_dir.c_str(), 0755) != 0 && errno != EEXIST) {
+        throw std::runtime_error("[JpegEncoder] Failed to create save directory.");
+    }
+    LOG_INFO("[JpegEncoder] Initialized: %ux%u, quality=%d",
+             config_.width,
+             config_.height,
+             config_.quality);
 }
 
 bool JpegEncoder::resetConfig(const Config& cfg) {
     config_ = cfg;
+    if (!config_.save_dir.empty() && mkdir(config_.save_dir.c_str(), 0755) != 0 && errno != EEXIST) {
+        LOG_ERROR("[JpegEncoder] Failed to create save_dir: %s", config_.save_dir.c_str());
+        return false;
+    }
     return encoder_ctx_->resetConfig(config_.toMppConfig());
 }
 
 bool JpegEncoder::captureFromDmabuf(const DmaBufferPtr dmabuf) {
     if (!initialized_ || !dmabuf) {
-        fprintf(stderr, "[JpegEncoder] Not initialized or invalid dmabuf\n");
+        LOG_ERROR("[JpegEncoder] Not initialized or invalid dmabuf");
         return false;
     }
 
@@ -47,14 +62,14 @@ bool JpegEncoder::captureFromDmabuf(const DmaBufferPtr dmabuf) {
     import_info.size = dmabuf->size();
 
     if (MPP_OK != mpp_buffer_import(&buffer, &import_info) || !buffer) {
-        fprintf(stderr, "[JpegEncoder] mpp_buffer_import failed\n");
+        LOG_ERROR("[JpegEncoder] mpp_buffer_import failed");
         return false;
     }
     MppBufferGuard  buffer_guard(buffer);
 
     // 创建 frame
     if (MPP_OK != mpp_frame_init(&frame) || !frame) {
-        fprintf(stderr, "[JpegEncoder] mpp_frame_init failed\n");
+        LOG_ERROR("[JpegEncoder] mpp_frame_init failed");
         if (buffer) mpp_buffer_put(buffer);
         return false;
     }
@@ -72,39 +87,42 @@ bool JpegEncoder::captureFromDmabuf(const DmaBufferPtr dmabuf) {
 
     // 编码并保存
     if (!encodeToFile(frame, filepath)) {
-        fprintf(stderr, "[JpegEncoder] Failed to save image to: %s\n", filepath.c_str());
+        LOG_ERROR("[JpegEncoder] Failed to save image to: %s", filepath.c_str());
         return false;
     }
 
-    fprintf(stdout, "[JpegEncoder] Saved to: %s\n", filepath.c_str());
+    LOG_INFO("[JpegEncoder] Saved to: %s", filepath.c_str());
     return true;
 }
 
 bool JpegEncoder::encodeToFile(MppFrame frame, const std::string& filepath) {
     // 提交编码
     if (MPP_OK != mpi->encode_put_frame(ctx, frame)) {
-        fprintf(stderr, "[JpegEncoder] encode_put_frame failed\n");
+        LOG_ERROR("[JpegEncoder] encode_put_frame failed");
         return false;
     }
 
     // 获取编码结果
     MppPacket packet = nullptr;
-    const int max_retry = 50;
+    const MppEncoderContext::Config encoderConfig = config_.toMppConfig();
+    const int intervalUs = std::max(1, encoderConfig.packet_poll_interval_us);
+    const int maxRetry = std::max(encoderConfig.packet_poll_retries,
+                                  std::max(1, encoderConfig.packet_ready_timeout_us / intervalUs));
     
-    for (int i = 0; i < max_retry; ++i) {
+    for (int i = 0; i < maxRetry; ++i) {
         RK_S32 ret = mpi->encode_get_packet(ctx, &packet);
         if (ret == MPP_OK && packet) {
             break;
         }
         if (ret != MPP_ERR_TIMEOUT) {
-            fprintf(stderr, "[JpegEncoder] encode_get_packet error: %d\n", ret);
+            LOG_ERROR("[JpegEncoder] encode_get_packet error: %d", ret);
             return false;
         }
-        usleep(2000);  // 2ms
+        std::this_thread::sleep_for(std::chrono::microseconds(intervalUs));
     }
 
     if (!packet) {
-        fprintf(stderr, "[JpegEncoder] encode timeout\n");
+        LOG_ERROR("[JpegEncoder] encode timeout");
         return false;
     }
 
@@ -114,16 +132,29 @@ bool JpegEncoder::encodeToFile(MppFrame frame, const std::string& filepath) {
 
     FILE* fp = fopen(filepath.c_str(), "wb");
     if (!fp) {
-        fprintf(stderr, "[JpegEncoder] fopen failed: %s\n", filepath.c_str());
+        LOG_ERROR("[JpegEncoder] fopen failed: %s", filepath.c_str());
         mpp_packet_deinit(&packet);
         return false;
     }
 
     size_t written = fwrite(data, 1, len, fp);
-    fclose(fp);
+    const int flushResult = fflush(fp);
+    const int closeResult = fclose(fp);
     mpp_packet_deinit(&packet);
 
-    return (written == len);
+    if (written != len) {
+        LOG_ERROR("[JpegEncoder] fwrite wrote %zu/%zu bytes.", written, len);
+        return false;
+    }
+    if (flushResult != 0) {
+        LOG_ERROR("[JpegEncoder] fflush failed for %s", filepath.c_str());
+        return false;
+    }
+    if (closeResult != 0) {
+        LOG_ERROR("[JpegEncoder] fclose failed for %s", filepath.c_str());
+        return false;
+    }
+    return true;
 }
 
 std::string JpegEncoder::generateFilename() {

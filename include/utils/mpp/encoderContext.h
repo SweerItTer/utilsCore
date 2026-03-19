@@ -13,12 +13,14 @@
 #include <rockchip/rk_venc_rc.h>
 #include <rockchip/rk_venc_cmd.h>
 
+#include "logger_v2.h"
+
 /**
  * @brief MppEncoderContext
  * 
  * 负责 Rockchip MPP 编码器的完整上下文管理, 包括:
  * - MppCtx/MppApi/MppEncCfg 的 RAII 生命周期管理
- * - 编码器的初始化、配置、重配置
+ * - 编码器的初始化,配置,重配置
  * - 支持动态修改编码参数 (分辨率, 码率, FPS, 编码格式等)
  * 
  * 使用者只需创建 MppEncoderContext 并向 MPP 提交帧, 编码流程由外部驱动.
@@ -151,6 +153,29 @@ public:
 
         /** 未来扩展保留 */
         void* user_ext = nullptr;                /**< 用户自定义扩展指针 */
+
+        /**
+         * @brief 编码结果轮询重试次数
+         *
+         * 该参数控制 `encode_get_packet()` 超时后的最大轮询次数.对于 4K 或者高码率场景,
+         * 过小的值会让调用方在硬件还没产出结果时误判为失败.
+         */
+        int packet_poll_retries = 600;
+
+        /**
+         * @brief 单次轮询间隔, 单位微秒
+         *
+         * 轮询间隔越小, 结果返回越快, 但 CPU 唤醒更频繁.默认值偏保守, 用于提升稳定性.
+         */
+        int packet_poll_interval_us = 500;
+
+        /**
+         * @brief 单帧等待编码结果的总超时时间, 单位微秒
+         *
+         * 该值与 `packet_poll_retries` 一起决定最终的等待窗口.实现会取二者计算出的
+         * 最大轮询次数, 这样既保留显式重试上限, 也能保证总等待时长不会过短.
+         */
+        int packet_ready_timeout_us = 300000;
     };
 
 public:
@@ -186,8 +211,18 @@ public:
     /** 获取 MPP 编码配置句柄 */
     MppEncCfg encCfg() const { return mCfg; }
 
-    /** 获取当前已生效的配置 */
-    const Config* getmCfg() const { return &mCurCfg; }
+    /**
+     * @brief 获取当前已生效的配置
+     * @return 指向内部配置对象的只读指针
+     */
+    const Config* getConfig() const { return &mCurCfg; }
+
+    /**
+     * @brief 获取当前已生效的配置
+     * @return 指向内部配置对象的只读指针
+     * @note TODO(naming): 对外保留旧接口名以避免破坏已有调用方, 后续统一为 `getConfig()`
+     */
+    const Config* getmCfg() const { return getConfig(); }
 
     /**
      * @brief 验证配置是否适合ffmpeg转换
@@ -201,22 +236,26 @@ public:
     static void validateForFfmpeg(const Config& cfg) {
         // Check format compatibility
         if (cfg.prep_format != MPP_FMT_YUV420SP && cfg.prep_format != MPP_FMT_YUV420P) {
-            fprintf(stderr, "[MppEncoderContext] WARNING: Format %d may not be optimal for ffmpeg. Use MPP_FMT_YUV420SP (NV12).\n", cfg.prep_format);
+            LOG_WARN("[MppEncoderContext] WARNING: Format %d may not be optimal for ffmpeg. Use MPP_FMT_YUV420SP (NV12).",
+                     cfg.prep_format);
         }
 
         // Check color range
         if (cfg.rc_color_range_override != 1) {
-            fprintf(stderr, "[MppEncoderContext] WARNING: Color range %d may cause issues. Set to 1 (MPEG range) for ffmpeg.\n", cfg.rc_color_range_override);
+            LOG_WARN("[MppEncoderContext] WARNING: Color range %d may cause issues. Set to 1 (MPEG range) for ffmpeg.",
+                     cfg.rc_color_range_override);
         }
 
         // Check codec type
         if (cfg.codec_type != CodingType::H264 && cfg.codec_type != CodingType::H265) {
-            fprintf(stderr, "[MppEncoderContext] WARNING: Codec type %d may not be optimal for MP4. Use H264 or H265.\n", static_cast<int>(cfg.codec_type));
+            LOG_WARN("[MppEncoderContext] WARNING: Codec type %d may not be optimal for MP4. Use H264 or H265.",
+                     static_cast<int>(cfg.codec_type));
         }
 
         // Check profile for H264
         if (cfg.codec_type == CodingType::H264 && cfg.h264_profile != 77 && cfg.h264_profile != 100) {
-            fprintf(stderr, "[MppEncoderContext] WARNING: H264 profile %d may not be widely supported. Use 77 (Main) or 100 (High).\n", cfg.h264_profile);
+            LOG_WARN("[MppEncoderContext] WARNING: H264 profile %d may not be widely supported. Use 77 (Main) or 100 (High).",
+                     cfg.h264_profile);
         }
     }
 
@@ -258,6 +297,14 @@ public:
     }
 
 private:
+    /**
+     * @brief 在调用任何 MPP API 前验证参数是否合法
+     * @param cfg 待验证的配置
+     * @return true 配置可安全应用
+     * @return false 配置存在明显错误
+     */
+    static bool validateConfig(const Config& cfg);
+
     /**
      * @brief 初始化 MPP 上下文, 创建 ctx/api/cfg
      * @return true 初始化成功

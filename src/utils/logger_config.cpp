@@ -196,6 +196,25 @@ LoggerConfig LoggerConfig::fromJson(const std::string& json_str) {
             }
         }
     }
+
+    size_t overflow_pos = json_str.find("\"overflow_policy\"");
+    if (overflow_pos != std::string::npos) {
+        size_t colon_pos = json_str.find(':', overflow_pos);
+        size_t quote1 = json_str.find('"', colon_pos);
+        if (quote1 != std::string::npos) {
+            size_t quote2 = json_str.find('"', quote1 + 1);
+            if (quote2 != std::string::npos) {
+                const std::string overflow = json_str.substr(quote1 + 1, quote2 - quote1 - 1);
+                if (overflow == "block") {
+                    config.overflow_policy = LogOverflowPolicy::Block;
+                } else if (overflow == "drop_newest") {
+                    config.overflow_policy = LogOverflowPolicy::DropNewest;
+                } else if (overflow == "drop_if_below_error") {
+                    config.overflow_policy = LogOverflowPolicy::DropIfBelowError;
+                }
+            }
+        }
+    }
     
     // 查找sinks数组
     size_t sinks_pos = json_str.find("\"sinks\"");
@@ -250,6 +269,18 @@ LoggerConfig LoggerConfig::fromEnvironment() {
             config.queue_capacity = std::stoul(queue_size);
         } catch (...) {
             // 忽略转换错误
+        }
+    }
+
+    const char* overflow_policy = std::getenv("LOG_OVERFLOW_POLICY");
+    if (overflow_policy) {
+        const std::string policy = overflow_policy;
+        if (policy == "block") {
+            config.overflow_policy = LogOverflowPolicy::Block;
+        } else if (policy == "drop_newest") {
+            config.overflow_policy = LogOverflowPolicy::DropNewest;
+        } else if (policy == "drop_if_below_error") {
+            config.overflow_policy = LogOverflowPolicy::DropIfBelowError;
         }
     }
     
@@ -307,6 +338,10 @@ LoggerConfig LoggerConfig::merge(const LoggerConfig& base, const LoggerConfig& o
     if (override.flush_interval_ms != 1000) {
         result.flush_interval_ms = override.flush_interval_ms;
     }
+
+    if (override.overflow_policy != LogOverflowPolicy::DropIfBelowError) {
+        result.overflow_policy = override.overflow_policy;
+    }
     
     // 合并sink配置
     if (!override.sinks.empty()) {
@@ -323,6 +358,10 @@ std::string LoggerConfig::toString() const {
        << ", async=" << (async ? "true" : "false")
        << ", queue_capacity=" << queue_capacity
        << ", flush_interval_ms=" << flush_interval_ms
+       << ", overflow_policy="
+       << (overflow_policy == LogOverflowPolicy::Block ? "block" :
+           overflow_policy == LogOverflowPolicy::DropNewest ? "drop_newest" :
+           "drop_if_below_error")
        << ", sinks=[";
     
     for (size_t i = 0; i < sinks.size(); ++i) {
@@ -460,6 +499,11 @@ bool ConfigManager::save(const std::string& filename) const {
     file << "  \"async\": " << (config_.async ? "true" : "false") << ",\n";
     file << "  \"queue_capacity\": " << config_.queue_capacity << ",\n";
     file << "  \"flush_interval_ms\": " << config_.flush_interval_ms << ",\n";
+    file << "  \"overflow_policy\": \""
+         << (config_.overflow_policy == LogOverflowPolicy::Block ? "block" :
+             config_.overflow_policy == LogOverflowPolicy::DropNewest ? "drop_newest" :
+             "drop_if_below_error")
+         << "\",\n";
     file << "  \"sinks\": [\n";
     
     for (size_t i = 0; i < config_.sinks.size(); ++i) {

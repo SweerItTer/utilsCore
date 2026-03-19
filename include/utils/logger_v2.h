@@ -51,6 +51,12 @@ inline LogLevel stringToLogLevel(const std::string& level) noexcept {
     return LogLevel::INFO;
 }
 
+enum class LogOverflowPolicy : unsigned char {
+    Block = 0,
+    DropNewest = 1,
+    DropIfBelowError = 2,
+};
+
 using LogFields = std::unordered_map<std::string, std::string>;
 
 struct LogMessage {
@@ -83,6 +89,16 @@ struct LogMessage {
         , function(func ? func : "")
         , message(msg)
         , fields(std::move(flds)) {}
+};
+
+struct LogQueueStats {
+    size_t queued = 0;
+    uint64_t pushed = 0;
+    uint64_t dropped = 0;
+    uint64_t dropped_trace = 0;
+    uint64_t dropped_debug = 0;
+    uint64_t dropped_info = 0;
+    uint64_t dropped_warn = 0;
 };
 
 class LogSink {
@@ -144,13 +160,17 @@ private:
 
 class AsyncLogQueue {
 public:
-    explicit AsyncLogQueue(size_t capacity = 8192);
+    explicit AsyncLogQueue(size_t capacity = 8192,
+                           LogOverflowPolicy overflow_policy = LogOverflowPolicy::DropIfBelowError);
     ~AsyncLogQueue();
 
     void start();
     void stop();
     bool push(LogMessage&& msg);
     size_t size() const;
+    size_t capacity() const;
+    LogQueueStats stats() const;
+    bool hasSinks() const;
 
     void addSink(std::shared_ptr<LogSink> sink);
     void clearSinks();
@@ -160,12 +180,24 @@ public:
 
 private:
     void workerThread();
+    bool shouldDrop(const LogMessage& msg) const;
+    bool tryPush(LogMessage&& msg);
+    void recordDrop(LogLevel level);
 
     moodycamel::ConcurrentQueue<LogMessage> queue_;
     std::vector<std::shared_ptr<LogSink> > sinks_;
     std::atomic<bool> running_;
     std::thread worker_thread_;
     std::atomic<int> flush_interval_ms_;
+    std::atomic<size_t> queued_count_;
+    size_t capacity_hint_;
+    LogOverflowPolicy overflow_policy_;
+    std::atomic<uint64_t> pushed_count_;
+    std::atomic<uint64_t> dropped_count_;
+    std::atomic<uint64_t> dropped_trace_count_;
+    std::atomic<uint64_t> dropped_debug_count_;
+    std::atomic<uint64_t> dropped_info_count_;
+    std::atomic<uint64_t> dropped_warn_count_;
     mutable std::mutex sinks_mutex_;
 };
 
@@ -192,10 +224,14 @@ public:
                     const char* function,
                     const char* format,
                     Args... args) {
-        if (!shouldLog(level)) {
+        const LogLevel currentLevel = global_level_.load(std::memory_order_relaxed);
+        if (currentLevel == LogLevel::OFF || level < currentLevel) {
             return;
         }
         ensureInitialized();
+        if (!hasActiveSinks()) {
+            return;
+        }
 
         const std::string message = formatMessage(format, args...);
         LogMessage msg(level, file, line, function, message);
@@ -210,10 +246,14 @@ public:
                               const LogFields& fields,
                               const char* format,
                               Args... args) {
-        if (!shouldLog(level)) {
+        const LogLevel currentLevel = global_level_.load(std::memory_order_relaxed);
+        if (currentLevel == LogLevel::OFF || level < currentLevel) {
             return;
         }
         ensureInitialized();
+        if (!hasActiveSinks()) {
+            return;
+        }
 
         const std::string message = formatMessage(format, args...);
         LogMessage msg(level, file, line, function, message, fields);
@@ -223,7 +263,9 @@ public:
     static void addSink(std::shared_ptr<LogSink> sink);
     static void flush();
     static size_t queueSize();
+    static LogQueueStats queueStats();
     static void setPattern(const std::string& pattern);
+    static bool hasActiveSinks();
 
 private:
     static std::unique_ptr<AsyncLogQueue> queue_;
@@ -258,8 +300,8 @@ private:
 };
 
 inline bool LoggerV2::shouldLog(LogLevel level) {
-    return level >= global_level_.load(std::memory_order_relaxed)
-        && global_level_.load(std::memory_order_relaxed) != LogLevel::OFF;
+    const LogLevel currentLevel = global_level_.load(std::memory_order_relaxed);
+    return currentLevel != LogLevel::OFF && level >= currentLevel;
 }
 
 inline LogLevel LoggerV2::getLevel() {
@@ -275,6 +317,13 @@ inline size_t LoggerV2::queueSize() {
         return 0;
     }
     return queue_->size();
+}
+
+inline LogQueueStats LoggerV2::queueStats() {
+    if (!queue_) {
+        return LogQueueStats{};
+    }
+    return queue_->stats();
 }
 
 #define LOG_TRACE(...)    \
