@@ -362,7 +362,7 @@ inline static MppEncoderContext::Config defconfig_video_recording(int width, int
 
     // GOP设置 (参考MPP测试代码第324行: fps * 2)
     cfg.rc_gop = fps * 2;  // 2-second GOP
-    cfg.rc_force_idr_interval = 1;  // 强制生成I帧
+    cfg.rc_force_idr_interval = 0;  // 默认关闭, 兼容不支持该配置项的 MPP 版本
 
     // QP设置 (参考MPP测试代码第373-378行)
     cfg.rc_qp_init = -1;   // 使用编码器自动QP (参考第373行)
