@@ -265,6 +265,7 @@ RgaProcessorError RgaProcessor::stop() {
     LOG_INFO("Stopping...");
     stopping_.store(true);
     running_.store(false);
+    pauser_.resume();
     
     // 通知工作线程
     {
