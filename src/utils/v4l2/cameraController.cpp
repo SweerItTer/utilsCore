@@ -779,6 +779,7 @@ FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t time
 
 void CameraController::Impl::captureLoop() {
     std::cout << "V4L2 capture thread TID: " << syscall(SYS_gettid) << "\n";
+    static std::atomic<uint32_t> dequeueLogCount{0};
 
     try
     {
@@ -795,6 +796,16 @@ void CameraController::Impl::captureLoop() {
         v4l2_buffer buf = {};
         v4l2_plane  planes[VIDEO_MAX_PLANES];  // 为多平面准备数组
         dequeueBuffer(buf, planes);
+        const uint32_t logIndex = ++dequeueLogCount;
+        if (logIndex <= 3) {
+            const size_t bytesUsed = buf_type_ == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
+                                         ? static_cast<size_t>(planes[0].bytesused)
+                                         : static_cast<size_t>(buf.bytesused);
+            LOG_INFO("[CameraController] dequeued frame #%u index=%u bytesUsed=%zu",
+                     logIndex,
+                     buf.index,
+                     bytesUsed);
+        }
         // 标记缓冲区已出队
         buffers_[buf.index].queued = false;
 
