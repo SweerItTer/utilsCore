@@ -356,16 +356,22 @@ void StreamWriter::dispatchLoop() {
         if (!obtainPacketForMeta(packet, meta)) {
             continue;
         }
+        const bool isFirstPacket = firstKeyFramePending_.load(std::memory_order_acquire);
         // 非关键帧不计数
         if (packet->isKeyframe()) {
             LOG_INFO("GET I(ntra) frame.");
-            firstKeyFramePending_.store(false);
+            firstKeyFramePending_.store(false, std::memory_order_release);
             // 关键帧计数
             auto ct = currentPacketCount_.fetch_add(1, std::memory_order_release) + 1;
             // 检测是否切片
             if(ct >= packetsPerSegment_){
                 shouldCutSegment = true;
             }
+        } else if (isFirstPacket) {
+            // Some older MPP builds do not populate KEY_OUTPUT_INTRA.
+            // Do not block the first segment forever waiting for a flag that never arrives.
+            LOG_WARN("[StreamWriter] first packet has no keyframe flag; start writing first segment anyway");
+            firstKeyFramePending_.store(false, std::memory_order_release);
         }
         meta.packet = packet;
         
@@ -389,8 +395,8 @@ void StreamWriter::dispatchLoop() {
             waitUntilWriterIdle(writerToSync);
             flushAndSyncWriter(writerToSync);
         }
-        // 等待第一个I帧
-        if (firstKeyFramePending_) {
+        // 只有在明确仍在等待首个可写包时才继续丢弃.
+        if (firstKeyFramePending_.load(std::memory_order_acquire)) {
             if (meta.core != nullptr) {
                 meta.core->releaseSlot(meta);
             }
