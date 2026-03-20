@@ -118,6 +118,15 @@ bool MppEncoderContext::applyConfig() {
         return true;
     };
 
+    auto setOptionalConfigValue = [&](const char* key, RK_S32 value) -> bool {
+        MPP_RET ret = mpp_enc_cfg_set_s32(mCfg, key, value);
+        if (MPP_OK != ret) {
+            LOG_WARN("[MppEncoderContext] Optional config %s unsupported, skip it. ret=%d", key, ret);
+            return true;
+        }
+        return true;
+    };
+
     // 判断是否为 MJPEG 编码器
     bool is_mjpeg = (static_cast<MppCodingType>(mCurCfg.codec_type) == MPP_VIDEO_CodingMJPEG);
     
@@ -202,7 +211,7 @@ bool MppEncoderContext::applyConfig() {
 
         // 强制 I 帧 / GOP (MJPEG 跳过)
         if (mCurCfg.rc_force_idr_interval > 0 &&
-            !setConfigValue("rc:force_idr_interval", mCurCfg.rc_force_idr_interval)) {
+            !setOptionalConfigValue("rc:force_idr_interval", mCurCfg.rc_force_idr_interval)) {
             return false;
         }
     }
@@ -307,7 +316,7 @@ bool MppEncoderContext::applyConfig() {
 
     // ---- 色彩范围 ----
     if (mCurCfg.rc_color_range_override >= 0 &&
-        !setConfigValue("rc:color_range_override", mCurCfg.rc_color_range_override)) {
+        !setOptionalConfigValue("rc:color_range_override", mCurCfg.rc_color_range_override)) {
         return false;
     }
 
