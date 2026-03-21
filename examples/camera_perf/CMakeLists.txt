@@ -1,0 +1,4 @@
+add_executable(Camera_Capture_Perf camera_capture_perf.cpp)
+target_link_libraries(Camera_Capture_Perf PRIVATE utils)
+target_compile_features(Camera_Capture_Perf PRIVATE cxx_std_14)
+

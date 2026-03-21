@@ -40,3 +40,5 @@ target_compile_features(RGA_DmaBuf_Demo PRIVATE cxx_std_14)
 add_executable(StaticCallback_Compile_Demo static_callback_compile_demo.cpp)
 target_link_libraries(StaticCallback_Compile_Demo utils)
 target_compile_features(StaticCallback_Compile_Demo PRIVATE cxx_std_14)
+
+add_subdirectory(camera_perf utils_camera_perf)
