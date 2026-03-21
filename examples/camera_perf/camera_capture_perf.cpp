@@ -491,7 +491,7 @@ int main(int argc, char** argv) {
         state.sampleIndices = buildSampleIndices(options.frames, options.sampleCount);
 
         CameraController camera(config);
-        camera.setFrameCallback([&state, &camera](FramePtr frame) {
+        camera.setFrameCallback([&state](FramePtr frame) {
             if (!frame) {
                 return;
             }
@@ -533,7 +533,6 @@ int main(int argc, char** argv) {
                 }
             }
 
-            camera.returnBuffer(frame->index());
             if (shouldQueue) {
                 state.cv.notify_one();
             }
