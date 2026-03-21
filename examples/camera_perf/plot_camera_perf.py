@@ -2,8 +2,6 @@
 
 import argparse
 import csv
-import math
-import os
 import statistics
 import subprocess
 from pathlib import Path
@@ -32,7 +30,6 @@ def read_metrics(path: Path):
                 {
                     "frame_index": int(row["frame_index"]),
                     "frame_interval_us": int(row["frame_interval_us"]),
-                    "controller_overhead_us": int(row["controller_overhead_us"]),
                 }
             )
     return rows
@@ -46,11 +43,8 @@ def percentile(values, ratio):
     return ordered[index]
 
 
-def ensure_dir(path: Path):
-    path.mkdir(parents=True, exist_ok=True)
-
-
 def convert_raw_sample(sample_path: Path, width: int, height: int, pixel_format: str, output_dir: Path):
+    output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{sample_path.stem}.png"
     cmd = [
         "ffmpeg",
@@ -72,59 +66,56 @@ def convert_raw_sample(sample_path: Path, width: int, height: int, pixel_format:
 
 
 def draw_board(run_dirs, output_dir: Path):
-    ensure_dir(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     preview_dir = output_dir / "previews"
-    ensure_dir(preview_dir)
+    preview_dir.mkdir(parents=True, exist_ok=True)
 
-    fig, axes = plt.subplots(len(run_dirs), 4, figsize=(18, 5 * len(run_dirs)))
+    fig, axes = plt.subplots(len(run_dirs), 4, figsize=(18, 4.8 * len(run_dirs)))
     if len(run_dirs) == 1:
         axes = [axes]
 
     for row_axes, run_dir in zip(axes, run_dirs):
         summary = parse_summary(run_dir / "summary.txt")
         metrics = read_metrics(run_dir / "metrics.csv")
-        label = f"{summary['width']}x{summary['height']}"
-
+        width = int(summary["actual_width"])
+        height = int(summary["actual_height"])
+        requested_label = f"{summary['requested_width']}x{summary['requested_height']}"
+        actual_label = f"{width}x{height}"
         interval_values = [row["frame_interval_us"] for row in metrics if row["frame_interval_us"] > 0]
-        overhead_values = [row["controller_overhead_us"] for row in metrics]
 
         sample_files = sorted(run_dir.glob(f"sample_frame_*.{summary['pixel_format']}"))
         if sample_files:
-            preview = convert_raw_sample(
-                sample_files[0],
-                int(summary["width"]),
-                int(summary["height"]),
-                summary["pixel_format"],
-                preview_dir,
-            )
+            preview = convert_raw_sample(sample_files[0], width, height, summary["pixel_format"], preview_dir)
             image = plt.imread(preview)
             row_axes[0].imshow(image)
-            row_axes[0].set_title(f"{label} sample")
+            row_axes[0].set_title(f"{requested_label} sample")
         else:
             row_axes[0].text(0.5, 0.5, "no sample", ha="center", va="center")
         row_axes[0].axis("off")
 
         row_axes[1].plot([row["frame_index"] for row in metrics], [row["frame_interval_us"] for row in metrics], linewidth=1.0)
-        row_axes[1].set_title(f"{label} frame interval")
+        row_axes[1].set_title(f"{requested_label} frame interval")
         row_axes[1].set_xlabel("Frame index")
         row_axes[1].set_ylabel("us")
 
-        row_axes[2].boxplot([interval_values, overhead_values], labels=["interval", "overhead"])
-        row_axes[2].set_title(f"{label} distribution")
-        row_axes[2].set_ylabel("us")
+        row_axes[2].hist(interval_values, bins=30)
+        row_axes[2].set_title(f"{requested_label} distribution")
+        row_axes[2].set_xlabel("frame interval us")
+        row_axes[2].set_ylabel("count")
 
-        stats_text = "\n".join(
-            [
-                f"interval mean: {statistics.mean(interval_values):.2f} us" if interval_values else "interval mean: n/a",
-                f"interval p95: {percentile(interval_values, 0.95)} us",
-                f"interval p99: {percentile(interval_values, 0.99)} us",
-                f"overhead mean: {statistics.mean(overhead_values):.2f} us" if overhead_values else "overhead mean: n/a",
-                f"overhead p95: {percentile(overhead_values, 0.95)} us",
-                f"rows: {len(metrics)}",
-            ]
-        )
+        stats_lines = [
+            f"requested: {requested_label}",
+            f"actual:    {actual_label}",
+            f"status:    {summary.get('status', 'unknown')}",
+            f"mean:      {statistics.mean(interval_values):.2f} us" if interval_values else "mean:      n/a",
+            f"median:    {statistics.median(interval_values):.2f} us" if interval_values else "median:    n/a",
+            f"stddev:    {statistics.pstdev(interval_values):.2f} us" if len(interval_values) > 1 else "stddev:    n/a",
+            f"p95:       {percentile(interval_values, 0.95)} us",
+            f"p99:       {percentile(interval_values, 0.99)} us",
+            f"rows:      {len(metrics)}",
+        ]
         row_axes[3].axis("off")
-        row_axes[3].text(0.02, 0.98, stats_text, ha="left", va="top", family="monospace")
+        row_axes[3].text(0.02, 0.98, "\n".join(stats_lines), ha="left", va="top", family="monospace")
 
     fig.tight_layout()
     board_path = output_dir / "camera_perf_board.png"
@@ -139,10 +130,8 @@ def main():
     args = parser.parse_args()
 
     run_dirs = [Path(item) for item in args.inputs]
-    output_dir = Path(args.output_dir)
-    draw_board(run_dirs, output_dir)
+    draw_board(run_dirs, Path(args.output_dir))
 
 
 if __name__ == "__main__":
     main()
-

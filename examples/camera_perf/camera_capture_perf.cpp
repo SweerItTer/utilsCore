@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <atomic>
 #include <cerrno>
 #include <cmath>
 #include <condition_variable>
@@ -7,10 +6,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <map>
 #include <mutex>
 #include <numeric>
@@ -18,8 +17,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -50,20 +51,32 @@ struct Options {
     bool useDmabuf = false;
 };
 
+struct FrameEvent {
+    uint64_t frameIndex = 0;
+    uint64_t frameId = 0;
+    uint64_t v4l2TimestampNs = 0;
+    uint64_t callbackTimestampUs = 0;
+    int bufferIndex = -1;
+    size_t payloadBytes = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::vector<uint8_t> sampleBytes;
+};
+
 struct MetricSample {
     uint64_t frameIndex = 0;
     uint64_t frameId = 0;
-    uint64_t dequeueTimestampUs = 0;
+    uint64_t v4l2TimestampNs = 0;
     uint64_t callbackTimestampUs = 0;
     uint64_t frameIntervalUs = 0;
-    uint64_t controllerOverheadUs = 0;
     int bufferIndex = -1;
     size_t payloadBytes = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
 };
 
 struct PersistedFrameSample {
     uint64_t frameIndex = 0;
-    uint64_t callbackTimestampUs = 0;
     std::vector<uint8_t> bytes;
 };
 
@@ -84,17 +97,29 @@ struct RunState {
     Options options;
     std::mutex mutex;
     std::condition_variable cv;
+    std::deque<FrameEvent> pending;
     std::vector<MetricSample> metrics;
     std::vector<PersistedFrameSample> frameSamples;
     std::set<uint64_t> sampleIndices;
     uint64_t observedFrames = 0;
-    uint64_t measuredFrames = 0;
+    uint64_t queuedFrames = 0;
+    uint64_t processedFrames = 0;
     uint64_t previousCallbackUs = 0;
-    bool done = false;
+    uint32_t actualWidth = 0;
+    uint32_t actualHeight = 0;
+    bool stopRequested = false;
 };
 
 [[noreturn]] void fail(const std::string& message) {
     throw std::runtime_error(message);
+}
+
+uint64_t monotonicRawUs() {
+    struct timespec ts {};
+    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
+        fail(std::string("clock_gettime(CLOCK_MONOTONIC_RAW) failed: ") + std::strerror(errno));
+    }
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000ULL + static_cast<uint64_t>(ts.tv_nsec) / 1000ULL;
 }
 
 bool parseBool(const std::string& value) {
@@ -220,7 +245,7 @@ std::vector<uint8_t> copyFrameBytes(const FramePtr& frame, uint32_t planeCount) 
         }
 
         if (state->backing == BufferBacking::MMAP) {
-            auto* ptr = static_cast<const uint8_t*>(frame->data(static_cast<int>(plane)));
+            const auto* ptr = static_cast<const uint8_t*>(frame->data(static_cast<int>(plane)));
             if (!ptr) {
                 return {};
             }
@@ -246,7 +271,7 @@ std::vector<uint8_t> copyFrameBytes(const FramePtr& frame, uint32_t planeCount) 
         if (mapped == MAP_FAILED) {
             return {};
         }
-        const uint8_t* ptr = static_cast<const uint8_t*>(mapped);
+        const auto* ptr = static_cast<const uint8_t*>(mapped);
         bytes.insert(bytes.end(), ptr, ptr + planeBytes);
         ::munmap(mapped, planeBytes);
     }
@@ -298,34 +323,39 @@ void writeMetricsCsv(const std::string& outputDir, const std::vector<MetricSampl
         fail("Failed to open " + path);
     }
 
-    output << "frame_index,frame_id,dequeue_timestamp_us,callback_timestamp_us,frame_interval_us,controller_overhead_us,buffer_index,payload_bytes\n";
+    output << "frame_index,frame_id,v4l2_timestamp_ns,callback_timestamp_us,frame_interval_us,buffer_index,payload_bytes,width,height\n";
     for (const auto& metric : metrics) {
         output << metric.frameIndex << ','
                << metric.frameId << ','
-               << metric.dequeueTimestampUs << ','
+               << metric.v4l2TimestampNs << ','
                << metric.callbackTimestampUs << ','
                << metric.frameIntervalUs << ','
-               << metric.controllerOverheadUs << ','
                << metric.bufferIndex << ','
-               << metric.payloadBytes << '\n';
+               << metric.payloadBytes << ','
+               << metric.width << ','
+               << metric.height << '\n';
     }
 }
 
 void writeSummary(const std::string& outputDir,
                   const Options& options,
                   const SummaryStats& intervalStats,
-                  const SummaryStats& overheadStats,
                   size_t metricCount,
-                  size_t sampleCount) {
+                  size_t sampleCount,
+                  uint32_t actualWidth,
+                  uint32_t actualHeight) {
     const std::string path = joinPath(outputDir, "summary.txt");
     std::ofstream output(path.c_str());
     if (!output) {
         fail("Failed to open " + path);
     }
 
+    const bool exactMatch = actualWidth == options.width && actualHeight == options.height;
     output << "device=" << options.device << '\n';
-    output << "width=" << options.width << '\n';
-    output << "height=" << options.height << '\n';
+    output << "requested_width=" << options.width << '\n';
+    output << "requested_height=" << options.height << '\n';
+    output << "actual_width=" << actualWidth << '\n';
+    output << "actual_height=" << actualHeight << '\n';
     output << "pixel_format=" << options.pixelFormatName << '\n';
     output << "frames=" << options.frames << '\n';
     output << "warmup=" << options.warmup << '\n';
@@ -333,19 +363,14 @@ void writeSummary(const std::string& outputDir,
     output << "use_dmabuf=" << (options.useDmabuf ? 1 : 0) << '\n';
     output << "sample_count=" << sampleCount << '\n';
     output << "metric_rows=" << metricCount << '\n';
-
-    auto writeStats = [&output](const std::string& prefix, const SummaryStats& stats) {
-        output << prefix << "_mean_us=" << std::fixed << std::setprecision(3) << stats.mean << '\n';
-        output << prefix << "_median_us=" << stats.median << '\n';
-        output << prefix << "_stddev_us=" << stats.stddev << '\n';
-        output << prefix << "_min_us=" << stats.min << '\n';
-        output << prefix << "_max_us=" << stats.max << '\n';
-        output << prefix << "_p95_us=" << stats.p95 << '\n';
-        output << prefix << "_p99_us=" << stats.p99 << '\n';
-    };
-
-    writeStats("frame_interval", intervalStats);
-    writeStats("controller_overhead", overheadStats);
+    output << "status=" << (exactMatch ? "supported" : "adjusted") << '\n';
+    output << "frame_interval_mean_us=" << std::fixed << std::setprecision(3) << intervalStats.mean << '\n';
+    output << "frame_interval_median_us=" << intervalStats.median << '\n';
+    output << "frame_interval_stddev_us=" << intervalStats.stddev << '\n';
+    output << "frame_interval_min_us=" << intervalStats.min << '\n';
+    output << "frame_interval_max_us=" << intervalStats.max << '\n';
+    output << "frame_interval_p95_us=" << intervalStats.p95 << '\n';
+    output << "frame_interval_p99_us=" << intervalStats.p99 << '\n';
 }
 
 void persistFrameSamples(const std::string& outputDir,
@@ -353,8 +378,7 @@ void persistFrameSamples(const std::string& outputDir,
                          const std::vector<PersistedFrameSample>& samples) {
     for (const auto& sample : samples) {
         std::ostringstream name;
-        name << "sample_frame_"
-             << std::setfill('0') << std::setw(4) << sample.frameIndex
+        name << "sample_frame_" << std::setfill('0') << std::setw(4) << sample.frameIndex
              << "." << options.pixelFormatName;
         writeBinaryFile(joinPath(outputDir, name.str()), sample.bytes);
     }
@@ -363,17 +387,17 @@ void persistFrameSamples(const std::string& outputDir,
 void printUsage(const char* argv0) {
     std::cout
         << "Usage: " << argv0 << " [options]\n"
-        << "  --device <path>           Camera device path, default /dev/video0\n"
-        << "  --width <pixels>          Capture width, default 1280\n"
-        << "  --height <pixels>         Capture height, default 720\n"
+        << "  --device <path>            Camera device path, default /dev/video0\n"
+        << "  --width <pixels>           Capture width, default 1280\n"
+        << "  --height <pixels>          Capture height, default 720\n"
         << "  --format <nv12|yuyv|rgb24> Pixel format, default nv12\n"
-        << "  --frames <count>          Measured frames after warmup, default 300\n"
-        << "  --warmup <count>          Warmup frames excluded from stats, default 30\n"
-        << "  --buffer-count <count>    V4L2 buffer count, default 4\n"
-        << "  --sample-count <count>    Sample raw frames to persist, default 4\n"
-        << "  --use-dmabuf <bool>       Enable DMABUF mode, default false\n"
-        << "  --output-dir <path>       Output directory, default ./camera_perf_run\n"
-        << "  --help                    Show this message\n";
+        << "  --frames <count>           Measured frames after warmup, default 300\n"
+        << "  --warmup <count>           Warmup frames excluded from stats, default 30\n"
+        << "  --buffer-count <count>     V4L2 buffer count, default 4\n"
+        << "  --sample-count <count>     Sample raw frames to persist, default 4\n"
+        << "  --use-dmabuf <bool>        Enable DMABUF mode, default false\n"
+        << "  --output-dir <path>        Output directory, default ./camera_perf_run\n"
+        << "  --help                     Show this message\n";
 }
 
 Options parseArgs(int argc, char** argv) {
@@ -467,94 +491,127 @@ int main(int argc, char** argv) {
         state.sampleIndices = buildSampleIndices(options.frames, options.sampleCount);
 
         CameraController camera(config);
-        camera.setFrameCallback([&state](FramePtr frame) {
+        camera.setFrameCallback([&state, &camera](FramePtr frame) {
             if (!frame) {
                 return;
             }
 
-            std::unique_lock<std::mutex> lock(state.mutex);
-            ++state.observedFrames;
-            if (state.observedFrames <= static_cast<uint64_t>(state.options.warmup)) {
-                return;
-            }
+            const uint64_t callbackUs = monotonicRawUs();
+            FrameEvent event;
+            bool shouldQueue = false;
+            bool shouldSample = false;
 
-            const uint64_t measuredIndex = ++state.measuredFrames;
-            const uint64_t callbackUs = frame->meta.callback_timestamp_us;
-            const uint64_t dequeueUs = frame->meta.dequeue_timestamp_us;
-            const bool shouldPersistSample = state.sampleIndices.find(measuredIndex) != state.sampleIndices.end();
-
-            if (!shouldPersistSample) {
-                MetricSample metric;
-                metric.frameIndex = measuredIndex;
-                metric.frameId = frame->meta.frame_id;
-                metric.dequeueTimestampUs = dequeueUs;
-                metric.callbackTimestampUs = callbackUs;
-                metric.frameIntervalUs = state.previousCallbackUs == 0 ? 0 : (callbackUs - state.previousCallbackUs);
-                metric.controllerOverheadUs = (callbackUs >= dequeueUs) ? (callbackUs - dequeueUs) : 0;
-                metric.bufferIndex = frame->index();
-                metric.payloadBytes = frame->size();
-                state.metrics.push_back(metric);
-            }
-
-            if (shouldPersistSample) {
-                PersistedFrameSample sample;
-                sample.frameIndex = measuredIndex;
-                sample.callbackTimestampUs = callbackUs;
-                sample.bytes = copyFrameBytes(frame, state.options.planeCount);
-                if (!sample.bytes.empty()) {
-                    state.frameSamples.push_back(std::move(sample));
+            {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                if (!state.stopRequested) {
+                    ++state.observedFrames;
+                    if (state.observedFrames > static_cast<uint64_t>(state.options.warmup) &&
+                        state.queuedFrames < static_cast<uint64_t>(state.options.frames)) {
+                        ++state.queuedFrames;
+                        event.frameIndex = state.queuedFrames;
+                        event.frameId = frame->meta.frame_id;
+                        event.v4l2TimestampNs = frame->meta.timestamp_ns;
+                        event.callbackTimestampUs = callbackUs;
+                        event.bufferIndex = frame->index();
+                        event.payloadBytes = frame->size();
+                        event.width = frame->meta.w;
+                        event.height = frame->meta.h;
+                        shouldSample = state.sampleIndices.find(event.frameIndex) != state.sampleIndices.end();
+                        shouldQueue = true;
+                    }
                 }
             }
 
-            state.previousCallbackUs = callbackUs;
-            if (state.measuredFrames >= static_cast<uint64_t>(state.options.frames)) {
-                state.done = true;
-                lock.unlock();
-                state.cv.notify_all();
+            if (shouldSample) {
+                event.sampleBytes = copyFrameBytes(frame, state.options.planeCount);
+            }
+
+            if (shouldQueue) {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                if (!state.stopRequested) {
+                    state.pending.push_back(std::move(event));
+                }
+            }
+
+            camera.returnBuffer(frame->index());
+            if (shouldQueue) {
+                state.cv.notify_one();
             }
         });
 
         camera.start();
 
-        {
-            std::unique_lock<std::mutex> lock(state.mutex);
-            const auto timeout = std::chrono::seconds(std::max(10, options.frames / 10 + options.warmup / 10 + 5));
-            if (!state.cv.wait_for(lock, timeout, [&state] { return state.done; })) {
-                fail("Capture timed out before collecting all requested frames");
+        const auto timeout = std::chrono::seconds(std::max(10, options.frames / 10 + options.warmup / 10 + 5));
+        while (state.processedFrames < static_cast<uint64_t>(options.frames)) {
+            FrameEvent event;
+            {
+                std::unique_lock<std::mutex> lock(state.mutex);
+                if (!state.cv.wait_for(lock, timeout, [&state] { return !state.pending.empty(); })) {
+                    fail("Capture timed out before collecting all requested frames");
+                }
+                event = std::move(state.pending.front());
+                state.pending.pop_front();
+            }
+
+            if (state.actualWidth == 0 && state.actualHeight == 0) {
+                state.actualWidth = event.width;
+                state.actualHeight = event.height;
+            }
+
+            MetricSample metric;
+            metric.frameIndex = event.frameIndex;
+            metric.frameId = event.frameId;
+            metric.v4l2TimestampNs = event.v4l2TimestampNs;
+            metric.callbackTimestampUs = event.callbackTimestampUs;
+            metric.frameIntervalUs = state.previousCallbackUs == 0 ? 0 : (event.callbackTimestampUs - state.previousCallbackUs);
+            metric.bufferIndex = event.bufferIndex;
+            metric.payloadBytes = event.payloadBytes;
+            metric.width = event.width;
+            metric.height = event.height;
+            state.metrics.push_back(metric);
+            state.previousCallbackUs = event.callbackTimestampUs;
+            ++state.processedFrames;
+
+            if (!event.sampleBytes.empty()) {
+                PersistedFrameSample sample;
+                sample.frameIndex = event.frameIndex;
+                sample.bytes = std::move(event.sampleBytes);
+                state.frameSamples.push_back(std::move(sample));
             }
         }
 
+        {
+            std::lock_guard<std::mutex> lock(state.mutex);
+            state.stopRequested = true;
+        }
         camera.stop();
 
         std::vector<uint64_t> frameIntervals;
-        std::vector<uint64_t> controllerOverheads;
         frameIntervals.reserve(state.metrics.size());
-        controllerOverheads.reserve(state.metrics.size());
         for (const auto& metric : state.metrics) {
             if (metric.frameIntervalUs > 0) {
                 frameIntervals.push_back(metric.frameIntervalUs);
             }
-            controllerOverheads.push_back(metric.controllerOverheadUs);
         }
 
         const SummaryStats intervalStats = computeStats(frameIntervals);
-        const SummaryStats overheadStats = computeStats(controllerOverheads);
         writeMetricsCsv(options.outputDir, state.metrics);
         writeSummary(options.outputDir,
                      options,
                      intervalStats,
-                     overheadStats,
                      state.metrics.size(),
-                     state.frameSamples.size());
+                     state.frameSamples.size(),
+                     state.actualWidth,
+                     state.actualHeight);
         persistFrameSamples(options.outputDir, options, state.frameSamples);
 
         std::cout << "camera_perf completed\n"
                   << "  output_dir=" << options.outputDir << "\n"
-                  << "  measured_frames=" << state.measuredFrames << "\n"
+                  << "  measured_frames=" << state.processedFrames << "\n"
                   << "  metric_rows=" << state.metrics.size() << "\n"
                   << "  sample_frames=" << state.frameSamples.size() << "\n"
-                  << "  frame_interval_mean_us=" << std::fixed << std::setprecision(3) << intervalStats.mean << "\n"
-                  << "  controller_overhead_mean_us=" << overheadStats.mean << "\n";
+                  << "  actual_resolution=" << state.actualWidth << "x" << state.actualHeight << "\n"
+                  << "  frame_interval_mean_us=" << std::fixed << std::setprecision(3) << intervalStats.mean << "\n";
 
         utils::LoggerV2::shutdown();
         return 0;
@@ -564,4 +621,3 @@ int main(int argc, char** argv) {
         return 1;
     }
 }
-
