@@ -21,8 +21,6 @@
 struct FrameMeta {
     uint64_t    frame_id = -1;      // 单调递增
     uint64_t    timestamp_ns = -1;  // CLOCK_MONOTONIC
-    uint64_t    dequeue_timestamp_us = -1;   // VIDIOC_DQBUF 返回后
-    uint64_t    callback_timestamp_us = -1;  // 回调发出前
     int         index = -1;         // buffer index
     // 原始尺寸(便于放大 box)
     uint32_t    w = 0;
@@ -74,7 +72,6 @@ public:
         return s;
     }
     int index() const { return meta.index; }
-    int planeCount() const noexcept { return mutiPlane_ ? static_cast<int>(states_.size()) : 1; }
 
     void setTimestamp(uint64_t ts) { meta.timestamp_ns = ts; }
 

@@ -128,7 +128,7 @@ private:
     // 出队 buf
     bool dequeueBuffer(v4l2_buffer& buf, v4l2_plane* planes);
     // 构造 Frame
-    FramePtr makeFrame(const v4l2_buffer& buf, uint64_t timestamp, uint64_t dequeueTimestampUs);
+    FramePtr makeFrame(const v4l2_buffer& buf);
 private:
     __u32 currentWidth;
     __u32 currentHeight;
@@ -733,8 +733,11 @@ bool CameraController::Impl::dequeueBuffer(v4l2_buffer& buf, v4l2_plane* planes)
     return true;
 }
 
-FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t timestamp, uint64_t dequeueTimestampUs) {
+FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf) {
     static uint64_t frame_id = 0;
+    const uint64_t v4l2TimestampNs =
+        static_cast<uint64_t>(buf.timestamp.tv_sec) * 1000000000ULL +
+        static_cast<uint64_t>(buf.timestamp.tv_usec) * 1000ULL;
     // 这里的 frame 仅仅是指针或者文件描述符的引用,并未持有实际数据,并非深拷贝,并且Frame禁用了拷贝构造,仅保留移动构造
     // 先声明后构造(少一次默认构造)
     FramePtr frame_opt;
@@ -755,13 +758,13 @@ FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t time
         }
         // 构造frame
         frame_opt = std::make_unique<Frame>( std::move(plane_states) );
-        frame_opt->meta = {frame_id++, timestamp, dequeueTimestampUs, static_cast<uint64_t>(-1), static_cast<int>(buf.index), config_.width, config_.height};
+        frame_opt->meta = {frame_id++, v4l2TimestampNs, static_cast<int>(buf.index), currentWidth, currentHeight};
         break;
     case V4L2_BUF_TYPE_VIDEO_CAPTURE:
         // DMA/MMAP 交由 SharedBufferState 管理
         buffers_[buf.index].state->length = buf.bytesused;
         frame_opt = std::make_unique<Frame>( buffers_[buf.index].state );
-        frame_opt->meta = {frame_id++, timestamp, dequeueTimestampUs, static_cast<uint64_t>(-1), static_cast<int>(buf.index), config_.width, config_.height};
+        frame_opt->meta = {frame_id++, v4l2TimestampNs, static_cast<int>(buf.index), currentWidth, currentHeight};
         break;
 
     default:
@@ -818,16 +821,12 @@ void CameraController::Impl::captureLoop() {
          * 而函数里的v4l2_plane planes作为栈上的临时变量,离开作用域后就会随时被修改
          * 导致buf.m.planes的值被修改为一堆不知道哪来的数值
          * 解决方案:将planes拿出来,放在主循环,直到帧完整构建并入队后才销毁(生命周期的问题)*/
-        uint64_t dequeueTimestampUs = 0;
-        mk::makeTimestamp(dequeueTimestampUs);
-
         // 构造 Frame
         /* 有点抽象,猜测是因为不允许复制uniqueptr,所以使用右值传递? */
-        FramePtr frame_opt = std::move(makeFrame(buf, dequeueTimestampUs, dequeueTimestampUs));
+        FramePtr frame_opt = std::move(makeFrame(buf));
 
         // 回调传递
         if (enqueueCallback_ && frame_opt->index() >= 0) {
-            mk::makeTimestamp(frame_opt->meta.callback_timestamp_us);
             enqueueCallback_(std::move(frame_opt)); // 传递指针
         } else returnBuffer(buf.index); // 未设置正确的回调时需要手动回收缓冲区
         
