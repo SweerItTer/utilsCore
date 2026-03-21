@@ -270,8 +270,11 @@ public:
         // Force NV12 format for best ffmpeg compatibility
         cfg.prep_format = MPP_FMT_YUV420SP;
 
-        // Force MPEG color range (16-235)
-        cfg.rc_color_range_override = 1;
+        // Keep encoder default color range unless the caller explicitly overrides it.
+        // Some older board-side MPP builds reject rc:color_range_override entirely.
+        if (cfg.rc_color_range_override < 0) {
+            cfg.rc_color_range_override = -1;
+        }
 
         // Ensure H264/H265 for MP4 compatibility
         if (cfg.codec_type != CodingType::H264 && cfg.codec_type != CodingType::H265) {
@@ -362,7 +365,7 @@ inline static MppEncoderContext::Config defconfig_video_recording(int width, int
 
     // GOP设置 (参考MPP测试代码第324行: fps * 2)
     cfg.rc_gop = fps * 2;  // 2-second GOP
-    cfg.rc_force_idr_interval = 1;  // 强制生成I帧
+    cfg.rc_force_idr_interval = 0;  // 默认关闭, 兼容不支持该配置项的 MPP 版本
 
     // QP设置 (参考MPP测试代码第373-378行)
     cfg.rc_qp_init = -1;   // 使用编码器自动QP (参考第373行)
@@ -398,8 +401,8 @@ inline static MppEncoderContext::Config defconfig_video_recording(int width, int
     cfg.sei_mode    = MPP_ENC_SEI_MODE_ONE_FRAME;    // SEI插入模式
     cfg.header_mode = MPP_ENC_HEADER_MODE_EACH_IDR;  // SPS/PPS输出策略
 
-    // 色彩范围设置 (参考MPP测试代码无默认设置, 使用ffmpeg兼容性)
-    cfg.rc_color_range_override = 1;  // MPEG range (16-235)
+    // 色彩范围设置保持为编码器默认值, 避免旧版 MPP 拒绝该可选配置项
+    cfg.rc_color_range_override = -1;
 
     // 禁用高级特性以获得稳定性 (参考MPP测试代码默认禁用)
     cfg.rc_low_delay   = true;

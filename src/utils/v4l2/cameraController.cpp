@@ -128,7 +128,7 @@ private:
     // 出队 buf
     bool dequeueBuffer(v4l2_buffer& buf, v4l2_plane* planes);
     // 构造 Frame
-    FramePtr makeFrame(const v4l2_buffer& buf, uint64_t timestamp);
+    FramePtr makeFrame(const v4l2_buffer& buf);
 private:
     __u32 currentWidth;
     __u32 currentHeight;
@@ -733,8 +733,11 @@ bool CameraController::Impl::dequeueBuffer(v4l2_buffer& buf, v4l2_plane* planes)
     return true;
 }
 
-FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t timestamp) {
+FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf) {
     static uint64_t frame_id = 0;
+    const uint64_t v4l2TimestampNs =
+        static_cast<uint64_t>(buf.timestamp.tv_sec) * 1000000000ULL +
+        static_cast<uint64_t>(buf.timestamp.tv_usec) * 1000ULL;
     // 这里的 frame 仅仅是指针或者文件描述符的引用,并未持有实际数据,并非深拷贝,并且Frame禁用了拷贝构造,仅保留移动构造
     // 先声明后构造(少一次默认构造)
     FramePtr frame_opt;
@@ -755,13 +758,13 @@ FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t time
         }
         // 构造frame
         frame_opt = std::make_unique<Frame>( std::move(plane_states) );
-        frame_opt->meta = {frame_id++, timestamp, static_cast<int>(buf.index), config_.width, config_.height};
+        frame_opt->meta = {frame_id++, v4l2TimestampNs, static_cast<int>(buf.index), currentWidth, currentHeight};
         break;
     case V4L2_BUF_TYPE_VIDEO_CAPTURE:
         // DMA/MMAP 交由 SharedBufferState 管理
         buffers_[buf.index].state->length = buf.bytesused;
         frame_opt = std::make_unique<Frame>( buffers_[buf.index].state );
-        frame_opt->meta = {frame_id++, timestamp, static_cast<int>(buf.index), config_.width, config_.height};
+        frame_opt->meta = {frame_id++, v4l2TimestampNs, static_cast<int>(buf.index), currentWidth, currentHeight};
         break;
 
     default:
@@ -779,6 +782,7 @@ FramePtr CameraController::Impl::makeFrame(const v4l2_buffer& buf, uint64_t time
 
 void CameraController::Impl::captureLoop() {
     std::cout << "V4L2 capture thread TID: " << syscall(SYS_gettid) << "\n";
+    static std::atomic<uint32_t> dequeueLogCount{0};
 
     try
     {
@@ -794,7 +798,19 @@ void CameraController::Impl::captureLoop() {
         // 出队缓冲区
         v4l2_buffer buf = {};
         v4l2_plane  planes[VIDEO_MAX_PLANES];  // 为多平面准备数组
-        dequeueBuffer(buf, planes);
+        if (!dequeueBuffer(buf, planes)) {
+            continue;
+        }
+        const uint32_t logIndex = ++dequeueLogCount;
+        if (logIndex <= 3) {
+            const size_t bytesUsed = buf_type_ == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
+                                         ? static_cast<size_t>(planes[0].bytesused)
+                                         : static_cast<size_t>(buf.bytesused);
+            LOG_INFO("[CameraController] dequeued frame #%u index=%u bytesUsed=%zu",
+                     logIndex,
+                     buf.index,
+                     bytesUsed);
+        }
         // 标记缓冲区已出队
         buffers_[buf.index].queued = false;
 
@@ -805,12 +821,9 @@ void CameraController::Impl::captureLoop() {
          * 而函数里的v4l2_plane planes作为栈上的临时变量,离开作用域后就会随时被修改
          * 导致buf.m.planes的值被修改为一堆不知道哪来的数值
          * 解决方案:将planes拿出来,放在主循环,直到帧完整构建并入队后才销毁(生命周期的问题)*/
-        uint64_t t0; // 出队时间(us)
-        mk::makeTimestamp(t0);
-
         // 构造 Frame
         /* 有点抽象,猜测是因为不允许复制uniqueptr,所以使用右值传递? */
-        FramePtr frame_opt = std::move(makeFrame(buf, t0));
+        FramePtr frame_opt = std::move(makeFrame(buf));
 
         // 回调传递
         if (enqueueCallback_ && frame_opt->index() >= 0) {
